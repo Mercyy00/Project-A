@@ -61,23 +61,23 @@ class JarvisBrain:
 
     def __init__(
         self,
-        model_name: str = "gemini-2.5-flash",
+        model_name: Optional[str] = None,
         system_prompt: Optional[str] = None,
         enable_tools: bool = True,
     ) -> None:
         """Initialize JarvisBrain with API client, chat session, and tool registry.
 
         Args:
-            model_name: Gemini model name identifier (default: 'gemini-2.5-flash').
+            model_name: Optional Gemini model name identifier (defaults to MODEL_NAME env or 'gemini-3.8-flash').
             system_prompt: Optional custom persona instructions.
             enable_tools: Whether to auto-discover and register tools for function calling.
         """
-        self.model_name: str = model_name
+        api_key: str = load_api_key()
+        self.model_name: str = model_name or os.getenv("MODEL_NAME", "gemini-3.8-flash")
         self.system_prompt: str = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.enable_tools: bool = enable_tools
         self.history: List[Dict[str, str]] = []
 
-        api_key: str = load_api_key()
         self.client: genai.Client = genai.Client(api_key=api_key)
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
         self._init_chat_session()
@@ -124,10 +124,21 @@ class JarvisBrain:
             config_kwargs["tools"] = self.tools
 
         config = types.GenerateContentConfig(**config_kwargs)
-        self.chat_session = self.client.chats.create(
-            model=self.model_name,
-            config=config,
-        )
+        try:
+            self.chat_session = self.client.chats.create(
+                model=self.model_name,
+                config=config,
+            )
+        except errors.APIError as err:
+            err_str = str(err).lower()
+            if "gemini-2.5-flash" in self.model_name and ("no longer available" in err_str or "not found" in err_str):
+                self.model_name = "gemini-3.8-flash"
+                self.chat_session = self.client.chats.create(
+                    model=self.model_name,
+                    config=config,
+                )
+            else:
+                raise
 
     def chat(self, user_message: str) -> str:
         """Process a user message and return the assistant response.
@@ -156,6 +167,11 @@ class JarvisBrain:
             return response_text
 
         except errors.APIError as err:
+            err_str: str = str(err).lower()
+            if "gemini-2.5-flash" in self.model_name and ("no longer available" in err_str or "not found" in err_str):
+                self.model_name = "gemini-3.8-flash"
+                self._init_chat_session()
+                return self.chat(user_message)
             error_msg: str = f"Gemini API error occurred: {err.message}"
             print(f"[!] {error_msg}", file=sys.stderr)
             return "I encountered an error communicating with my neural core."

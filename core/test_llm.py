@@ -54,7 +54,7 @@ def get_gemini_api_key(env_path: Optional[Path] = None) -> str:
 
 
 def run_llm_test(
-    model_name: str = "gemini-2.5-flash",
+    model_name: Optional[str] = None,
     prompt: str = "Hello, confirm your identity as Jarvis Core.",
 ) -> Optional[str]:
     """Initialize the Gemini client and verify connectivity with model.
@@ -63,13 +63,14 @@ def run_llm_test(
     response, and reports elapsed round-trip latency in seconds.
 
     Args:
-        model_name: Gemini model name identifier (default: 'gemini-2.5-flash').
+        model_name: Optional Gemini model name identifier (defaults to MODEL_NAME env or 'gemini-2.5-flash').
         prompt: Initial prompt verifying Jarvis Core identity.
 
     Returns:
         The response text string if successful, or None if the request failed.
     """
-    print(f"[*] Initializing Gemini client with model: {model_name}")
+    target_model: str = model_name or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+    print(f"[*] Initializing Gemini client with model: {target_model}")
 
     try:
         api_key: str = get_gemini_api_key()
@@ -84,7 +85,7 @@ def run_llm_test(
         start_time: float = time.perf_counter()
 
         response = client.models.generate_content(
-            model=model_name,
+            model=target_model,
             contents=prompt,
         )
 
@@ -98,6 +99,11 @@ def run_llm_test(
         return response_text
 
     except errors.APIError as err:
+        err_str: str = str(err).lower()
+        if "gemini-2.5-flash" in target_model and ("no longer available" in err_str or "not found" in err_str):
+            fallback_model: str = "gemini-3.8-flash"
+            print(f"[*] Notice: Model '{target_model}' is deprecated for this account. Falling back to '{fallback_model}'...")
+            return run_llm_test(model_name=fallback_model, prompt=prompt)
         print(f"[!] Gemini API Error: {err.message} (Code: {err.code})", file=sys.stderr)
         return None
     except Exception as err:

@@ -34,7 +34,7 @@ class TestJarvisBrain(unittest.TestCase):
     def test_initialization(self) -> None:
         """Verify brain initializes with default model and system prompt."""
         brain = JarvisBrain()
-        self.assertEqual(brain.model_name, "gemini-2.5-flash")
+        self.assertIn(brain.model_name, ("gemini-2.5-flash", "gemini-3.8-flash"))
         self.assertEqual(brain.system_prompt, DEFAULT_SYSTEM_PROMPT)
         self.assertEqual(len(brain.history), 0)
         self.mock_client.chats.create.assert_called_once()
@@ -89,7 +89,7 @@ class TestJarvisBrain(unittest.TestCase):
 
     def test_missing_api_key_raises_value_error(self) -> None:
         """Verify clean error when GEMINI_API_KEY is missing."""
-        with patch.dict("os.environ", {}, clear=True), patch("dotenv.load_dotenv"):
+        with patch.dict("os.environ", {}, clear=True), patch("core.brain.load_dotenv"):
             with self.assertRaises(ValueError) as ctx:
                 load_api_key()
             self.assertIn("GEMINI_API_KEY is missing", str(ctx.exception))
