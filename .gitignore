@@ -1,0 +1,54 @@
+# Global & Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets (CRITICAL: NEVER COMMIT SECRETS)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Antigravity & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node / React / Next.js (Rohit)
+node_modules/
+.next/
+out/
+build/
+dist/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Databases & Local Storage
+*.sqlite
+*.sqlite3
+*.db
+vector_store/
+chroma_db/
+cache/
+logs/
+*.log
+
+# Audio temp files (Aryan)
+temp_audio/
+*.wav
+*.mp3
+
+# OS specific
+.DS_Store
+Thumbs.db
