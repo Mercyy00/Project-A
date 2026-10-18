@@ -166,6 +166,49 @@ async def get_telemetry() -> Dict[str, Any]:
         }
 
 
+@app.get("/api/tools")
+async def get_tools() -> List[Dict[str, Any]]:
+    """Return catalog of available tools matching system tools and UI design."""
+    return [
+        {
+            "id": "open_app",
+            "name": "Open Application",
+            "description": "Launch any installed application",
+            "icon": "app",
+        },
+        {
+            "id": "file_ops",
+            "name": "File Operations",
+            "description": "Read, write, delete files",
+            "icon": "files",
+        },
+        {
+            "id": "system_info",
+            "name": "System Info",
+            "description": "Get CPU, RAM, battery, OS info",
+            "icon": "telemetry",
+        },
+        {
+            "id": "web_search",
+            "name": "Web Search",
+            "description": "Search the internet for information",
+            "icon": "search",
+        },
+        {
+            "id": "screenshots",
+            "name": "Screenshots",
+            "description": "Capture your screen",
+            "icon": "camera",
+        },
+        {
+            "id": "automation",
+            "name": "Automation",
+            "description": "Execute system commands (with confirmation)",
+            "icon": "terminal",
+        },
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Day 3: WebSocket Live Channel & Sci-Fi HUD
 # ---------------------------------------------------------------------------

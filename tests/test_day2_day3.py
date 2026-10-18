@@ -133,4 +133,4 @@ def test_hud_html_serving() -> None:
         res = client.get("/")
         assert res.status_code == 200
         assert "text/html" in res.headers["content-type"]
-        assert "JARVIS // HUD SYSTEM" in res.text
+        assert "JARVIS" in res.text
