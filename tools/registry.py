@@ -6,7 +6,13 @@ Registers all available system tools and provides safe execution dispatching.
 
 from typing import Any, Dict, List, Optional
 from tools.base import BaseTool, ToolResult
-from tools.system_tools import GetSystemStatsTool, OpenAppTool, ListDirectoryTool
+from tools.system_tools import (
+    GetSystemStatsTool,
+    OpenAppTool,
+    ListDirectoryTool,
+    OpenWebsiteTool,
+    SearchWebTool,
+)
 
 
 class ToolRegistry(dict):
@@ -49,6 +55,8 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "get_system_stats": GetSystemStatsTool(),
     "open_app": OpenAppTool(),
     "list_directory": ListDirectoryTool(),
+    "open_website": OpenWebsiteTool(),
+    "search_web": SearchWebTool(),
 })
 
 # Registry aliases
@@ -68,6 +76,8 @@ def get_registered_tools() -> List[BaseTool]:
         TOOL_REGISTRY["get_system_stats"],
         TOOL_REGISTRY["open_app"],
         TOOL_REGISTRY["list_directory"],
+        TOOL_REGISTRY["open_website"],
+        TOOL_REGISTRY["search_web"],
     ]
 
 
