@@ -287,6 +287,20 @@
 
     .audio-stream-icon:hover {
       box-shadow: 0 0 10px var(--cyan-neon);
+      transform: scale(1.08);
+    }
+
+    .audio-stream-icon.active-mic {
+      background: rgba(239, 68, 68, 0.25);
+      border-color: #ef4444;
+      color: #ef4444;
+      box-shadow: 0 0 14px rgba(239, 68, 68, 0.7);
+      animation: pulseMic 1.2s infinite;
+    }
+
+    @keyframes pulseMic {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); box-shadow: 0 0 20px #ef4444; }
     }
 
     /* Tab Views Container */
@@ -433,9 +447,24 @@
     .attach-icon {
       position: absolute;
       left: 14px;
-      color: var(--text-muted);
+      color: var(--cyan-bright);
       cursor: pointer;
       display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .attach-icon:hover {
+      color: var(--cyan-neon);
+      transform: scale(1.15);
+      filter: drop-shadow(0 0 6px var(--cyan-neon));
+    }
+
+    .attach-icon.active-mic {
+      color: #ef4444;
+      animation: pulseMic 1s infinite;
+      filter: drop-shadow(0 0 8px #ef4444);
     }
 
     .main-input {
@@ -474,6 +503,120 @@
     .send-icon-btn:hover {
       transform: scale(1.05);
       box-shadow: 0 0 18px var(--cyan-neon);
+    }
+
+    /* Voice Listening Banner */
+    .voice-active-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 18px;
+      margin: 0 24px 10px 24px;
+      background: linear-gradient(90deg, rgba(2, 132, 199, 0.25) 0%, rgba(0, 210, 255, 0.15) 100%);
+      border: 1px solid var(--cyan-neon);
+      border-radius: 12px;
+      box-shadow: 0 0 16px rgba(0, 210, 255, 0.25);
+      animation: fadeIn 0.25s ease;
+    }
+
+    .voice-active-bar.active {
+      display: flex;
+    }
+
+    .voice-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    .voice-pulse-ring {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ef4444;
+      box-shadow: 0 0 10px #ef4444;
+      animation: pulseMic 1s infinite;
+      flex-shrink: 0;
+    }
+
+    .voice-bar-text {
+      font-size: 0.82rem;
+      color: #fff;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .voice-transcript-preview {
+      font-size: 0.82rem;
+      color: var(--cyan-bright);
+      font-style: italic;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 380px;
+    }
+
+    .btn-stop-voice {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid #ef4444;
+      color: #fca5a5;
+      padding: 4px 12px;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      font-weight: 600;
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+
+    .btn-stop-voice:hover {
+      background: rgba(239, 68, 68, 0.4);
+    }
+
+    /* Inline Thinking Bubble (Non-blocking) */
+    .chat-bubble.thinking-bubble {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      opacity: 0.95;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .thinking-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      background: rgba(14, 25, 48, 0.8);
+      border: 1px solid var(--border-cyan);
+      border-radius: 18px;
+      border-top-left-radius: 4px;
+    }
+
+    .thinking-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cyan-neon);
+      box-shadow: 0 0 8px var(--cyan-neon);
+      animation: thinkingBounce 1.2s infinite ease-in-out;
+    }
+
+    .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+    .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes thinkingBounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1.2); opacity: 1; }
+    }
+
+    .thinking-text-label {
+      font-size: 0.78rem;
+      color: var(--cyan-bright);
+      margin-left: 6px;
+      letter-spacing: 0.5px;
+      font-family: var(--font-mono);
     }
 
     /* ---------------- Interactive Hologram State Overlays ---------------- */
@@ -790,52 +933,44 @@
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
 
-    .arc-reactor {
-      width: 130px;
-      height: 130px;
+    /* 3D Starburst Neural Core Hologram Widget */
+    .canvas-3d-wrapper {
       position: relative;
+      width: 220px;
+      height: 220px;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0, 210, 255, 0.08) 0%, rgba(4, 12, 28, 0.6) 70%, transparent 100%);
+      box-shadow: 0 0 30px rgba(0, 210, 255, 0.25), inset 0 0 25px rgba(0, 210, 255, 0.15);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      overflow: hidden;
+      cursor: crosshair;
     }
 
-    .arc-ring-1 {
-      position: absolute;
+    #jarvis-3d-core {
       width: 100%;
       height: 100%;
-      border-radius: 50%;
-      border: 1.5px dashed rgba(0, 210, 255, 0.4);
-      animation: spinClockwise 20s linear infinite;
+      display: block;
+      filter: drop-shadow(0 0 12px rgba(0, 210, 255, 0.7));
     }
 
-    .arc-ring-2 {
+    .core-status-badge {
       position: absolute;
-      width: 82%;
-      height: 82%;
-      border-radius: 50%;
-      border: 2px solid rgba(0, 210, 255, 0.7);
-      border-bottom-color: transparent;
-      animation: spinCounter 10s linear infinite;
-    }
-
-    .arc-core {
-      width: 72px;
-      height: 72px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #0284c7 10%, #041b36 90%);
-      border: 2px solid var(--cyan-neon);
-      box-shadow: 0 0 20px var(--cyan-glow);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .arc-core svg {
-      width: 38px;
-      height: 38px;
-      fill: var(--cyan-neon);
-      filter: drop-shadow(0 0 8px var(--cyan-neon));
+      bottom: 8px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 1.5px;
+      color: #38bdf8;
+      background: rgba(6, 12, 24, 0.85);
+      padding: 3px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 210, 255, 0.35);
+      text-transform: uppercase;
+      pointer-events: none;
+      box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
     }
 
     .hologram-card-title {
@@ -1137,7 +1272,12 @@
             <span class="dot"></span>
             <span>Online</span>
           </div>
-          <div class="audio-stream-icon" id="btn-toggle-mic" title="Voice Input Mode">
+          <div class="audio-stream-icon" id="btn-toggle-speech" title="Voice Output (TTS) Enabled">
+            <svg id="icon-speaker" width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
+          </div>
+          <div class="audio-stream-icon" id="btn-toggle-mic" title="Voice Input Mode (Click to Speak)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
             </svg>
@@ -1189,19 +1329,29 @@
           </button>
         </div>
 
+        <!-- Voice Input Status Capsule -->
+        <div class="voice-active-bar" id="voice-active-bar">
+          <div class="voice-bar-left">
+            <div class="voice-pulse-ring"></div>
+            <span class="voice-bar-text">Listening:</span>
+            <span class="voice-transcript-preview" id="voice-transcript-preview">Listening... Speak now into your microphone</span>
+          </div>
+          <button type="button" class="btn-stop-voice" id="btn-cancel-voice">✕ Cancel</button>
+        </div>
+
         <!-- Chat Input Bar -->
         <form class="chat-input-bar" id="chat-form">
           <div class="input-wrapper">
-            <span class="attach-icon">
+            <span class="attach-icon" id="btn-mic-inline" title="Click to speak (Voice Recognition)">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5V6H9v9.5a3 3 0 0 0 6 0V5a4 4 0 0 0-8 0v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
               </svg>
             </span>
             <input 
               type="text" 
               class="main-input" 
               id="user-input" 
-              placeholder="Type your message..." 
+              placeholder="Ask anything or click the microphone to speak..." 
               autocomplete="off"
             />
           </div>
@@ -1404,22 +1554,17 @@
          ======================================================== -->
     <aside class="sidebar-right">
       
-      <!-- Top Arc Reactor Hologram Widget -->
-      <div class="hologram-avatar-card">
-        <div class="arc-reactor">
-          <div class="arc-ring-1"></div>
-          <div class="arc-ring-2"></div>
-          <div class="arc-core">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-            </svg>
-          </div>
+      <!-- 3D Starburst Neural Core Hologram Widget (Matching Image 4) -->
+      <div class="hologram-avatar-card" id="neural-core-card">
+        <div class="canvas-3d-wrapper" title="Interactive 3D Starburst Core - Move mouse to rotate">
+          <canvas id="jarvis-3d-core" width="220" height="220"></canvas>
+          <div class="core-status-badge" id="core-status-badge">CORE: ONLINE</div>
         </div>
-        <div class="hologram-card-title">JARVIS</div>
-        <div class="hologram-card-sub">AI ASSISTANT</div>
+        <div class="hologram-card-title">JARVIS AI</div>
+        <div class="hologram-card-sub" id="core-state-text">QUANTUM STARBURST CORE</div>
         <div class="hologram-taglines">
-          <div>Always listening.</div>
-          <div>Always learning.</div>
+          <div>Next-Gen 3D Neural Engine</div>
+          <div id="core-fps-label">Interactive 3D Particles &bull; 60 FPS</div>
         </div>
       </div>
 
@@ -1545,35 +1690,271 @@
     }
     document.getElementById('greeting-time').textContent = formatTime(new Date());
 
+    // -------------------------------------------------------------
+    // 1. NEXT-GEN 3D PARTICLE STARBURST ENGINE (Matching Image 4)
+    // -------------------------------------------------------------
+    class JarvisStarburst3D {
+      constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        if (!this.canvas) return;
+        this.ctx = this.canvas.getContext('2d');
+        
+        this.dpr = window.devicePixelRatio || 1;
+        this.width = 220;
+        this.height = 220;
+        this.canvas.width = this.width * this.dpr;
+        this.canvas.height = this.height * this.dpr;
+        this.ctx.scale(this.dpr, this.dpr);
+
+        this.cx = this.width / 2;
+        this.cy = this.height / 2;
+        this.numRays = 260;
+        this.state = 'idle'; // 'idle' | 'listening' | 'thinking' | 'speaking'
+        
+        this.rotX = 0.25;
+        this.rotY = 0;
+        this.rotZ = 0;
+        this.targetRotX = 0.25;
+        this.targetRotY = 0;
+        
+        this.time = 0;
+        this.rays = [];
+
+        this.initRays();
+        this.initMouse();
+        this.animate = this.animate.bind(this);
+        requestAnimationFrame(this.animate);
+      }
+
+      initRays() {
+        this.rays = [];
+        const phi = (1 + Math.sqrt(5)) / 2; // Golden ratio
+        for (let i = 0; i < this.numRays; i++) {
+          const theta = 2 * Math.PI * i / phi;
+          const z = 1 - (2 * i + 1) / this.numRays;
+          const radiusAtZ = Math.sqrt(Math.max(0, 1 - z * z));
+          const x = radiusAtZ * Math.cos(theta);
+          const y = radiusAtZ * Math.sin(theta);
+          
+          this.rays.push({
+            x, y, z,
+            innerR: 12 + Math.random() * 10,
+            baseLen: 42 + Math.random() * 56,
+            pulseSpeed: 1.2 + Math.random() * 1.8,
+            phase: Math.random() * Math.PI * 2,
+            width: 0.9 + Math.random() * 1.5,
+            hasSpark: Math.random() > 0.4
+          });
+        }
+      }
+
+      initMouse() {
+        const wrapper = this.canvas.parentElement;
+        if (!wrapper) return;
+        wrapper.addEventListener('mousemove', (e) => {
+          const rect = wrapper.getBoundingClientRect();
+          const mx = (e.clientX - rect.left - rect.width / 2) / (rect.width / 2);
+          const my = (e.clientY - rect.top - rect.height / 2) / (rect.height / 2);
+          this.targetRotY = mx * 0.75;
+          this.targetRotX = -my * 0.6 + 0.25;
+        });
+        wrapper.addEventListener('mouseleave', () => {
+          this.targetRotX = 0.25;
+          this.targetRotY = 0;
+        });
+      }
+
+      setState(newState) {
+        this.state = newState;
+        const statusBadge = document.getElementById('core-status-badge');
+        const stateText = document.getElementById('core-state-text');
+        if (statusBadge) {
+          statusBadge.textContent = `CORE: ${newState.toUpperCase()}`;
+          if (newState === 'thinking') statusBadge.style.color = '#38bdf8';
+          else if (newState === 'listening') statusBadge.style.color = '#4ade80';
+          else if (newState === 'speaking') statusBadge.style.color = '#00d2ff';
+          else statusBadge.style.color = '#38bdf8';
+        }
+        if (stateText) {
+          if (newState === 'thinking') stateText.textContent = 'NEURAL PROCESSING ACTIVE';
+          else if (newState === 'listening') stateText.textContent = 'ACOUSTIC SENSORS ACTIVE';
+          else if (newState === 'speaking') stateText.textContent = 'SPEECH SYNTHESIS ACTIVE';
+          else stateText.textContent = 'QUANTUM STARBURST CORE';
+        }
+      }
+
+      animate() {
+        this.time += 0.02;
+
+        this.rotX += (this.targetRotX - this.rotX) * 0.05;
+        
+        let speedY = 0.008;
+        let speedX = 0.002;
+        let speedZ = 0.001;
+        let coreGlowSize = 28;
+
+        if (this.state === 'thinking') {
+          speedY = 0.045;
+          speedX = 0.015;
+          speedZ = 0.02;
+          coreGlowSize = 42;
+        } else if (this.state === 'listening') {
+          speedY = 0.016;
+          coreGlowSize = 34;
+        } else if (this.state === 'speaking') {
+          speedY = 0.012;
+          coreGlowSize = 36;
+        }
+
+        this.rotY += speedY;
+        this.rotX += speedX;
+        this.rotZ += speedZ;
+
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, this.width, this.height);
+
+        const cosY = Math.cos(this.rotY), sinY = Math.sin(this.rotY);
+        const cosX = Math.cos(this.rotX), sinX = Math.sin(this.rotX);
+        const cosZ = Math.cos(this.rotZ), sinZ = Math.sin(this.rotZ);
+
+        const focal = 190;
+        const projectedRays = [];
+
+        for (let i = 0; i < this.numRays; i++) {
+          const r = this.rays[i];
+          
+          let x1 = r.x * cosY + r.z * sinY;
+          let y1 = r.y;
+          let z1 = -r.x * sinY + r.z * cosY;
+
+          let y2 = y1 * cosX - z1 * sinX;
+          let z2 = y1 * sinX + z1 * cosX;
+
+          let x3 = x1 * cosZ - y2 * sinZ;
+          let y3 = x1 * sinZ + y2 * cosZ;
+          let z3 = z2;
+
+          let dynamicLen = r.baseLen;
+          if (this.state === 'thinking') {
+            dynamicLen = r.baseLen * (1.2 + 0.35 * Math.sin(this.time * 12 + r.phase));
+          } else if (this.state === 'listening') {
+            dynamicLen = r.baseLen * (1.0 + 0.3 * Math.sin(this.time * 7 + r.phase));
+          } else if (this.state === 'speaking') {
+            dynamicLen = r.baseLen * (1.0 + 0.25 * Math.sin(this.time * 5 + r.phase));
+          } else {
+            dynamicLen = r.baseLen * (1.0 + 0.08 * Math.sin(this.time * r.pulseSpeed + r.phase));
+          }
+
+          const inX = x3 * r.innerR;
+          const inY = y3 * r.innerR;
+          const inZ = z3 * r.innerR;
+
+          const outX = x3 * (r.innerR + dynamicLen);
+          const outY = y3 * (r.innerR + dynamicLen);
+          const outZ = z3 * (r.innerR + dynamicLen);
+
+          const scaleIn = focal / (focal + inZ);
+          const scaleOut = focal / (focal + outZ);
+
+          const pxIn = this.cx + inX * scaleIn;
+          const pyIn = this.cy + inY * scaleIn;
+
+          const pxOut = this.cx + outX * scaleOut;
+          const pyOut = this.cy + outY * scaleOut;
+
+          projectedRays.push({
+            pxIn, pyIn, pxOut, pyOut,
+            z: z3,
+            scale: scaleOut,
+            width: r.width * scaleOut,
+            hasSpark: r.hasSpark
+          });
+        }
+
+        projectedRays.sort((a, b) => a.z - b.z);
+
+        for (let i = 0; i < projectedRays.length; i++) {
+          const pr = projectedRays[i];
+          const depthAlpha = Math.max(0.18, Math.min(1.0, (pr.z + 1.2) / 2.2));
+          
+          ctx.beginPath();
+          ctx.moveTo(pr.pxIn, pr.pyIn);
+          ctx.lineTo(pr.pxOut, pr.pyOut);
+
+          const grad = ctx.createLinearGradient(pr.pxIn, pr.pyIn, pr.pxOut, pr.pyOut);
+          if (this.state === 'thinking') {
+            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.95})`);
+            grad.addColorStop(0.3, `rgba(56, 189, 248, ${depthAlpha * 0.9})`);
+            grad.addColorStop(1, `rgba(0, 210, 255, 0)`);
+          } else if (this.state === 'listening') {
+            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.9})`);
+            grad.addColorStop(0.35, `rgba(74, 222, 128, ${depthAlpha * 0.85})`);
+            grad.addColorStop(1, `rgba(0, 210, 255, 0)`);
+          } else {
+            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.9})`);
+            grad.addColorStop(0.3, `rgba(0, 210, 255, ${depthAlpha * 0.8})`);
+            grad.addColorStop(1, `rgba(2, 132, 199, 0)`);
+          }
+
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = Math.max(0.7, pr.width);
+          ctx.lineCap = 'round';
+          ctx.stroke();
+
+          if (pr.hasSpark && pr.z > 0.2) {
+            ctx.beginPath();
+            ctx.arc(pr.pxOut, pr.pyOut, 1.2 * pr.scale, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 255, 255, ${depthAlpha * 0.8})`;
+            ctx.fill();
+          }
+        }
+
+        const coreGrad = ctx.createRadialGradient(this.cx, this.cy, 2, this.cx, this.cy, coreGlowSize);
+        if (this.state === 'thinking') {
+          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          coreGrad.addColorStop(0.2, 'rgba(56, 189, 248, 0.95)');
+          coreGrad.addColorStop(0.6, 'rgba(0, 210, 255, 0.4)');
+          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
+        } else if (this.state === 'listening') {
+          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          coreGrad.addColorStop(0.25, 'rgba(74, 222, 128, 0.9)');
+          coreGrad.addColorStop(0.65, 'rgba(0, 210, 255, 0.35)');
+          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
+        } else {
+          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          coreGrad.addColorStop(0.25, 'rgba(0, 210, 255, 0.9)');
+          coreGrad.addColorStop(0.6, 'rgba(2, 132, 199, 0.35)');
+          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
+        }
+
+        ctx.beginPath();
+        ctx.arc(this.cx, this.cy, coreGlowSize, 0, Math.PI * 2);
+        ctx.fillStyle = coreGrad;
+        ctx.fill();
+
+        ctx.save();
+        ctx.translate(this.cx, this.cy);
+        ctx.rotate(this.time * 0.5);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 36, 18, Math.PI / 4, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0, 210, 255, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 6]);
+        ctx.stroke();
+        ctx.restore();
+
+        requestAnimationFrame(this.animate);
+      }
+    }
+
+    const neuralCore = new JarvisStarburst3D('jarvis-3d-core');
+
     // Chat Controller
     const chatFeed = document.getElementById('chat-feed');
     const chatForm = document.getElementById('chat-form');
     const userInput = document.getElementById('user-input');
     const actionModeLabel = document.getElementById('action-mode-label');
     const actionDetailLabel = document.getElementById('action-detail-label');
-
-    // Overlays
-    const overlayListening = document.getElementById('overlay-listening');
-    const overlayThinking = document.getElementById('overlay-thinking');
-    const overlaySpeaking = document.getElementById('overlay-speaking');
-    const btnToggleMic = document.getElementById('btn-toggle-mic');
-    const btnCloseListening = document.getElementById('btn-close-listening');
-    const btnCloseSpeaking = document.getElementById('btn-close-speaking');
-
-    btnToggleMic.addEventListener('click', () => {
-      overlayListening.classList.add('active-overlay');
-      setHUDAction('Listening', 'Your voice is being processed...');
-    });
-
-    btnCloseListening.addEventListener('click', () => {
-      overlayListening.classList.remove('active-overlay');
-      setHUDAction('Idle', 'Waiting for your command...');
-    });
-
-    btnCloseSpeaking.addEventListener('click', () => {
-      overlaySpeaking.classList.remove('active-overlay');
-      setHUDAction('Idle', 'Waiting for your command...');
-    });
 
     function setHUDAction(status, detail) {
       actionModeLabel.textContent = status;
@@ -1616,13 +1997,232 @@
       chatFeed.scrollTop = chatFeed.scrollHeight;
     }
 
+    function showThinkingIndicator() {
+      hideThinkingIndicator();
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble jarvis thinking-bubble';
+      bubble.id = 'chat-thinking-indicator';
+      bubble.innerHTML = `
+        <div class="chat-avatar jarvis">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+          </svg>
+        </div>
+        <div class="chat-body">
+          <div class="thinking-dots">
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+            <span class="thinking-text-label">JARVIS is thinking...</span>
+          </div>
+        </div>
+      `;
+      chatFeed.appendChild(bubble);
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    function hideThinkingIndicator() {
+      const el = document.getElementById('chat-thinking-indicator');
+      if (el) el.remove();
+    }
+
     function escapeHtml(str) {
       return (str || '').replace(/[&<>"']/g, function(m) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
       });
     }
 
-    // WebSocket Client
+    // -------------------------------------------------------------
+    // 2. TEXT-TO-SPEECH (TTS SYNTHESIZER)
+    // -------------------------------------------------------------
+    let ttsEnabled = true;
+    const btnToggleSpeech = document.getElementById('btn-toggle-speech');
+
+    if (btnToggleSpeech) {
+      btnToggleSpeech.addEventListener('click', () => {
+        ttsEnabled = !ttsEnabled;
+        if (!ttsEnabled) {
+          if (window.speechSynthesis) window.speechSynthesis.cancel();
+          btnToggleSpeech.style.opacity = '0.45';
+          btnToggleSpeech.title = "Voice Output (TTS) Muted";
+        } else {
+          btnToggleSpeech.style.opacity = '1.0';
+          btnToggleSpeech.title = "Voice Output (TTS) Enabled";
+        }
+      });
+    }
+
+    function speakJarvisResponse(rawText) {
+      if (!ttsEnabled || !window.speechSynthesis) return;
+
+      window.speechSynthesis.cancel();
+
+      const cleanText = rawText
+        .replace(/```[\s\S]*?```/g, 'Code block output attached.')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/[*_#~]/g, '')
+        .replace(/https?:\/\/\S+/g, 'link')
+        .trim();
+
+      if (!cleanText) return;
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('George')));
+      if (preferred) utterance.voice = preferred;
+
+      utterance.onstart = () => {
+        if (neuralCore) neuralCore.setState('speaking');
+        setHUDAction('Speaking', 'Voice synthesis transmission active...');
+      };
+
+      utterance.onend = () => {
+        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
+        setHUDAction('Idle', 'Waiting for your command...');
+      };
+
+      utterance.onerror = () => {
+        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
+        setHUDAction('Idle', 'Waiting for your command...');
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    if (window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+
+    // -------------------------------------------------------------
+    // 3. SPEECH RECOGNITION (WEB SPEECH API)
+    // -------------------------------------------------------------
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let isListening = false;
+
+    const voiceActiveBar = document.getElementById('voice-active-bar');
+    const voiceTranscriptPreview = document.getElementById('voice-transcript-preview');
+    const btnCancelVoice = document.getElementById('btn-cancel-voice');
+    const btnToggleMic = document.getElementById('btn-toggle-mic');
+    const btnMicInline = document.getElementById('btn-mic-inline');
+
+    function initSpeechRecognition() {
+      if (!SpeechRecognition) {
+        return null;
+      }
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => {
+        isListening = true;
+        if (btnToggleMic) btnToggleMic.classList.add('active-mic');
+        if (btnMicInline) btnMicInline.classList.add('active-mic');
+        if (voiceActiveBar) voiceActiveBar.classList.add('active');
+        if (voiceTranscriptPreview) voiceTranscriptPreview.textContent = 'Listening... Speak now';
+        setHUDAction('Listening', 'Acoustic voice frequencies capturing...');
+        if (neuralCore) neuralCore.setState('listening');
+      };
+
+      rec.onresult = (event) => {
+        let interimText = '';
+        let finalText = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalText += transcript;
+          } else {
+            interimText += transcript;
+          }
+        }
+
+        if (interimText && voiceTranscriptPreview) {
+          voiceTranscriptPreview.textContent = `"${interimText}..."`;
+          userInput.value = interimText;
+        }
+
+        if (finalText) {
+          userInput.value = finalText.trim();
+          stopListening();
+          sendMessage(finalText.trim());
+        }
+      };
+
+      rec.onerror = (event) => {
+        console.warn('Speech recognition error:', event.error);
+        if (voiceTranscriptPreview) {
+          if (event.error === 'not-allowed') {
+            voiceTranscriptPreview.textContent = 'Mic blocked. Please allow microphone in browser bar.';
+          } else if (event.error === 'no-speech') {
+            voiceTranscriptPreview.textContent = 'No voice detected. Click mic to retry.';
+          } else {
+            voiceTranscriptPreview.textContent = `Voice status: ${event.error}`;
+          }
+        }
+        setTimeout(stopListening, 2200);
+      };
+
+      rec.onend = () => {
+        stopListening();
+      };
+
+      return rec;
+    }
+
+    function startListening() {
+      if (!SpeechRecognition) {
+        alert('Voice speech recognition requires Chrome, Edge, or Brave browser. Please allow microphone permissions.');
+        return;
+      }
+      if (!recognition) {
+        recognition = initSpeechRecognition();
+      }
+      try {
+        recognition.start();
+      } catch (e) {
+        console.warn('Recognition start exception:', e);
+      }
+    }
+
+    function stopListening() {
+      isListening = false;
+      if (recognition) {
+        try { recognition.stop(); } catch(e) {}
+      }
+      if (btnToggleMic) btnToggleMic.classList.remove('active-mic');
+      if (btnMicInline) btnMicInline.classList.remove('active-mic');
+      if (voiceActiveBar) voiceActiveBar.classList.remove('active');
+      if (neuralCore && neuralCore.state === 'listening') neuralCore.setState('idle');
+      setHUDAction('Idle', 'Waiting for your command...');
+    }
+
+    if (btnToggleMic) {
+      btnToggleMic.addEventListener('click', () => {
+        if (isListening) stopListening();
+        else startListening();
+      });
+    }
+
+    if (btnMicInline) {
+      btnMicInline.addEventListener('click', () => {
+        if (isListening) stopListening();
+        else startListening();
+      });
+    }
+
+    if (btnCancelVoice) {
+      btnCancelVoice.addEventListener('click', stopListening);
+    }
+
+    // -------------------------------------------------------------
+    // 4. WEBSOCKET REAL-TIME COMM CHANNEL (Fast 1-3s Latency)
+    // -------------------------------------------------------------
     let ws = null;
     function connectWS() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1635,19 +2235,18 @@
             const data = JSON.parse(event.data);
             if (data.type === 'status') {
               if (data.status === 'thinking') {
-                overlayThinking.classList.add('active-overlay');
-                setHUDAction('Thinking', 'Processing with AI model...');
+                showThinkingIndicator();
+                if (neuralCore) neuralCore.setState('thinking');
+                setHUDAction('Thinking', 'Synthesizing with Core Neural Model...');
               } else if (data.status === 'idle') {
-                overlayThinking.classList.remove('active-overlay');
+                hideThinkingIndicator();
+                if (neuralCore && neuralCore.state === 'thinking') neuralCore.setState('idle');
                 setHUDAction('Idle', 'Waiting for your command...');
               }
             } else if (data.type === 'response') {
-              overlayThinking.classList.remove('active-overlay');
+              hideThinkingIndicator();
               appendJarvisMessage(data.text);
-              setHUDAction('Speaking', "Here's what I found for you:");
-              setTimeout(() => {
-                setHUDAction('Idle', 'Waiting for your command...');
-              }, 4000);
+              speakJarvisResponse(data.text);
             }
           } catch (e) {
             console.error(e);
@@ -1663,15 +2262,18 @@
     function sendMessage(text) {
       if (!text) return;
       appendUserMessage(text);
+      showThinkingIndicator();
+      if (neuralCore) neuralCore.setState('thinking');
+      setHUDAction('Thinking', 'Synthesizing with Core Neural Model...');
+
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ action: 'chat', text }));
       } else {
-        // Fallback
-        overlayThinking.classList.add('active-overlay');
         setTimeout(() => {
-          overlayThinking.classList.remove('active-overlay');
-          appendJarvisMessage(`Acknowledged, Rohit: "${text}". Subsystems nominal.`);
-          setHUDAction('Idle', 'Waiting for your command...');
+          hideThinkingIndicator();
+          const fallbackReply = `Acknowledged, Rohit: "${text}". All subsystems nominal.`;
+          appendJarvisMessage(fallbackReply);
+          speakJarvisResponse(fallbackReply);
         }, 800);
       }
     }

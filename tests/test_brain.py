@@ -34,7 +34,7 @@ class TestJarvisBrain(unittest.TestCase):
     def test_initialization(self) -> None:
         """Verify brain initializes with default model and system prompt."""
         brain = JarvisBrain()
-        self.assertIn(brain.model_name, ("gemini-2.5-flash", "gemini-3.8-flash"))
+        self.assertIn(brain.model_name, ("gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite"))
         self.assertEqual(brain.system_prompt, DEFAULT_SYSTEM_PROMPT)
         self.assertEqual(len(brain.history), 0)
         self.mock_client.chats.create.assert_called_once()
