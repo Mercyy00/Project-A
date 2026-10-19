@@ -73,7 +73,7 @@ class JarvisBrain:
             enable_tools: Whether to auto-discover and register tools for function calling.
         """
         api_key: str = load_api_key()
-        self.model_name: str = model_name or os.getenv("MODEL_NAME", "gemini-3.5-flash-lite")
+        self.model_name: str = model_name or os.getenv("MODEL_NAME", "gemini-3.8-flash")
         self.system_prompt: str = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.enable_tools: bool = enable_tools
         self.history: List[Dict[str, str]] = []
@@ -90,41 +90,28 @@ class JarvisBrain:
         """
         discovered: List[Callable[..., Any]] = []
 
+        # Attempt to load telemetry tool from tools.system_tools
         try:
-            from tools.system_tools import GetSystemStatsTool, OpenAppTool, ListDirectoryTool
-
+            from tools.system_tools import GetSystemStatsTool
             stats_tool = GetSystemStatsTool()
-            app_tool = OpenAppTool()
-            list_tool = ListDirectoryTool()
 
             def get_system_stats() -> str:
                 """Retrieves current laptop telemetry including CPU usage percentage, RAM usage, and battery status."""
                 result = stats_tool.run()
                 return result.to_llm_string()
 
-            def open_app(app_name: str) -> str:
-                """Opens a desktop application such as chrome, notepad, calc, or spotify."""
-                result = app_tool.run(app_name=app_name)
-                return result.to_llm_string()
+            discovered.append(get_system_stats)
+        except (ImportError, Exception):
+            pass
 
-            def list_directory(directory_path: str = ".") -> str:
-                """Lists files and folders inside a given directory path."""
-                result = list_tool.run(directory_path=directory_path)
-                return result.to_llm_string()
-
-            def save_note(title: str, content: str) -> str:
-                """Saves an important note, reminder, or memory to SQLite."""
-                from memory.tools import SaveNoteTool
-                return SaveNoteTool().run(title=title, content=content).to_llm_string()
-
-            def search_notes(query: str) -> str:
-                """Searches through saved notes in SQLite using keyword query."""
-                from memory.tools import SearchNotesTool
-                return SearchNotesTool().run(query=query).to_llm_string()
-
-            discovered.extend([get_system_stats, open_app, list_directory, save_note, search_notes])
-        except Exception as e:
-            print(f"[!] Tool discovery warning: {e}", file=sys.stderr)
+        # Attempt to inspect central tools.registry if available
+        try:
+            from tools import registry  # type: ignore
+            if hasattr(registry, "get_registered_tools"):
+                for tool in registry.get_registered_tools():
+                    discovered.append(tool)
+        except (ImportError, Exception):
+            pass
 
         return discovered
 
