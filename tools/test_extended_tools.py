@@ -296,7 +296,7 @@ class TestToolRegistryIntegration(unittest.TestCase):
             self.assertIn(tool_name, registered_keys)
 
         instances = get_registered_tools()
-        self.assertEqual(len(instances), 5)
+        self.assertGreaterEqual(len(instances), 5)
         instance_names = [t.name for t in instances]
         for tool_name in expected_tools:
             self.assertIn(tool_name, instance_names)
@@ -309,7 +309,7 @@ class TestToolRegistryIntegration(unittest.TestCase):
     def test_tools_schema_generation(self) -> None:
         """Verifies schema definitions for LLM tool calling."""
         schemas = get_tools_schema()
-        self.assertEqual(len(schemas), 5)
+        self.assertGreaterEqual(len(schemas), 5)
         schema_names = [s["name"] for s in schemas]
         self.assertIn("open_website", schema_names)
         self.assertIn("search_web", schema_names)

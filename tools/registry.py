@@ -13,6 +13,7 @@ from tools.system_tools import (
     OpenWebsiteTool,
     SearchWebTool,
 )
+from tools.file_tools import ReadFileTool, WriteFileTool
 
 
 class ToolRegistry(dict):
@@ -57,6 +58,8 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "list_directory": ListDirectoryTool(),
     "open_website": OpenWebsiteTool(),
     "search_web": SearchWebTool(),
+    "read_file": ReadFileTool(),
+    "write_file": WriteFileTool(),
 })
 
 # Registry aliases
@@ -78,6 +81,8 @@ def get_registered_tools() -> List[BaseTool]:
         TOOL_REGISTRY["list_directory"],
         TOOL_REGISTRY["open_website"],
         TOOL_REGISTRY["search_web"],
+        TOOL_REGISTRY["read_file"],
+        TOOL_REGISTRY["write_file"],
     ]
 
 
