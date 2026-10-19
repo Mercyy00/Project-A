@@ -1,6 +1,8 @@
 import os
 import shutil
 import subprocess
+import urllib.parse
+import webbrowser
 from typing import Any, Dict, List, Optional
 import psutil
 
@@ -75,43 +77,160 @@ class OpenAppTool(BaseTool):
     name: str = "open_app"
     description: str = (
         "Opens an application on the Windows host machine by shortcut name. "
-        "Supported shortcuts: 'chrome', 'code', 'calc', 'notepad', 'spotify'."
+        "Supported shortcuts: 'calc', 'chrome', 'cmd', 'code', 'excel', 'explorer', "
+        "'notepad', 'paint', 'powershell', 'settings', 'spotify', 'taskmgr', 'vlc', 'word'."
     )
 
-    # Primary Windows executable path mapping for the 5 supported shortcuts
+    # Primary Windows executable path mapping for supported shortcuts
     APP_MAPPING: Dict[str, str] = {
-        "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        "code": os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
         "calc": r"C:\Windows\System32\calc.exe",
+        "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        "cmd": r"C:\Windows\System32\cmd.exe",
+        "code": os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
+        "excel": r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE",
+        "explorer": r"C:\Windows\explorer.exe",
+        "mspaint": r"C:\Windows\System32\mspaint.exe",
         "notepad": r"C:\Windows\System32\notepad.exe",
+        "paint": r"C:\Windows\System32\mspaint.exe",
+        "powerpoint": r"C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE",
+        "powershell": r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "settings": r"C:\Windows\ImmersiveControlPanel\SystemSettings.exe",
         "spotify": os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\Spotify.exe"),
+        "taskmgr": r"C:\Windows\System32\Taskmgr.exe",
+        "terminal": os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe"),
+        "vlc": r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+        "word": r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
     }
 
     # Alternate candidates for different Windows setups
     APP_CANDIDATES: Dict[str, List[str]] = {
+        "calc": [
+            r"C:\Windows\System32\calc.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\calc.exe"),
+        ],
         "chrome": [
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ],
+        "cmd": [
+            r"C:\Windows\System32\cmd.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\cmd.exe"),
         ],
         "code": [
             os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
             r"C:\Program Files\Microsoft VS Code\Code.exe",
             r"C:\Program Files (x86)\Microsoft VS Code\Code.exe",
         ],
-        "calc": [
-            r"C:\Windows\System32\calc.exe",
-            os.path.expandvars(r"%SystemRoot%\System32\calc.exe"),
+        "excel": [
+            r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\root\Office16\EXCEL.EXE",
+            r"C:\Program Files\Microsoft Office\Office16\EXCEL.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\Office16\EXCEL.EXE",
+            r"C:\Program Files\Microsoft Office\Office15\EXCEL.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\Office15\EXCEL.EXE",
+        ],
+        "explorer": [
+            r"C:\Windows\explorer.exe",
+            os.path.expandvars(r"%SystemRoot%\explorer.exe"),
+        ],
+        "mspaint": [
+            r"C:\Windows\System32\mspaint.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\mspaint.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\mspaint.exe"),
         ],
         "notepad": [
             r"C:\Windows\System32\notepad.exe",
             os.path.expandvars(r"%SystemRoot%\System32\notepad.exe"),
         ],
+        "paint": [
+            r"C:\Windows\System32\mspaint.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\mspaint.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\mspaint.exe"),
+        ],
+        "powerpoint": [
+            r"C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\root\Office16\POWERPNT.EXE",
+            r"C:\Program Files\Microsoft Office\Office16\POWERPNT.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\Office16\POWERPNT.EXE",
+            r"C:\Program Files\Microsoft Office\Office15\POWERPNT.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\Office15\POWERPNT.EXE",
+        ],
+        "powershell": [
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"),
+        ],
+        "settings": [
+            r"C:\Windows\ImmersiveControlPanel\SystemSettings.exe",
+            os.path.expandvars(r"%SystemRoot%\ImmersiveControlPanel\SystemSettings.exe"),
+            r"C:\Windows\System32\control.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\control.exe"),
+        ],
         "spotify": [
             os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\Spotify.exe"),
             os.path.expandvars(r"%APPDATA%\Spotify\Spotify.exe"),
         ],
+        "taskmgr": [
+            r"C:\Windows\System32\Taskmgr.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\Taskmgr.exe"),
+        ],
+        "terminal": [
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe"),
+        ],
+        "vlc": [
+            r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+            r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
+        ],
+        "word": [
+            r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE",
+            r"C:\Program Files\Microsoft Office\Office16\WINWORD.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\Office16\WINWORD.EXE",
+            r"C:\Program Files\Microsoft Office\Office15\WINWORD.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\Office15\WINWORD.EXE",
+        ],
     }
+
+    # Common executable names mapped for PATH and Registry lookups
+    APP_EXECUTABLES: Dict[str, List[str]] = {
+        "calc": ["calc.exe"],
+        "chrome": ["chrome.exe"],
+        "cmd": ["cmd.exe"],
+        "code": ["code.exe"],
+        "excel": ["excel.exe"],
+        "explorer": ["explorer.exe"],
+        "mspaint": ["mspaint.exe"],
+        "notepad": ["notepad.exe"],
+        "paint": ["mspaint.exe"],
+        "powerpoint": ["powerpnt.exe"],
+        "powershell": ["powershell.exe"],
+        "settings": ["SystemSettings.exe", "control.exe"],
+        "spotify": ["spotify.exe"],
+        "taskmgr": ["taskmgr.exe"],
+        "terminal": ["wt.exe"],
+        "vlc": ["vlc.exe"],
+        "word": ["winword.exe"],
+    }
+
+    @staticmethod
+    def _query_registry_app_path(exe_name: str) -> Optional[str]:
+        """Queries Windows Registry App Paths for registered application executables."""
+        if os.name != "nt":
+            return None
+        try:
+            import winreg
+            for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                key_path = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}"
+                try:
+                    with winreg.OpenKey(root, key_path) as k:
+                        val, _ = winreg.QueryValueEx(k, "")
+                        if val and os.path.exists(val):
+                            return val
+                except OSError:
+                    continue
+        except Exception:
+            pass
+        return None
 
     def _resolve_executable_path(self, shortcut: str) -> Optional[str]:
         """Resolves the executable path for a given shortcut.
@@ -122,20 +241,35 @@ class OpenAppTool(BaseTool):
         Returns:
             Optional[str]: Path to the executable if found, or default fallback.
         """
+        # 1. Check predefined candidate paths
         candidates = self.APP_CANDIDATES.get(shortcut, [])
         for candidate in candidates:
             if candidate and os.path.exists(candidate):
                 return candidate
-        which_path = shutil.which(shortcut) or shutil.which(f"{shortcut}.exe")
-        if which_path:
-            return which_path
-        return self.APP_MAPPING.get(shortcut)
+
+        # 2. Check PATH via shutil.which for shortcut and alias executables
+        exe_aliases = self.APP_EXECUTABLES.get(shortcut, [shortcut, f"{shortcut}.exe"])
+        for alias in [shortcut, f"{shortcut}.exe"] + exe_aliases:
+            which_path = shutil.which(alias)
+            if which_path and os.path.exists(which_path):
+                return which_path
+
+        # 3. Check Windows Registry App Paths
+        for alias in exe_aliases:
+            alias_name = alias if alias.endswith(".exe") else f"{alias}.exe"
+            reg_path = self._query_registry_app_path(alias_name)
+            if reg_path and os.path.exists(reg_path):
+                return reg_path
+
+        # 4. Fallback to mapped default path
+        mapped = self.APP_MAPPING.get(shortcut)
+        return mapped
 
     def run(self, app_name: str, **kwargs: Any) -> ToolResult:
         """Launches the requested application in a non-blocking process.
 
         Args:
-            app_name: The shortcut name ('chrome', 'code', 'calc', 'notepad', 'spotify').
+            app_name: The shortcut name (e.g., 'chrome', 'cmd', 'explorer', 'notepad').
             **kwargs: Extra keyword arguments.
 
         Returns:
@@ -164,6 +298,13 @@ class OpenAppTool(BaseTool):
                     success=False,
                     data=None,
                     message=f"Executable path for '{app_name}' could not be resolved."
+                )
+
+            if not os.path.exists(executable_path) and not shutil.which(executable_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Application '{app_name}' is not installed or executable not found at '{executable_path}'."
                 )
 
             process = subprocess.Popen(
@@ -203,7 +344,7 @@ class OpenAppTool(BaseTool):
                     "app_name": {
                         "type": "string",
                         "description": "The shortcut name of the application to open.",
-                        "enum": ["chrome", "code", "calc", "notepad", "spotify"]
+                        "enum": sorted(list(self.APP_MAPPING.keys()))
                     }
                 },
                 "required": ["app_name"]
@@ -346,3 +487,210 @@ class ListDirectoryTool(BaseTool):
                 "required": []
             }
         }
+
+
+class OpenWebsiteTool(BaseTool):
+    """Tool that opens a website in the default browser by shortcut or direct URL."""
+    name: str = "open_website"
+    description: str = (
+        "Opens a website in the default web browser. Accepts popular shortcuts "
+        "('youtube', 'google', 'gmail', 'github') or direct URLs starting with 'http://' or 'https://'."
+    )
+
+    SHORTCUTS: Dict[str, str] = {
+        "youtube": "https://www.youtube.com",
+        "google": "https://www.google.com",
+        "gmail": "https://mail.google.com",
+        "github": "https://github.com",
+    }
+
+    def run(self, site: str, **kwargs: Any) -> ToolResult:
+        """Opens a website shortcut or HTTP(S) URL in the default web browser.
+
+        Args:
+            site: Shortcut name ('youtube', 'google', 'gmail', 'github') or full HTTP/HTTPS URL.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome indicating success or error details.
+        """
+        try:
+            if not site or not isinstance(site, str) or not site.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="site must be a non-empty string."
+                )
+
+            clean_site = site.strip()
+            parsed = urllib.parse.urlparse(clean_site)
+
+            # Check for explicit URL scheme
+            if parsed.scheme:
+                scheme_lower = parsed.scheme.lower()
+                if scheme_lower not in ("http", "https"):
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message=f"Invalid URL scheme '{parsed.scheme}'. Only 'http://' and 'https://' are supported."
+                    )
+                if not parsed.netloc and not parsed.path:
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message=f"Invalid URL '{clean_site}': Missing host/domain."
+                    )
+                target_url = clean_site
+            elif clean_site.lower().startswith(("http://", "https://")):
+                target_url = clean_site
+            elif clean_site.lower() in self.SHORTCUTS:
+                target_url = self.SHORTCUTS[clean_site.lower()]
+            else:
+                supported = ", ".join(sorted(self.SHORTCUTS.keys()))
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=(
+                        f"Unknown website shortcut '{site}'. "
+                        f"Supported shortcuts: {supported}. "
+                        "Alternatively, provide a full URL starting with 'http://' or 'https://'."
+                    )
+                )
+
+            webbrowser.open(target_url)
+            return ToolResult(
+                success=True,
+                data={
+                    "site": site,
+                    "url": target_url
+                },
+                message=f"Website '{target_url}' opened successfully."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to open website '{site}': {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling.
+
+        Returns:
+            Dict[str, Any]: JSON schema specification.
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "site": {
+                        "type": "string",
+                        "description": (
+                            "Website shortcut ('youtube', 'google', 'gmail', 'github') "
+                            "or full URL starting with 'http://' or 'https://'."
+                        )
+                    }
+                },
+                "required": ["site"]
+            }
+        }
+
+
+class SearchWebTool(BaseTool):
+    """Tool that searches the web or YouTube using the default browser."""
+    name: str = "search_web"
+    description: str = (
+        "Searches the web or YouTube for a query using the default web browser. "
+        "Accepts a query string and an optional site target ('google' default, or 'youtube')."
+    )
+
+    SEARCH_ENGINES: Dict[str, str] = {
+        "google": "https://www.google.com/search?q={query}",
+        "youtube": "https://www.youtube.com/results?search_query={query}",
+    }
+
+    def run(self, query: str, site: str = "google", **kwargs: Any) -> ToolResult:
+        """Performs a web or YouTube search and opens results in the browser.
+
+        Args:
+            query: The search term or keywords to search for.
+            site: Platform to search ('google' default, or 'youtube'). Defaults to 'google'.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with search URL details.
+        """
+        try:
+            if not query or not isinstance(query, str) or not query.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="query must be a non-empty string."
+                )
+
+            if not site or not isinstance(site, str) or not site.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="site must be a non-empty string ('google' or 'youtube')."
+                )
+
+            site_key = site.strip().lower()
+            if site_key not in self.SEARCH_ENGINES:
+                supported = ", ".join(sorted(self.SEARCH_ENGINES.keys()))
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Unsupported search site '{site}'. Supported sites: {supported}."
+                )
+
+            clean_query = query.strip()
+            encoded_query = urllib.parse.quote_plus(clean_query)
+            search_url = self.SEARCH_ENGINES[site_key].format(query=encoded_query)
+
+            webbrowser.open(search_url)
+            return ToolResult(
+                success=True,
+                data={
+                    "query": clean_query,
+                    "site": site_key,
+                    "url": search_url
+                },
+                message=f"Search for '{clean_query}' on {site_key} opened successfully."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to execute search for '{query}': {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling.
+
+        Returns:
+            Dict[str, Any]: JSON schema specification.
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query or keywords to search for."
+                    },
+                    "site": {
+                        "type": "string",
+                        "description": "The search platform to use ('google' or 'youtube'). Defaults to 'google'.",
+                        "enum": ["google", "youtube"],
+                        "default": "google"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+

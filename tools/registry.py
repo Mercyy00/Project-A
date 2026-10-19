@@ -2,11 +2,29 @@
 Jarvis Tool Registry.
 
 Registers all available system tools and provides safe execution dispatching.
+Supports dynamic auto-loading of plugin modules from other team members.
 """
 
+import importlib
+import logging
 from typing import Any, Dict, List, Optional
 from tools.base import BaseTool, ToolResult
-from tools.system_tools import GetSystemStatsTool, OpenAppTool, ListDirectoryTool
+from tools.system_tools import (
+    GetSystemStatsTool,
+    OpenAppTool,
+    ListDirectoryTool,
+    OpenWebsiteTool,
+    SearchWebTool,
+)
+from tools.file_tools import ReadFileTool, WriteFileTool
+from tools.control_tools import (
+    TypeTextTool,
+    PressKeysTool,
+    ClickTool,
+    ScrollTool,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ToolRegistry(dict):
@@ -49,6 +67,14 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "get_system_stats": GetSystemStatsTool(),
     "open_app": OpenAppTool(),
     "list_directory": ListDirectoryTool(),
+    "open_website": OpenWebsiteTool(),
+    "search_web": SearchWebTool(),
+    "read_file": ReadFileTool(),
+    "write_file": WriteFileTool(),
+    "type_text": TypeTextTool(),
+    "press_keys": PressKeysTool(),
+    "click": ClickTool(),
+    "scroll": ScrollTool(),
 })
 
 # Registry aliases
@@ -58,17 +84,37 @@ TOOLS: Dict[str, BaseTool] = TOOL_REGISTRY
 tools: Dict[str, BaseTool] = TOOL_REGISTRY
 
 
+def register_tool(tool: BaseTool) -> None:
+    """Registers a BaseTool instance in the registry by name.
+
+    Args:
+        tool: An instance of BaseTool to register.
+
+    Raises:
+        TypeError: If tool is not an instance of BaseTool.
+        ValueError: If tool.name is empty or invalid.
+    """
+    if not isinstance(tool, BaseTool):
+        raise TypeError(f"Expected BaseTool instance, got {type(tool).__name__}")
+    if not getattr(tool, "name", None) or not isinstance(tool.name, str) or not tool.name.strip():
+        raise ValueError("Tool name must be a non-empty string.")
+
+    TOOL_REGISTRY[tool.name] = tool
+
+
 def get_registered_tools() -> List[BaseTool]:
-    """Returns a list of all registered tool instances.
+    """Returns a list of all unique registered tool instances.
 
     Returns:
         List[BaseTool]: Registered tool instances.
     """
-    return [
-        TOOL_REGISTRY["get_system_stats"],
-        TOOL_REGISTRY["open_app"],
-        TOOL_REGISTRY["list_directory"],
-    ]
+    seen: set[int] = set()
+    registered: List[BaseTool] = []
+    for tool in TOOL_REGISTRY.values():
+        if isinstance(tool, BaseTool) and id(tool) not in seen:
+            seen.add(id(tool))
+            registered.append(tool)
+    return registered
 
 
 def get_tools_schema() -> List[Dict[str, Any]]:
@@ -133,3 +179,36 @@ def execute_tool(name: str, args: Optional[Dict[str, Any]] = None) -> ToolResult
 
 # Alias execute to execute_tool for ARCHITECTURE.md contract compatibility
 execute = execute_tool
+
+
+def auto_load_module_tools() -> None:
+    """Auto-loads TOOLS from vision.tools, creator.tools, messaging.tools, and memory.tools.
+
+    At import time, for module_name in ['vision.tools', 'creator.tools', 'messaging.tools', 'memory.tools']:
+    try importlib.import_module(module_name); for every tool in module.TOOLS call register_tool(tool).
+    Ignore only ModuleNotFoundError for that module; log any other exception and continue.
+    """
+    modules_to_load: List[str] = [
+        "vision.tools",
+        "creator.tools",
+        "messaging.tools",
+        "memory.tools",
+    ]
+    for module_name in modules_to_load:
+        try:
+            mod = importlib.import_module(module_name)
+            tools_list = getattr(mod, "TOOLS", None)
+            if tools_list:
+                for tool in tools_list:
+                    if isinstance(tool, BaseTool):
+                        register_tool(tool)
+        except ModuleNotFoundError:
+            # Ignore only ModuleNotFoundError for that module
+            continue
+        except Exception as e:
+            logger.exception("Error loading tools from module '%s': %s", module_name, e)
+            continue
+
+
+# Auto-load registered tools from external modules at import time
+auto_load_module_tools()
