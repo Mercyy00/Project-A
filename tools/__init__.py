@@ -9,7 +9,21 @@ from tools.system_tools import (
     OpenWebsiteTool,
     SearchWebTool,
 )
-from tools.registry import TOOL_REGISTRY, execute_tool, get_registered_tools
+from tools.control_tools import (
+    TypeTextTool,
+    PressKeysTool,
+    ClickTool,
+    ScrollTool,
+    CONTROL_TOOLS,
+)
+from tools.registry import (
+    TOOL_REGISTRY,
+    execute_tool,
+    get_registered_tools,
+    get_tools_schema,
+    register_tool,
+    auto_load_module_tools,
+)
 
 __all__ = [
     "BaseTool",
@@ -22,7 +36,15 @@ __all__ = [
     "ListDirectoryTool",
     "OpenWebsiteTool",
     "SearchWebTool",
+    "TypeTextTool",
+    "PressKeysTool",
+    "ClickTool",
+    "ScrollTool",
+    "CONTROL_TOOLS",
     "TOOL_REGISTRY",
     "execute_tool",
     "get_registered_tools",
+    "get_tools_schema",
+    "register_tool",
+    "auto_load_module_tools",
 ]
