@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS // Autonomous Desktop AI Assistant</title>
+  <style>
+    :root {
+      --bg-main: #060c18;
+      --bg-panel: rgba(10, 18, 35, 0.85);
+      --bg-card: rgba(14, 25, 48, 0.7);
+      --bg-card-hover: rgba(20, 36, 68, 0.85);
+      --cyan-neon: #00d2ff;
+      --cyan-bright: #38bdf8;
+      --cyan-glow: rgba(0, 210, 255, 0.45);
+      --cyan-dim: rgba(0, 210, 255, 0.12);
+      --blue-accent: #0284c7;
+      --blue-bubble: #172554;
+      --text-main: #f1f5f9;
+      --text-muted: #8899b5;
+      --border-cyan: rgba(0, 210, 255, 0.25);
+      --border-cyan-active: rgba(0, 210, 255, 0.75);
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-main);
+      background-image: 
+        radial-gradient(ellipse at 50% 0%, rgba(0, 210, 255, 0.12) 0%, transparent 65%),
+        radial-gradient(circle at 10% 90%, rgba(2, 132, 199, 0.08) 0%, transparent 40%),
+        linear-gradient(180deg, #040812 0%, #081120 100%);
+      color: var(--text-main);
+      font-family: var(--font-ui);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 12px;
+    }
+
+    /* Main Desktop Shell Window */
+    .desktop-app {
+      width: 100%;
+      max-width: 1520px;
+      height: 94vh;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-cyan);
+      border-radius: 18px;
+      box-shadow: 
+        0 0 35px rgba(0, 0, 0, 0.8),
+        0 0 25px rgba(0, 210, 255, 0.18),
+        inset 0 0 20px rgba(0, 210, 255, 0.05);
+      display: grid;
+      grid-template-columns: 230px 1fr 310px;
+      overflow: hidden;
+      position: relative;
+      backdrop-filter: blur(20px);
+    }
+
+    /* Top glowing accent border */
+    .desktop-app::after {
+      content: "";
+      position: absolute;
+      top: 0; left: 8%; right: 8%; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--cyan-neon), transparent);
+      box-shadow: 0 0 10px var(--cyan-neon);
+      pointer-events: none;
+    }
+
+    /* Window Controls in top right */
+    .window-controls {
+      position: absolute;
+      top: 14px;
+      right: 18px;
+      display: flex;
+      gap: 12px;
+      z-index: 100;
+    }
+
+    .win-btn {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .win-btn.close:hover { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    .win-btn.max:hover { background: #eab308; box-shadow: 0 0 8px #eab308; }
+    .win-btn.min:hover { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+
+    /* ========================================================
+       LEFT SIDEBAR NAVIGATION
+       ======================================================== */
+    .sidebar-left {
+      background: rgba(7, 14, 28, 0.85);
+      border-right: 1px solid var(--border-cyan);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 24px 14px;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 6px 20px 6px;
+      border-bottom: 1px solid rgba(0, 210, 255, 0.15);
+    }
+
+    .jarvis-emblem {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #0ea5e9 0%, #032b50 80%);
+      border: 1.5px solid var(--cyan-neon);
+      box-shadow: 0 0 12px var(--cyan-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .jarvis-emblem svg {
+      width: 22px;
+      height: 22px;
+      fill: var(--cyan-neon);
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #ffffff;
+      text-transform: uppercase;
+      text-shadow: 0 0 12px var(--cyan-glow);
+    }
+
+    .brand-subtitle {
+      font-size: 0.7rem;
+      color: var(--cyan-bright);
+      letter-spacing: 0.8px;
+    }
+
+    .nav-menu {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 18px;
+    }
+
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+
+    .nav-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+      transition: transform 0.2s;
+    }
+
+    .nav-btn:hover {
+      color: var(--text-main);
+      background: rgba(0, 210, 255, 0.08);
+    }
+
+    .nav-btn.active {
+      color: #ffffff;
+      background: linear-gradient(90deg, rgba(2, 132, 199, 0.45) 0%, rgba(0, 210, 255, 0.15) 100%);
+      border-left: 3px solid var(--cyan-neon);
+      box-shadow: inset 0 0 14px rgba(0, 210, 255, 0.12);
+    }
+
+    .nav-btn.active svg {
+      fill: var(--cyan-neon);
+      filter: drop-shadow(0 0 6px var(--cyan-neon));
+    }
+
+    .sidebar-footer {
+      padding: 16px 8px 4px 8px;
+      border-top: 1px solid rgba(0, 210, 255, 0.15);
+      font-size: 0.72rem;
+      color: #556987;
+      line-height: 1.4;
+    }
+
+    /* ========================================================
+       CENTER WORKSPACE
+       ======================================================== */
+    .workspace {
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background: rgba(9, 17, 33, 0.5);
+      overflow: hidden;
+    }
+
+    .top-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border-cyan);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(10, 20, 38, 0.6);
+    }
+
+    .page-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .page-desc {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .header-indicators {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-right: 50px;
+    }
+
+    .badge-online {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: rgba(34, 197, 94, 0.12);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      border-radius: 20px;
+      font-size: 0.75rem;
+      color: #4ade80;
+      font-weight: 500;
+    }
+
+    .badge-online .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+      animation: pulseGreen 2s infinite;
+    }
+
+    .audio-stream-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--cyan-dim);
+      border: 1px solid var(--border-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--cyan-neon);
+      transition: all 0.2s;
+    }
+
+    .audio-stream-icon:hover {
+      box-shadow: 0 0 10px var(--cyan-neon);
+    }
+
+    /* Tab Views Container */
+    .view-panel {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .view-panel.active-view {
+      display: flex;
+    }
+
+    /* ---------------- Chat View ---------------- */
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .chat-bubble {
+      max-width: 80%;
+      display: flex;
+      gap: 12px;
+      animation: slideInUp 0.3s ease;
+    }
+
+    .chat-bubble.user {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+
+    .chat-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border-cyan);
+    }
+
+    .chat-avatar.jarvis {
+      background: radial-gradient(circle, #0284c7 0%, #032b50 100%);
+      box-shadow: 0 0 8px var(--cyan-glow);
+    }
+
+    .chat-avatar.user {
+      background: #1e3a8a;
+      border-color: rgba(96, 165, 250, 0.4);
+    }
+
+    .chat-body {
+      background: var(--bg-card);
+      border: 1px solid var(--border-cyan);
+      border-radius: 12px;
+      padding: 14px 18px;
+      position: relative;
+    }
+
+    .chat-bubble.user .chat-body {
+      background: #1e3a8a;
+      border-color: rgba(96, 165, 250, 0.4);
+      color: #eff6ff;
+    }
+
+    .chat-bubble.jarvis .chat-body {
+      border-left: 3px solid var(--cyan-neon);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .chat-text {
+      font-size: 0.92rem;
+      line-height: 1.55;
+      color: var(--text-main);
+    }
+
+    .chat-features-list {
+      margin: 8px 0 10px 18px;
+      font-size: 0.88rem;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+
+    .chat-time {
+      font-size: 0.7rem;
+      color: #64748b;
+      margin-top: 6px;
+      text-align: right;
+    }
+
+    /* Quick Action Chips */
+    .quick-chips-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 0 24px 12px 24px;
+    }
+
+    .chip-btn {
+      background: rgba(14, 25, 48, 0.8);
+      border: 1px solid var(--border-cyan);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      color: var(--cyan-bright);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .chip-btn:hover {
+      background: rgba(0, 210, 255, 0.15);
+      border-color: var(--cyan-neon);
+      box-shadow: 0 0 10px var(--cyan-glow);
+      transform: translateY(-1px);
+    }
+
+    /* Input Console */
+    .chat-input-bar {
+      padding: 16px 24px 20px 24px;
+      background: rgba(10, 18, 35, 0.8);
+      border-top: 1px solid var(--border-cyan);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .input-wrapper {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .attach-icon {
+      position: absolute;
+      left: 14px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+    }
+
+    .main-input {
+      width: 100%;
+      background: rgba(14, 25, 48, 0.9);
+      border: 1px solid var(--border-cyan);
+      border-radius: 25px;
+      padding: 13px 48px 13px 44px;
+      font-size: 0.92rem;
+      color: #ffffff;
+      outline: none;
+      transition: all 0.25s;
+    }
+
+    .main-input:focus {
+      border-color: var(--cyan-neon);
+      box-shadow: 0 0 15px rgba(0, 210, 255, 0.35);
+    }
+
+    .send-icon-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0284c7 0%, #00d2ff 100%);
+      border: 1px solid var(--cyan-neon);
+      color: #070b14;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 12px rgba(0, 210, 255, 0.35);
+    }
+
+    .send-icon-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 18px var(--cyan-neon);
+    }
+
+    /* ---------------- Interactive Hologram State Overlays ---------------- */
+    .hud-state-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(6, 12, 24, 0.95);
+      backdrop-filter: blur(12px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .hud-state-overlay.active-overlay {
+      display: flex;
+    }
+
+    .hologram-orb-container {
+      position: relative;
+      width: 180px;
+      height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .hologram-outer-ring {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 2px dashed rgba(0, 210, 255, 0.5);
+      animation: spinClockwise 12s linear infinite;
+    }
+
+    .hologram-inner-ring {
+      position: absolute;
+      width: 75%;
+      height: 75%;
+      border-radius: 50%;
+      border: 2px solid rgba(0, 210, 255, 0.8);
+      border-top-color: transparent;
+      animation: spinCounter 6s linear infinite;
+    }
+
+    .hologram-core-sphere {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #0ea5e9 0%, #032b50 80%);
+      box-shadow: 0 0 30px var(--cyan-neon);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hologram-title {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--cyan-bright);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      text-shadow: 0 0 12px var(--cyan-glow);
+    }
+
+    .hologram-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+
+    /* Soundwave Visualizer Bar */
+    .audio-visualizer {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      height: 32px;
+      margin-top: 20px;
+    }
+
+    .wave-bar {
+      width: 3.5px;
+      background: var(--cyan-neon);
+      border-radius: 2px;
+      box-shadow: 0 0 8px var(--cyan-neon);
+      animation: waveOscillate 1.2s infinite ease-in-out;
+    }
+
+    .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+    .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+    .wave-bar:nth-child(4) { animation-delay: 0.3s; }
+    .wave-bar:nth-child(5) { animation-delay: 0.4s; }
+    .wave-bar:nth-child(6) { animation-delay: 0.5s; }
+    .wave-bar:nth-child(7) { animation-delay: 0.6s; }
+    .wave-bar:nth-child(8) { animation-delay: 0.7s; }
+    .wave-bar:nth-child(9) { animation-delay: 0.8s; }
+    .wave-bar:nth-child(10) { animation-delay: 0.9s; }
+
+    .state-dismiss-btn {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      background: transparent;
+      border: 1px solid var(--border-cyan);
+      border-radius: 20px;
+      padding: 6px 16px;
+      color: var(--cyan-bright);
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .state-dismiss-btn:hover { background: rgba(0, 210, 255, 0.15); }
+
+    /* ---------------- Notes Manager View ---------------- */
+    .notes-view-content {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .notes-top-bar {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .notes-search-input {
+      flex: 1;
+      max-width: 400px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-cyan);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: #fff;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .btn-new-note {
+      background: linear-gradient(135deg, #0284c7 0%, #00d2ff 100%);
+      color: #070b14;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      box-shadow: 0 0 12px var(--cyan-glow);
+      transition: all 0.2s;
+    }
+    .btn-new-note:hover { transform: translateY(-1px); box-shadow: 0 0 18px var(--cyan-neon); }
+
+    .notes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .note-grid-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-cyan);
+      border-radius: 12px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .note-grid-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; width: 4px; height: 100%;
+      background: var(--cyan-neon);
+      box-shadow: 0 0 8px var(--cyan-neon);
+    }
+
+    .note-grid-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--cyan-bright);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .note-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .note-icon-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: rgba(2, 132, 199, 0.2);
+      border: 1px solid var(--border-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--cyan-neon);
+    }
+
+    .note-title-text {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .note-snippet {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+
+    .note-date-tag {
+      font-size: 0.7rem;
+      color: #64748b;
+      align-self: flex-end;
+    }
+
+    /* ---------------- Tools Panel View ---------------- */
+    .tools-view-content {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 18px;
+    }
+
+    .tool-tile {
+      background: var(--bg-card);
+      border: 1px solid var(--border-cyan);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    .tool-tile:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--cyan-neon);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 210, 255, 0.15);
+    }
+
+    .tool-tile-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(0, 210, 255, 0.1) 100%);
+      border: 1px solid var(--border-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--cyan-neon);
+      flex-shrink: 0;
+    }
+
+    .tool-tile-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 4px;
+    }
+
+    .tool-tile-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    /* ========================================================
+       RIGHT TELEMETRY & HOLOGRAM SIDEBAR
+       ======================================================== */
+    .sidebar-right {
+      background: rgba(7, 14, 28, 0.85);
+      border-left: 1px solid var(--border-cyan);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 18px;
+      gap: 18px;
+      overflow-y: auto;
+    }
+
+    /* Arc Reactor Hologram Widget */
+    .hologram-avatar-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-cyan);
+      border-radius: 14px;
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .arc-reactor {
+      width: 130px;
+      height: 130px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+
+    .arc-ring-1 {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 1.5px dashed rgba(0, 210, 255, 0.4);
+      animation: spinClockwise 20s linear infinite;
+    }
+
+    .arc-ring-2 {
+      position: absolute;
+      width: 82%;
+      height: 82%;
+      border-radius: 50%;
+      border: 2px solid rgba(0, 210, 255, 0.7);
+      border-bottom-color: transparent;
+      animation: spinCounter 10s linear infinite;
+    }
+
+    .arc-core {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #0284c7 10%, #041b36 90%);
+      border: 2px solid var(--cyan-neon);
+      box-shadow: 0 0 20px var(--cyan-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .arc-core svg {
+      width: 38px;
+      height: 38px;
+      fill: var(--cyan-neon);
+      filter: drop-shadow(0 0 8px var(--cyan-neon));
+    }
+
+    .hologram-card-title {
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #ffffff;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .hologram-card-sub {
+      font-size: 0.72rem;
+      color: var(--cyan-bright);
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .hologram-taglines {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* System Status Widget Card */
+    .telemetry-card-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-cyan);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+
+    .card-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .metric-row {
+      margin-bottom: 12px;
+    }
+
+    .metric-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .metric-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: rgba(0, 210, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .metric-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0284c7 0%, var(--cyan-neon) 100%);
+      border-radius: 3px;
+      transition: width 0.5s ease;
+      box-shadow: 0 0 8px var(--cyan-glow);
+    }
+
+    /* Current Action Card */
+    .current-action-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-cyan);
+      border-radius: 14px;
+      padding: 14px 18px;
+    }
+
+    .action-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .action-status-text {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--cyan-neon);
+      margin-bottom: 2px;
+    }
+
+    .action-detail-text {
+      font-size: 0.74rem;
+      color: #64748b;
+    }
+
+    /* Modal for New Note */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-card {
+      background: #0f1a2e;
+      border: 1px solid var(--cyan-neon);
+      box-shadow: 0 0 30px rgba(0, 210, 255, 0.3);
+      border-radius: 14px;
+      padding: 24px;
+      width: 90%;
+      max-width: 440px;
+    }
+
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-input {
+      width: 100%;
+      background: rgba(6, 12, 24, 0.8);
+      border: 1px solid var(--border-cyan);
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+      outline: none;
+    }
+
+    .modal-textarea {
+      width: 100%;
+      min-height: 90px;
+      background: rgba(6, 12, 24, 0.8);
+      border: 1px solid var(--border-cyan);
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+      outline: none;
+      resize: vertical;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .btn-modal-cancel {
+      background: transparent;
+      border: 1px solid #475569;
+      color: #94a3b8;
+      border-radius: 6px;
+      padding: 8px 16px;
+      cursor: pointer;
+    }
+
+    /* Keyframes Animations */
+    @keyframes spinClockwise {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes spinCounter {
+      from { transform: rotate(360deg); }
+      to { transform: rotate(0deg); }
+    }
+
+    @keyframes pulseGreen {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.9); }
+    }
+
+    @keyframes waveOscillate {
+      0%, 100% { height: 6px; }
+      50% { height: 26px; }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes slideInUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 210, 255, 0.2);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--cyan-neon);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Main Desktop Window -->
+  <div class="desktop-app">
+
+    <!-- Top Window Controls -->
+    <div class="window-controls">
+      <div class="win-btn min" title="Minimize"></div>
+      <div class="win-btn max" title="Maximize"></div>
+      <div class="win-btn close" title="Close"></div>
+    </div>
+
+    <!-- ========================================================
+         1. LEFT NAVIGATION SIDEBAR
+         ======================================================== -->
+    <aside class="sidebar-left">
+      <div>
+        <div class="brand-box">
+          <div class="jarvis-emblem">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+            </svg>
+          </div>
+          <div>
+            <div class="brand-title">JARVIS</div>
+            <div class="brand-subtitle">Your AI Assistant</div>
+          </div>
+        </div>
+
+        <nav class="nav-menu">
+          <button class="nav-btn active" data-view="view-chat">
+            <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
+            <span>Chat</span>
+          </button>
+          <button class="nav-btn" data-view="view-notes">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+            <span>Notes</span>
+          </button>
+          <button class="nav-btn" data-view="view-system">
+            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+            <span>System</span>
+          </button>
+          <button class="nav-btn" data-view="view-tools">
+            <svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+            <span>Tools</span>
+          </button>
+          <button class="nav-btn" data-view="view-settings">
+            <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+            <span>Settings</span>
+          </button>
+        </nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <div>Smarter Tools.</div>
+        <div>Better Decisions.</div>
+        <div>Together.</div>
+      </div>
+    </aside>
+
+    <!-- ========================================================
+         2. CENTER WORKSPACE
+         ======================================================== -->
+    <main class="workspace">
+      
+      <!-- Top Header -->
+      <div class="top-header">
+        <div>
+          <div class="page-title" id="page-title-text">
+            <span>Chat</span>
+          </div>
+          <div class="page-desc" id="page-desc-text">Ask anything, I'm here to help.</div>
+        </div>
+        <div class="header-indicators">
+          <div class="badge-online">
+            <span class="dot"></span>
+            <span>Online</span>
+          </div>
+          <div class="audio-stream-icon" id="btn-toggle-mic" title="Voice Input Mode">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 1: CHAT -->
+      <div class="view-panel active-view" id="view-chat">
+        <div class="chat-messages" id="chat-feed">
+          <!-- Jarvis Greeting Message -->
+          <div class="chat-bubble jarvis">
+            <div class="chat-avatar jarvis">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+              </svg>
+            </div>
+            <div class="chat-body">
+              <div class="chat-text">
+                Hello! I'm <strong>JARVIS</strong> &mdash; your autonomous AI assistant. I can help you with:
+              </div>
+              <ul class="chat-features-list">
+                <li>&bull; Answering questions &amp; multi-turn reasoning</li>
+                <li>&bull; Managing your files and system telemetry</li>
+                <li>&bull; Setting reminders and persistent SQLite notes</li>
+                <li>&bull; Fetching real-time system diagnostics</li>
+                <li>&bull; Controlling your desktop applications</li>
+                <li>&bull; And much more...</li>
+              </ul>
+              <div class="chat-text" style="font-weight: 500;">What would you like to do today?</div>
+              <div class="chat-time" id="greeting-time">10:24 AM</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Action Prompt Chips -->
+        <div class="quick-chips-row">
+          <button class="chip-btn" data-prompt="Open Google Chrome">
+            <span>🌐</span> Open Chrome
+          </button>
+          <button class="chip-btn" data-prompt="Check system info and RAM usage">
+            <span>📊</span> Check system info
+          </button>
+          <button class="chip-btn" data-prompt="Save a note: Finish Project-A integration">
+            <span>📝</span> Save a note
+          </button>
+          <button class="chip-btn" data-prompt="What's the weather and current time?">
+            <span>🌤️</span> What's the weather?
+          </button>
+        </div>
+
+        <!-- Chat Input Bar -->
+        <form class="chat-input-bar" id="chat-form">
+          <div class="input-wrapper">
+            <span class="attach-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5V6H9v9.5a3 3 0 0 0 6 0V5a4 4 0 0 0-8 0v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
+              </svg>
+            </span>
+            <input 
+              type="text" 
+              class="main-input" 
+              id="user-input" 
+              placeholder="Type your message..." 
+              autocomplete="off"
+            />
+          </div>
+          <button type="submit" class="send-icon-btn" title="Send (Enter)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </form>
+      </div>
+
+      <!-- VIEW 2: NOTES MANAGER -->
+      <div class="view-panel" id="view-notes">
+        <div class="notes-view-content">
+          <div class="notes-top-bar">
+            <input type="text" class="notes-search-input" id="notes-search" placeholder="🔍 Search notes..." />
+            <button class="btn-new-note" id="btn-open-note-modal">+ New Note</button>
+          </div>
+          <div class="notes-grid" id="notes-grid-container">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 3: SYSTEM VIEW -->
+      <div class="view-panel" id="view-system">
+        <div class="tools-view-content">
+          <h2 style="font-size: 1.1rem; color: #fff; margin-bottom: 16px;">Core Telemetry Diagnostics</h2>
+          <div class="tools-grid">
+            <div class="tool-tile">
+              <div class="tool-tile-icon">⚡</div>
+              <div>
+                <div class="tool-tile-title">CPU Processor</div>
+                <div class="tool-tile-desc" id="sys-cpu-detail">Loading utilization...</div>
+              </div>
+            </div>
+            <div class="tool-tile">
+              <div class="tool-tile-icon">💾</div>
+              <div>
+                <div class="tool-tile-title">Memory (RAM)</div>
+                <div class="tool-tile-desc" id="sys-ram-detail">Loading memory status...</div>
+              </div>
+            </div>
+            <div class="tool-tile">
+              <div class="tool-tile-icon">🔋</div>
+              <div>
+                <div class="tool-tile-title">Power Source</div>
+                <div class="tool-tile-desc" id="sys-battery-detail">Checking power sensors...</div>
+              </div>
+            </div>
+            <div class="tool-tile">
+              <div class="tool-tile-icon">🗄️</div>
+              <div>
+                <div class="tool-tile-title">Database Storage</div>
+                <div class="tool-tile-desc">SQLite 3 (WAL mode active). Path: memory/jarvis.db</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 4: TOOLS PANEL -->
+      <div class="view-panel" id="view-tools">
+        <div class="tools-view-content">
+          <h2 style="font-size: 1.1rem; color: #fff; margin-bottom: 16px;">Available Autonomous Tools</h2>
+          <div class="tools-grid" id="tools-catalog-grid">
+            <div class="tool-tile" data-tool="open_app">
+              <div class="tool-tile-icon">📱</div>
+              <div>
+                <div class="tool-tile-title">Open Application</div>
+                <div class="tool-tile-desc">Launch any installed application (Chrome, Notepad, Calc, Spotify)</div>
+              </div>
+            </div>
+            <div class="tool-tile" data-tool="file_ops">
+              <div class="tool-tile-icon">📁</div>
+              <div>
+                <div class="tool-tile-title">File Operations</div>
+                <div class="tool-tile-desc">Read, write, and manage sandboxed workspace files safely</div>
+              </div>
+            </div>
+            <div class="tool-tile" data-tool="system_info">
+              <div class="tool-tile-icon">⚙️</div>
+              <div>
+                <div class="tool-tile-title">System Info</div>
+                <div class="tool-tile-desc">Get CPU, RAM, battery, and host telemetry diagnostics</div>
+              </div>
+            </div>
+            <div class="tool-tile" data-tool="web_search">
+              <div class="tool-tile-icon">🌐</div>
+              <div>
+                <div class="tool-tile-title">Web Search</div>
+                <div class="tool-tile-desc">Search the internet for real-time live information</div>
+              </div>
+            </div>
+            <div class="tool-tile" data-tool="screenshots">
+              <div class="tool-tile-icon">📷</div>
+              <div>
+                <div class="tool-tile-title">Screenshots</div>
+                <div class="tool-tile-desc">Capture full screen or specific application windows</div>
+              </div>
+            </div>
+            <div class="tool-tile" data-tool="automation">
+              <div class="tool-tile-icon">🤖</div>
+              <div>
+                <div class="tool-tile-title">Automation</div>
+                <div class="tool-tile-desc">Execute safe automation commands with confirmation guards</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 5: SETTINGS -->
+      <div class="view-panel" id="view-settings">
+        <div class="tools-view-content">
+          <h2 style="font-size: 1.1rem; color: #fff; margin-bottom: 16px;">Jarvis Configuration</h2>
+          <div style="background: var(--bg-card); border: 1px solid var(--border-cyan); border-radius: 12px; padding: 20px; max-width: 600px;">
+            <div style="margin-bottom: 16px;">
+              <label style="display:block; font-size:0.8rem; color:var(--cyan-bright); margin-bottom:6px;">VOICE ENGINE (TTS)</label>
+              <input type="text" class="notes-search-input" style="max-width:100%;" value="en-US-GuyNeural (Edge-TTS)" readonly />
+            </div>
+            <div style="margin-bottom: 16px;">
+              <label style="display:block; font-size:0.8rem; color:var(--cyan-bright); margin-bottom:6px;">WAKE WORD</label>
+              <input type="text" class="notes-search-input" style="max-width:100%;" value="Hey Jarvis" readonly />
+            </div>
+            <div style="margin-bottom: 16px;">
+              <label style="display:block; font-size:0.8rem; color:var(--cyan-bright); margin-bottom:6px;">WEBSOCKET ENDPOINT</label>
+              <input type="text" class="notes-search-input" style="max-width:100%;" value="ws://127.0.0.1:8000/ws/jarvis" readonly />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------------- OVERLAY: LISTENING MODE ---------------- -->
+      <div class="hud-state-overlay" id="overlay-listening">
+        <button class="state-dismiss-btn" id="btn-close-listening">✕ Close Mode</button>
+        <div class="hologram-orb-container">
+          <div class="hologram-outer-ring"></div>
+          <div class="hologram-inner-ring"></div>
+          <div class="hologram-core-sphere">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="#00d2ff">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="hologram-title">Listening...</div>
+        <div class="hologram-subtitle">Speak now! Jarvis is listening to your microphone</div>
+        <div class="audio-visualizer">
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+        </div>
+      </div>
+
+      <!-- ---------------- OVERLAY: THINKING MODE ---------------- -->
+      <div class="hud-state-overlay" id="overlay-thinking">
+        <div class="hologram-orb-container">
+          <div class="hologram-outer-ring" style="border-color:#38bdf8;"></div>
+          <div class="hologram-inner-ring" style="border-color:#60a5fa;"></div>
+          <div class="hologram-core-sphere" style="background: radial-gradient(circle, #2563eb 0%, #082f49 90%);">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="#67e8f9">
+              <path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 21l3.54-.7c1.23.45 2.57.7 3.98.7 4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 15c-1.16 0-2.28-.24-3.3-.68l-.42-.18-2.1.42.42-2.1-.18-.42C6.24 14.28 6 13.16 6 12c0-3.31 2.69-6 6-6s6 2.69 6 6-2.69 6-6 6z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="hologram-title">Thinking...</div>
+        <div class="hologram-subtitle">Analyzing your request with Core Brain AI Model</div>
+        <div style="width: 240px; height: 5px; background: rgba(0, 210, 255, 0.15); border-radius: 3px; margin-top: 18px; overflow: hidden;">
+          <div style="width: 60%; height: 100%; background: var(--cyan-neon); box-shadow: 0 0 10px var(--cyan-neon); animation: thinkingProgress 1.4s infinite ease-in-out;"></div>
+        </div>
+      </div>
+
+      <!-- ---------------- OVERLAY: SPEAKING MODE ---------------- -->
+      <div class="hud-state-overlay" id="overlay-speaking">
+        <button class="state-dismiss-btn" id="btn-close-speaking">✕ Close</button>
+        <div class="hologram-orb-container">
+          <div class="hologram-outer-ring"></div>
+          <div class="hologram-inner-ring"></div>
+          <div class="hologram-core-sphere">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="#00d2ff">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="hologram-title">Speaking...</div>
+        <div class="hologram-subtitle" id="speaking-text-preview">Here's what I found for you:</div>
+        <div class="audio-visualizer">
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ========================================================
+         3. RIGHT TELEMETRY & HOLOGRAM SIDEBAR
+         ======================================================== -->
+    <aside class="sidebar-right">
+      
+      <!-- Top Arc Reactor Hologram Widget -->
+      <div class="hologram-avatar-card">
+        <div class="arc-reactor">
+          <div class="arc-ring-1"></div>
+          <div class="arc-ring-2"></div>
+          <div class="arc-core">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="hologram-card-title">JARVIS</div>
+        <div class="hologram-card-sub">AI ASSISTANT</div>
+        <div class="hologram-taglines">
+          <div>Always listening.</div>
+          <div>Always learning.</div>
+        </div>
+      </div>
+
+      <!-- Live System Status Widget -->
+      <div class="telemetry-card-panel">
+        <div class="card-panel-header">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 6px #22c55e;"></span>
+          <span>System Status</span>
+        </div>
+
+        <!-- CPU -->
+        <div class="metric-row">
+          <div class="metric-labels">
+            <span>CPU Usage</span>
+            <span id="rt-cpu-val" style="font-weight:700; color:#fff;">-- %</span>
+          </div>
+          <div class="metric-bar-bg">
+            <div class="metric-bar-fill" id="rt-cpu-bar" style="width: 18%;"></div>
+          </div>
+        </div>
+
+        <!-- RAM -->
+        <div class="metric-row">
+          <div class="metric-labels">
+            <span>RAM Usage</span>
+            <span id="rt-ram-val" style="font-weight:700; color:#fff;">-- %</span>
+          </div>
+          <div class="metric-bar-bg">
+            <div class="metric-bar-fill" id="rt-ram-bar" style="width: 42%;"></div>
+          </div>
+        </div>
+
+        <!-- Battery -->
+        <div class="metric-row" style="margin-bottom: 0;">
+          <div class="metric-labels">
+            <span>Battery</span>
+            <span id="rt-battery-val" style="font-weight:700; color:#fff;">-- %</span>
+          </div>
+          <div class="metric-bar-bg">
+            <div class="metric-bar-fill" id="rt-battery-bar" style="width: 87%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current Action Card -->
+      <div class="current-action-card">
+        <div class="action-header">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+          </svg>
+          <span>Current Action</span>
+        </div>
+        <div class="action-status-text" id="action-mode-label">Idle</div>
+        <div class="action-detail-text" id="action-detail-label">Waiting for your command...</div>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- Modal for Creating New Note -->
+  <div class="modal-overlay" id="note-modal">
+    <div class="modal-card">
+      <div class="modal-title">
+        <span>Create SQLite Note</span>
+        <button id="btn-close-modal" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form id="modal-note-form">
+        <input type="text" class="modal-input" id="modal-note-title" placeholder="Note Title (e.g. Project Ideas)" required />
+        <textarea class="modal-textarea" id="modal-note-content" placeholder="Type your note content here..." required></textarea>
+        <div class="modal-actions">
+          <button type="button" class="btn-modal-cancel" id="btn-cancel-modal">Cancel</button>
+          <button type="submit" class="btn-new-note">Save to SQLite</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       JAVASCRIPT HUD CONTROLLER
+       ======================================================== -->
+  <script>
+    // Navigation & View Switching
+    const navButtons = document.querySelectorAll('.nav-btn');
+    const viewPanels = document.querySelectorAll('.view-panel');
+    const pageTitleText = document.getElementById('page-title-text');
+    const pageDescText = document.getElementById('page-desc-text');
+
+    const viewMeta = {
+      'view-chat': { title: 'Chat', desc: "Ask anything, I'm here to help." },
+      'view-notes': { title: 'My Notes', desc: 'Persistent notes & memory vault (SQLite)' },
+      'view-system': { title: 'System Diagnostics', desc: 'Hardware telemetry, CPU, RAM & sensors' },
+      'view-tools': { title: 'Available Tools', desc: 'Autonomous system tools and shortcuts' },
+      'view-settings': { title: 'Settings', desc: 'Voice, wake word & API configurations' }
+    };
+
+    navButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        navButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const targetView = btn.getAttribute('data-view');
+        viewPanels.forEach(panel => {
+          if (panel.id === targetView) {
+            panel.classList.add('active-view');
+          } else {
+            panel.classList.remove('active-view');
+          }
+        });
+
+        if (viewMeta[targetView]) {
+          pageTitleText.textContent = viewMeta[targetView].title;
+          pageDescText.textContent = viewMeta[targetView].desc;
+        }
+
+        if (targetView === 'view-notes') loadNotes();
+      });
+    });
+
+    // Clock
+    function formatTime(date) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    document.getElementById('greeting-time').textContent = formatTime(new Date());
+
+    // Chat Controller
+    const chatFeed = document.getElementById('chat-feed');
+    const chatForm = document.getElementById('chat-form');
+    const userInput = document.getElementById('user-input');
+    const actionModeLabel = document.getElementById('action-mode-label');
+    const actionDetailLabel = document.getElementById('action-detail-label');
+
+    // Overlays
+    const overlayListening = document.getElementById('overlay-listening');
+    const overlayThinking = document.getElementById('overlay-thinking');
+    const overlaySpeaking = document.getElementById('overlay-speaking');
+    const btnToggleMic = document.getElementById('btn-toggle-mic');
+    const btnCloseListening = document.getElementById('btn-close-listening');
+    const btnCloseSpeaking = document.getElementById('btn-close-speaking');
+
+    btnToggleMic.addEventListener('click', () => {
+      overlayListening.classList.add('active-overlay');
+      setHUDAction('Listening', 'Your voice is being processed...');
+    });
+
+    btnCloseListening.addEventListener('click', () => {
+      overlayListening.classList.remove('active-overlay');
+      setHUDAction('Idle', 'Waiting for your command...');
+    });
+
+    btnCloseSpeaking.addEventListener('click', () => {
+      overlaySpeaking.classList.remove('active-overlay');
+      setHUDAction('Idle', 'Waiting for your command...');
+    });
+
+    function setHUDAction(status, detail) {
+      actionModeLabel.textContent = status;
+      actionDetailLabel.textContent = detail;
+    }
+
+    function appendUserMessage(text) {
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble user';
+      bubble.innerHTML = `
+        <div class="chat-avatar user">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#93c5fd">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+        </div>
+        <div class="chat-body">
+          <div class="chat-text">${escapeHtml(text)}</div>
+          <div class="chat-time">${formatTime(new Date())}</div>
+        </div>
+      `;
+      chatFeed.appendChild(bubble);
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    function appendJarvisMessage(text) {
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble jarvis';
+      bubble.innerHTML = `
+        <div class="chat-avatar jarvis">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+          </svg>
+        </div>
+        <div class="chat-body">
+          <div class="chat-text">${escapeHtml(text)}</div>
+          <div class="chat-time">${formatTime(new Date())}</div>
+        </div>
+      `;
+      chatFeed.appendChild(bubble);
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+
+    // WebSocket Client
+    let ws = null;
+    function connectWS() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/jarvis`;
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => console.log('Jarvis WebSocket connected');
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'status') {
+              if (data.status === 'thinking') {
+                overlayThinking.classList.add('active-overlay');
+                setHUDAction('Thinking', 'Processing with AI model...');
+              } else if (data.status === 'idle') {
+                overlayThinking.classList.remove('active-overlay');
+                setHUDAction('Idle', 'Waiting for your command...');
+              }
+            } else if (data.type === 'response') {
+              overlayThinking.classList.remove('active-overlay');
+              appendJarvisMessage(data.text);
+              setHUDAction('Speaking', "Here's what I found for you:");
+              setTimeout(() => {
+                setHUDAction('Idle', 'Waiting for your command...');
+              }, 4000);
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        };
+        ws.onclose = () => setTimeout(connectWS, 2500);
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+    connectWS();
+
+    function sendMessage(text) {
+      if (!text) return;
+      appendUserMessage(text);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'chat', text }));
+      } else {
+        // Fallback
+        overlayThinking.classList.add('active-overlay');
+        setTimeout(() => {
+          overlayThinking.classList.remove('active-overlay');
+          appendJarvisMessage(`Acknowledged, Rohit: "${text}". Subsystems nominal.`);
+          setHUDAction('Idle', 'Waiting for your command...');
+        }, 800);
+      }
+    }
+
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = userInput.value.trim();
+      if (!text) return;
+      userInput.value = '';
+      sendMessage(text);
+    });
+
+    // Quick Chips Trigger
+    document.querySelectorAll('.chip-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const prompt = btn.getAttribute('data-prompt');
+        sendMessage(prompt);
+      });
+    });
+
+    // Telemetry Poller
+    const rtCpuVal = document.getElementById('rt-cpu-val');
+    const rtCpuBar = document.getElementById('rt-cpu-bar');
+    const rtRamVal = document.getElementById('rt-ram-val');
+    const rtRamBar = document.getElementById('rt-ram-bar');
+    const rtBatteryVal = document.getElementById('rt-battery-val');
+    const rtBatteryBar = document.getElementById('rt-battery-bar');
+
+    const sysCpuDetail = document.getElementById('sys-cpu-detail');
+    const sysRamDetail = document.getElementById('sys-ram-detail');
+    const sysBatteryDetail = document.getElementById('sys-battery-detail');
+
+    async function pollTelemetry() {
+      try {
+        const res = await fetch('/api/telemetry');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.success && json.data) {
+          const s = json.data;
+          // CPU
+          rtCpuVal.textContent = `${s.cpu_usage_percent}%`;
+          rtCpuBar.style.width = `${Math.min(s.cpu_usage_percent, 100)}%`;
+          sysCpuDetail.textContent = `Current load: ${s.cpu_usage_percent}%. Probes active.`;
+
+          // RAM
+          rtRamVal.textContent = `${s.ram_usage_percent}%`;
+          rtRamBar.style.width = `${Math.min(s.ram_usage_percent, 100)}%`;
+          sysRamDetail.textContent = `${s.ram_used_gb} GB used of ${s.ram_total_gb} GB total (${s.ram_usage_percent}%)`;
+
+          // Battery
+          const battMatches = (s.battery || '').match(/(\d+)%/);
+          const battPercent = battMatches ? parseInt(battMatches[1], 10) : 85;
+          rtBatteryVal.textContent = `${battPercent}%`;
+          rtBatteryBar.style.width = `${battPercent}%`;
+          sysBatteryDetail.textContent = s.battery || 'AC Power Connected';
+        }
+      } catch (e) {
+        console.warn('Telemetry error:', e);
+      }
+    }
+    setInterval(pollTelemetry, 2500);
+    pollTelemetry();
+
+    // Notes Manager
+    const notesGridContainer = document.getElementById('notes-grid-container');
+    const notesSearch = document.getElementById('notes-search');
+    const noteModal = document.getElementById('note-modal');
+    const btnOpenNoteModal = document.getElementById('btn-open-note-modal');
+    const btnCloseModal = document.getElementById('btn-close-modal');
+    const btnCancelModal = document.getElementById('btn-cancel-modal');
+    const modalNoteForm = document.getElementById('modal-note-form');
+    const modalNoteTitle = document.getElementById('modal-note-title');
+    const modalNoteContent = document.getElementById('modal-note-content');
+
+    btnOpenNoteModal.addEventListener('click', () => { noteModal.style.display = 'flex'; });
+    btnCloseModal.addEventListener('click', () => { noteModal.style.display = 'none'; });
+    btnCancelModal.addEventListener('click', () => { noteModal.style.display = 'none'; });
+
+    // Preloaded default sample cards matching mockup design if database is empty
+    const defaultSampleNotes = [
+      { title: "Project Ideas", content: "Build an AI assistant for daily tasks, speech recognition, and desktop control.", created_at: "Apr 24, 2026" },
+      { title: "Study Plan", content: "Complete Python, FastAPI, React, SQLite, and ChromaDB vector embeddings.", created_at: "Apr 22, 2026" },
+      { title: "Meeting Notes", content: "Discussed project timeline, modular isolation contracts, and Day 4 integration.", created_at: "Apr 20, 2026" },
+      { title: "Personal Notes", content: "Remember to stay consistent, focused, and test all code line-by-line.", created_at: "Apr 18, 2026" }
+    ];
+
+    async function loadNotes(filterQuery = '') {
+      try {
+        const url = filterQuery ? `/api/notes/search?q=${encodeURIComponent(filterQuery)}` : '/api/notes';
+        const res = await fetch(url);
+        let notes = res.ok ? await res.json() : [];
+
+        if (notes.length === 0 && !filterQuery) {
+          notes = defaultSampleNotes;
+        }
+
+        notesGridContainer.innerHTML = '';
+        notes.forEach(note => {
+          const card = document.createElement('div');
+          card.className = 'note-grid-card';
+          card.innerHTML = `
+            <div>
+              <div class="note-card-header">
+                <div class="note-icon-badge">📄</div>
+                <div class="note-title-text">${escapeHtml(note.title)}</div>
+              </div>
+              <div class="note-snippet">${escapeHtml(note.content)}</div>
+            </div>
+            <div class="note-date-tag">${note.created_at || 'Saved'}</div>
+          `;
+          card.addEventListener('click', () => {
+            sendMessage(`Show me details about note: "${note.title}"`);
+            document.querySelector('[data-view="view-chat"]').click();
+          });
+          notesGridContainer.appendChild(card);
+        });
+      } catch (e) {
+        console.error('Error loading notes:', e);
+      }
+    }
+
+    notesSearch.addEventListener('input', (e) => {
+      loadNotes(e.target.value.trim());
+    });
+
+    modalNoteForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = modalNoteTitle.value.trim();
+      const content = modalNoteContent.value.trim();
+      if (!title || !content) return;
+
+      try {
+        const res = await fetch('/api/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content })
+        });
+        if (res.ok) {
+          modalNoteTitle.value = '';
+          modalNoteContent.value = '';
+          noteModal.style.display = 'none';
+          loadNotes();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    // Tool Tile Click Handler -> triggers interactive chat action
+    document.querySelectorAll('.tool-tile').forEach(tile => {
+      tile.addEventListener('click', () => {
+        const toolName = tile.querySelector('.tool-tile-title')?.textContent || 'tool';
+        sendMessage(`Execute tool: ${toolName}`);
+        document.querySelector('[data-view="view-chat"]').click();
+      });
+    });
+
+    loadNotes();
+  </script>
+</body>
+</html>
