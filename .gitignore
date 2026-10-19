@@ -44,10 +44,15 @@ cache/
 logs/
 *.log
 
-# Audio temp files (Aryan)
+# Audio & Vision temp files (Aryan)
 temp_audio/
+temp_vision/
 *.wav
 *.mp3
+*.jpg
+*.jpeg
+*.png
+
 
 # OS specific
 .DS_Store
