@@ -59,7 +59,7 @@
         0 0 25px rgba(0, 210, 255, 0.18),
         inset 0 0 20px rgba(0, 210, 255, 0.05);
       display: grid;
-      grid-template-columns: 230px 1fr 310px;
+      grid-template-columns: 220px 1fr 420px;
       overflow: hidden;
       position: relative;
       backdrop-filter: blur(20px);
@@ -909,43 +909,71 @@
        RIGHT TELEMETRY & HOLOGRAM SIDEBAR
        ======================================================== */
     .sidebar-right {
-      background: rgba(7, 14, 28, 0.85);
+      background: rgba(7, 14, 28, 0.9);
       border-left: 1px solid var(--border-cyan);
       display: flex;
       flex-direction: column;
-      padding: 24px 18px;
-      gap: 18px;
-      overflow-y: auto;
+      padding: 0;
+      overflow: hidden;
+      position: relative;
     }
 
-    /* Arc Reactor Hologram Widget */
-    .hologram-avatar-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-cyan);
-      border-radius: 14px;
-      padding: 20px 14px;
+    .chat-sidebar-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(10, 18, 35, 0.85);
+      flex-shrink: 0;
+    }
+
+    .chat-header-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      color: #fff;
+      text-transform: uppercase;
+      text-shadow: 0 0 10px var(--cyan-glow);
+    }
+
+    .chat-header-subtitle {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Center Stage 3D Neural Starburst Core (Image 1 in Center) */
+    .core-stage-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow-y: auto;
+      gap: 18px;
+    }
+
+    .hero-3d-core-card {
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
 
-    /* 3D Starburst Neural Core Hologram Widget */
-    .canvas-3d-wrapper {
+    .canvas-3d-wrapper.hero-wrapper {
       position: relative;
-      width: 220px;
-      height: 220px;
+      width: 290px;
+      height: 290px;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(0, 210, 255, 0.08) 0%, rgba(4, 12, 28, 0.6) 70%, transparent 100%);
-      box-shadow: 0 0 30px rgba(0, 210, 255, 0.25), inset 0 0 25px rgba(0, 210, 255, 0.15);
-      border: 1px solid rgba(0, 210, 255, 0.3);
+      background: radial-gradient(circle, rgba(0, 210, 255, 0.1) 0%, rgba(4, 12, 28, 0.7) 70%, transparent 100%);
+      box-shadow: 0 0 45px rgba(0, 210, 255, 0.35), inset 0 0 30px rgba(0, 210, 255, 0.2);
+      border: 1px solid rgba(0, 210, 255, 0.35);
       overflow: hidden;
       cursor: crosshair;
     }
@@ -954,45 +982,70 @@
       width: 100%;
       height: 100%;
       display: block;
-      filter: drop-shadow(0 0 12px rgba(0, 210, 255, 0.7));
+      filter: drop-shadow(0 0 14px rgba(0, 210, 255, 0.75));
     }
 
     .core-status-badge {
       position: absolute;
-      bottom: 8px;
+      bottom: 10px;
       font-family: var(--font-mono);
-      font-size: 0.65rem;
-      letter-spacing: 1.5px;
+      font-size: 0.7rem;
+      letter-spacing: 1.8px;
       color: #38bdf8;
-      background: rgba(6, 12, 24, 0.85);
-      padding: 3px 12px;
+      background: rgba(6, 12, 24, 0.9);
+      padding: 3px 14px;
       border-radius: 12px;
-      border: 1px solid rgba(0, 210, 255, 0.35);
+      border: 1px solid rgba(0, 210, 255, 0.4);
       text-transform: uppercase;
       pointer-events: none;
-      box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
+      box-shadow: 0 0 12px rgba(0, 210, 255, 0.25);
     }
 
-    .hologram-card-title {
-      font-size: 1rem;
-      font-weight: 800;
-      letter-spacing: 2px;
+    .hero-core-title {
+      font-size: 1.35rem;
+      font-weight: 900;
+      letter-spacing: 3px;
       color: #ffffff;
       text-transform: uppercase;
-      margin-bottom: 2px;
+      text-shadow: 0 0 15px var(--cyan-glow);
+      margin-bottom: 4px;
     }
 
-    .hologram-card-sub {
-      font-size: 0.72rem;
+    .hero-core-sub {
+      font-size: 0.82rem;
       color: var(--cyan-bright);
-      letter-spacing: 1px;
-      margin-bottom: 8px;
+      letter-spacing: 2px;
+      margin-bottom: 6px;
+      font-weight: 700;
     }
 
-    .hologram-taglines {
-      font-size: 0.74rem;
+    .hero-core-tagline {
+      font-size: 0.76rem;
       color: var(--text-muted);
-      line-height: 1.5;
+    }
+
+    .center-chips {
+      justify-content: center;
+      max-width: 680px;
+      padding: 0;
+    }
+
+    .hero-telemetry-panel {
+      width: 100%;
+      max-width: 680px;
+      margin: 0;
+    }
+
+    .telemetry-grid-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .hero-action-card {
+      width: 100%;
+      max-width: 680px;
+      margin: 0;
     }
 
     /* System Status Widget Card */
@@ -1225,8 +1278,8 @@
 
         <nav class="nav-menu">
           <button class="nav-btn active" data-view="view-chat">
-            <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-            <span>Chat</span>
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6z"/></svg>
+            <span>JARVIS Core</span>
           </button>
           <button class="nav-btn" data-view="view-notes">
             <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
@@ -1263,104 +1316,111 @@
       <div class="top-header">
         <div>
           <div class="page-title" id="page-title-text">
-            <span>Chat</span>
+            <span>JARVIS Core</span>
           </div>
-          <div class="page-desc" id="page-desc-text">Ask anything, I'm here to help.</div>
+          <div class="page-desc" id="page-desc-text">Next-Gen 3D Neural Starburst Core &bull; Autonomous Desktop Assistant</div>
         </div>
         <div class="header-indicators">
           <div class="badge-online">
             <span class="dot"></span>
             <span>Online</span>
           </div>
-          <div class="audio-stream-icon" id="btn-toggle-speech" title="Voice Output (TTS) Enabled">
-            <svg id="icon-speaker" width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
-          </div>
-          <div class="audio-stream-icon" id="btn-toggle-mic" title="Voice Input Mode (Click to Speak)">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
-            </svg>
-          </div>
         </div>
       </div>
 
-      <!-- VIEW 1: CHAT -->
+      <!-- VIEW 1: QUANTUM 3D CORE HERO STAGE (Image 1 in Center) -->
       <div class="view-panel active-view" id="view-chat">
-        <div class="chat-messages" id="chat-feed">
-          <!-- Jarvis Greeting Message -->
-          <div class="chat-bubble jarvis">
-            <div class="chat-avatar jarvis">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-              </svg>
+        <div class="core-stage-container">
+          
+          <!-- Center 3D Starburst Core Card -->
+          <div class="hero-3d-core-card">
+            <div class="canvas-3d-wrapper hero-wrapper" title="Interactive 3D Starburst Core - Move mouse to rotate">
+              <canvas id="jarvis-3d-core" width="300" height="300"></canvas>
+              <div class="core-status-badge" id="core-status-badge">CORE: IDLE</div>
             </div>
-            <div class="chat-body">
-              <div class="chat-text">
-                Hello! I'm <strong>JARVIS</strong> &mdash; your autonomous AI assistant. I can help you with:
+            <div class="hero-core-title">JARVIS AI</div>
+            <div class="hero-core-sub" id="core-state-text">QUANTUM STARBURST CORE</div>
+            <div class="hero-core-tagline" id="core-fps-label">Next-Gen 3D Neural Engine &bull; Interactive 3D Particles &bull; 60 FPS</div>
+          </div>
+
+          <!-- Quick Action Prompt Chips in Center -->
+          <div class="quick-chips-row center-chips">
+            <button class="chip-btn" data-prompt="Open Google Chrome">
+              <span>🌐</span> Open Chrome
+            </button>
+            <button class="chip-btn" data-prompt="open whatsapp">
+              <span>💬</span> Open WhatsApp
+            </button>
+            <button class="chip-btn" data-prompt="can you open command prompt ?">
+              <span>💻</span> Command Prompt
+            </button>
+            <button class="chip-btn" data-prompt="Check system info and RAM usage">
+              <span>📊</span> System Info
+            </button>
+            <button class="chip-btn" data-prompt="Save a note: Finish Project-A integration">
+              <span>📝</span> Save Note
+            </button>
+            <button class="chip-btn" data-prompt="What's the weather and current time?">
+              <span>🌤️</span> Weather
+            </button>
+          </div>
+
+          <!-- Live System Status Diagnostics Bar -->
+          <div class="telemetry-card-panel hero-telemetry-panel">
+            <div class="card-panel-header">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 6px #22c55e;"></span>
+              <span>Host Machine Diagnostics</span>
+            </div>
+
+            <div class="telemetry-grid-row">
+              <!-- CPU -->
+              <div class="metric-row">
+                <div class="metric-labels">
+                  <span>CPU Load</span>
+                  <span id="rt-cpu-val" style="font-weight:700; color:#fff;">-- %</span>
+                </div>
+                <div class="metric-bar-bg">
+                  <div class="metric-bar-fill" id="rt-cpu-bar" style="width: 18%;"></div>
+                </div>
               </div>
-              <ul class="chat-features-list">
-                <li>&bull; Answering questions &amp; multi-turn reasoning</li>
-                <li>&bull; Managing your files and system telemetry</li>
-                <li>&bull; Setting reminders and persistent SQLite notes</li>
-                <li>&bull; Fetching real-time system diagnostics</li>
-                <li>&bull; Controlling your desktop applications</li>
-                <li>&bull; And much more...</li>
-              </ul>
-              <div class="chat-text" style="font-weight: 500;">What would you like to do today?</div>
-              <div class="chat-time" id="greeting-time">10:24 AM</div>
+
+              <!-- RAM -->
+              <div class="metric-row">
+                <div class="metric-labels">
+                  <span>RAM Usage</span>
+                  <span id="rt-ram-val" style="font-weight:700; color:#fff;">-- %</span>
+                </div>
+                <div class="metric-bar-bg">
+                  <div class="metric-bar-fill" id="rt-ram-bar" style="width: 42%;"></div>
+                </div>
+              </div>
+
+              <!-- Battery -->
+              <div class="metric-row" style="margin-bottom: 0;">
+                <div class="metric-labels">
+                  <span>Battery</span>
+                  <span id="rt-battery-val" style="font-weight:700; color:#fff;">-- %</span>
+                </div>
+                <div class="metric-bar-bg">
+                  <div class="metric-bar-fill" id="rt-battery-bar" style="width: 87%;"></div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Quick Action Prompt Chips -->
-        <div class="quick-chips-row">
-          <button class="chip-btn" data-prompt="Open Google Chrome">
-            <span>🌐</span> Open Chrome
-          </button>
-          <button class="chip-btn" data-prompt="Check system info and RAM usage">
-            <span>📊</span> Check system info
-          </button>
-          <button class="chip-btn" data-prompt="Save a note: Finish Project-A integration">
-            <span>📝</span> Save a note
-          </button>
-          <button class="chip-btn" data-prompt="What's the weather and current time?">
-            <span>🌤️</span> What's the weather?
-          </button>
-        </div>
-
-        <!-- Voice Input Status Capsule -->
-        <div class="voice-active-bar" id="voice-active-bar">
-          <div class="voice-bar-left">
-            <div class="voice-pulse-ring"></div>
-            <span class="voice-bar-text">Listening:</span>
-            <span class="voice-transcript-preview" id="voice-transcript-preview">Listening... Speak now into your microphone</span>
-          </div>
-          <button type="button" class="btn-stop-voice" id="btn-cancel-voice">✕ Cancel</button>
-        </div>
-
-        <!-- Chat Input Bar -->
-        <form class="chat-input-bar" id="chat-form">
-          <div class="input-wrapper">
-            <span class="attach-icon" id="btn-mic-inline" title="Click to speak (Voice Recognition)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
+          <!-- Current Action Card -->
+          <div class="current-action-card hero-action-card">
+            <div class="action-header">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
               </svg>
-            </span>
-            <input 
-              type="text" 
-              class="main-input" 
-              id="user-input" 
-              placeholder="Ask anything or click the microphone to speak..." 
-              autocomplete="off"
-            />
+              <span>Current Action</span>
+            </div>
+            <div class="action-status-text" id="action-mode-label">Idle</div>
+            <div class="action-detail-text" id="action-detail-label">Waiting for your command...</div>
           </div>
-          <button type="submit" class="send-icon-btn" title="Send (Enter)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-            </svg>
-          </button>
-        </form>
+
+        </div>
       </div>
 
       <!-- VIEW 2: NOTES MANAGER -->
@@ -1552,74 +1612,82 @@
     <!-- ========================================================
          3. RIGHT TELEMETRY & HOLOGRAM SIDEBAR
          ======================================================== -->
-    <aside class="sidebar-right">
+    <aside class="sidebar-right chat-sidebar">
       
-      <!-- 3D Starburst Neural Core Hologram Widget (Matching Image 4) -->
-      <div class="hologram-avatar-card" id="neural-core-card">
-        <div class="canvas-3d-wrapper" title="Interactive 3D Starburst Core - Move mouse to rotate">
-          <canvas id="jarvis-3d-core" width="220" height="220"></canvas>
-          <div class="core-status-badge" id="core-status-badge">CORE: ONLINE</div>
+      <!-- Top Chat Header -->
+      <div class="chat-sidebar-header">
+        <div class="chat-header-info">
+          <div class="chat-header-title">Chat Console</div>
+          <div class="chat-header-subtitle">Ask anything, I'm here to help.</div>
         </div>
-        <div class="hologram-card-title">JARVIS AI</div>
-        <div class="hologram-card-sub" id="core-state-text">QUANTUM STARBURST CORE</div>
-        <div class="hologram-taglines">
-          <div>Next-Gen 3D Neural Engine</div>
-          <div id="core-fps-label">Interactive 3D Particles &bull; 60 FPS</div>
-        </div>
-      </div>
-
-      <!-- Live System Status Widget -->
-      <div class="telemetry-card-panel">
-        <div class="card-panel-header">
-          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 6px #22c55e;"></span>
-          <span>System Status</span>
-        </div>
-
-        <!-- CPU -->
-        <div class="metric-row">
-          <div class="metric-labels">
-            <span>CPU Usage</span>
-            <span id="rt-cpu-val" style="font-weight:700; color:#fff;">-- %</span>
+        <div class="header-indicators">
+          <div class="badge-online">
+            <span class="dot"></span>
+            <span>Online</span>
           </div>
-          <div class="metric-bar-bg">
-            <div class="metric-bar-fill" id="rt-cpu-bar" style="width: 18%;"></div>
+          <div class="audio-stream-icon" id="btn-toggle-speech" title="Voice Output (TTS) Enabled">
+            <svg id="icon-speaker" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
           </div>
-        </div>
-
-        <!-- RAM -->
-        <div class="metric-row">
-          <div class="metric-labels">
-            <span>RAM Usage</span>
-            <span id="rt-ram-val" style="font-weight:700; color:#fff;">-- %</span>
-          </div>
-          <div class="metric-bar-bg">
-            <div class="metric-bar-fill" id="rt-ram-bar" style="width: 42%;"></div>
-          </div>
-        </div>
-
-        <!-- Battery -->
-        <div class="metric-row" style="margin-bottom: 0;">
-          <div class="metric-labels">
-            <span>Battery</span>
-            <span id="rt-battery-val" style="font-weight:700; color:#fff;">-- %</span>
-          </div>
-          <div class="metric-bar-bg">
-            <div class="metric-bar-fill" id="rt-battery-bar" style="width: 87%;"></div>
+          <div class="audio-stream-icon" id="btn-toggle-mic" title="Voice Input Mode (Click to Speak)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
+            </svg>
           </div>
         </div>
       </div>
 
-      <!-- Current Action Card -->
-      <div class="current-action-card">
-        <div class="action-header">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+      <!-- Chat Messages Feed (Image 2) -->
+      <div class="chat-messages" id="chat-feed">
+        <!-- Jarvis Greeting Message -->
+        <div class="chat-bubble jarvis">
+          <div class="chat-avatar jarvis">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+            </svg>
+          </div>
+          <div class="chat-body">
+            <div class="chat-text">
+              Hello! I'm <strong>JARVIS</strong> &mdash; your autonomous AI assistant. Ready to launch apps, manage notes, or answer queries!
+            </div>
+            <div class="chat-time" id="greeting-time">10:24 AM</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Voice Input Status Capsule -->
+      <div class="voice-active-bar" id="voice-active-bar">
+        <div class="voice-bar-left">
+          <div class="voice-pulse-ring"></div>
+          <span class="voice-bar-text">Listening:</span>
+          <span class="voice-transcript-preview" id="voice-transcript-preview">Speak now into your microphone...</span>
+        </div>
+        <button type="button" class="btn-stop-voice" id="btn-cancel-voice">✕</button>
+      </div>
+
+      <!-- Chat Input Bar -->
+      <form class="chat-input-bar" id="chat-form">
+        <div class="input-wrapper">
+          <span class="attach-icon" id="btn-mic-inline" title="Click to speak (Voice Recognition)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
+            </svg>
+          </span>
+          <input 
+            type="text" 
+            class="main-input" 
+            id="user-input" 
+            placeholder="Ask anything or click mic..." 
+            autocomplete="off"
+          />
+        </div>
+        <button type="submit" class="send-icon-btn" title="Send (Enter)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
           </svg>
-          <span>Current Action</span>
-        </div>
-        <div class="action-status-text" id="action-mode-label">Idle</div>
-        <div class="action-detail-text" id="action-detail-label">Waiting for your command...</div>
-      </div>
+        </button>
+      </form>
 
     </aside>
 
@@ -1654,7 +1722,7 @@
     const pageDescText = document.getElementById('page-desc-text');
 
     const viewMeta = {
-      'view-chat': { title: 'Chat', desc: "Ask anything, I'm here to help." },
+      'view-chat': { title: 'JARVIS Core', desc: 'Next-Gen 3D Neural Starburst Core • Autonomous Desktop Assistant' },
       'view-notes': { title: 'My Notes', desc: 'Persistent notes & memory vault (SQLite)' },
       'view-system': { title: 'System Diagnostics', desc: 'Hardware telemetry, CPU, RAM & sensors' },
       'view-tools': { title: 'Available Tools', desc: 'Autonomous system tools and shortcuts' },
@@ -1700,15 +1768,15 @@
         this.ctx = this.canvas.getContext('2d');
         
         this.dpr = window.devicePixelRatio || 1;
-        this.width = 220;
-        this.height = 220;
+        this.width = 300;
+        this.height = 300;
         this.canvas.width = this.width * this.dpr;
         this.canvas.height = this.height * this.dpr;
         this.ctx.scale(this.dpr, this.dpr);
 
         this.cx = this.width / 2;
         this.cy = this.height / 2;
-        this.numRays = 260;
+        this.numRays = 300;
         this.state = 'idle'; // 'idle' | 'listening' | 'thinking' | 'speaking'
         
         this.rotX = 0.25;
@@ -1738,12 +1806,12 @@
           
           this.rays.push({
             x, y, z,
-            innerR: 12 + Math.random() * 10,
-            baseLen: 42 + Math.random() * 56,
+            innerR: 16 + Math.random() * 14,
+            baseLen: 55 + Math.random() * 75,
             pulseSpeed: 1.2 + Math.random() * 1.8,
             phase: Math.random() * Math.PI * 2,
-            width: 0.9 + Math.random() * 1.5,
-            hasSpark: Math.random() > 0.4
+            width: 1.0 + Math.random() * 1.6,
+            hasSpark: Math.random() > 0.38
           });
         }
       }
@@ -1817,7 +1885,7 @@
         const cosX = Math.cos(this.rotX), sinX = Math.sin(this.rotX);
         const cosZ = Math.cos(this.rotZ), sinZ = Math.sin(this.rotZ);
 
-        const focal = 190;
+        const focal = 240;
         const projectedRays = [];
 
         for (let i = 0; i < this.numRays; i++) {

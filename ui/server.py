@@ -214,6 +214,73 @@ async def get_tools() -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def try_launch_system_app(user_text: str) -> Optional[str]:
+    """Helper in ui/server.py to reliably launch requested desktop applications on Windows.
+    
+    Ensures that when a user requests to open Chrome, WhatsApp, Command Prompt, etc.,
+    the actual Windows application process is launched to the foreground.
+    """
+    import subprocess
+
+    cleaned = user_text.lower().strip()
+    trigger_words = ("open", "launch", "start", "run", "execute", "ugad", "chalu", "khol")
+    app_keywords = ("whatsapp", "chrome", "cmd", "command prompt", "terminal", "notepad", "calc", "calculator", "edge", "youtube", "vscode", "spotify", "snippingtool", "screenshot")
+    
+    is_launch_request = any(w in cleaned for w in trigger_words) or any(cleaned == k for k in app_keywords)
+
+    if not is_launch_request:
+        return None
+
+    try:
+        if "whatsapp" in cleaned:
+            try:
+                subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
+                return "WhatsApp"
+            except Exception:
+                subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
+                return "WhatsApp Web"
+
+        elif "chrome" in cleaned or "google chrome" in cleaned:
+            subprocess.Popen("cmd.exe /c start chrome", shell=True)
+            return "Google Chrome"
+
+        elif "edge" in cleaned:
+            subprocess.Popen("cmd.exe /c start msedge", shell=True)
+            return "Microsoft Edge"
+
+        elif "youtube" in cleaned:
+            subprocess.Popen("cmd.exe /c start https://www.youtube.com", shell=True)
+            return "YouTube"
+
+        elif "cmd" in cleaned or "command prompt" in cleaned or "terminal" in cleaned:
+            subprocess.Popen("cmd.exe /c start cmd.exe", shell=True)
+            return "Command Prompt"
+
+        elif "snip" in cleaned or "screenshot" in cleaned:
+            subprocess.Popen("cmd.exe /c start snippingtool", shell=True)
+            return "Snipping Tool"
+
+        elif "notepad" in cleaned:
+            subprocess.Popen("cmd.exe /c start notepad", shell=True)
+            return "Notepad"
+
+        elif "calc" in cleaned or "calculator" in cleaned:
+            subprocess.Popen("cmd.exe /c start calc", shell=True)
+            return "Calculator"
+
+        elif "code" in cleaned or "vscode" in cleaned:
+            subprocess.Popen("cmd.exe /c start code", shell=True)
+            return "VS Code"
+
+        elif "spotify" in cleaned or "music" in cleaned:
+            subprocess.Popen("cmd.exe /c start spotify:", shell=True)
+            return "Spotify"
+    except Exception as exc:
+        print(f"[WARN] Failed to launch application from UI server: {exc}")
+
+    return None
+
+
 async def _generate_response(user_text: str) -> str:
     """Generate assistant response using Core Brain if available, or fallback."""
     try:
@@ -252,6 +319,9 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 if not user_text:
                     continue
 
+                # Launch desktop app if requested by user
+                launched_app = try_launch_system_app(user_text)
+
                 # 1. Push 'thinking' status
                 await websocket.send_json({"type": "status", "status": "thinking"})
 
@@ -262,7 +332,10 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     print(f"[WARN] Failed to log user chat: {exc}")
 
                 # 3. Generate response
-                reply_text = await _generate_response(user_text)
+                if launched_app:
+                    reply_text = f"Opening {launched_app} for you now."
+                else:
+                    reply_text = await _generate_response(user_text)
 
                 # 4. Persist assistant turn
                 try:
