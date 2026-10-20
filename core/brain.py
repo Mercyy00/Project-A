@@ -85,6 +85,10 @@ class JarvisBrain:
         self.history: List[Dict[str, str]] = []
         self.last_tool_steps: List[str] = []
 
+        self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
+        self.groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        self.llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
+
         self.client: genai.Client = genai.Client(api_key=api_key)
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
         self._init_chat_session()
@@ -284,6 +288,10 @@ class JarvisBrain:
             return "I am listening. How can I assist you?"
 
         self.last_tool_steps = []
+
+        if self.llm_provider == "groq" and self.groq_api_key:
+            return self._chat_with_groq(cleaned_input)
+
         try:
             response = self.chat_session.send_message(cleaned_input)
             response_text: str = response.text.strip() if response.text else ""
@@ -300,14 +308,16 @@ class JarvisBrain:
                 self.model_name = "gemini-3.8-flash"
                 self._init_chat_session()
                 return self.chat(user_message)
-            if any(k in err_str for k in ("quota", "rate", "429", "resource_exhausted")):
+            if any(k in err_str for k in ("quota", "rate", "429", "resource_exhausted", "503", "high demand", "unavailable")):
+                if self.groq_api_key:
+                    print(
+                        f"[*] Gemini limit encountered ({err.message}). Seamlessly failing over to Groq ({self.groq_model})...",
+                        file=sys.stderr,
+                    )
+                    return self._chat_with_groq(cleaned_input)
                 error_msg: str = f"Gemini API rate/quota limit reached: {err.message}"
                 print(f"[!] {error_msg}", file=sys.stderr)
-                return "Gemini API quota limit reached. Please wait a moment before retrying."
-            if any(k in err_str for k in ("503", "high demand", "unavailable")):
-                error_msg = f"Gemini API service unavailable: {err.message}"
-                print(f"[!] {error_msg}", file=sys.stderr)
-                return "The neural model is experiencing high demand. Please try again shortly."
+                return "Gemini API quota limit reached. Please add GROQ_API_KEY to .env as auto-fallback or retry in a moment."
             error_msg = f"Gemini API error occurred: {err.message}"
             print(f"[!] {error_msg}", file=sys.stderr)
             return "I encountered an error communicating with my neural core."
@@ -315,6 +325,96 @@ class JarvisBrain:
             error_msg = f"Unexpected error during chat processing: {err}"
             print(f"[!] {error_msg}", file=sys.stderr)
             return "I encountered an internal error processing your request."
+
+    def _chat_with_groq(self, user_message: str) -> str:
+        """Execute chat directive using Groq Cloud API as high-speed fallback or primary engine.
+
+        Maintains conversation history buffer and executes tools autonomously.
+
+        Args:
+            user_message: Cleaned user prompt string.
+
+        Returns:
+            Assistant response string.
+        """
+        try:
+            import json
+            from groq import Groq
+
+            client = Groq(api_key=self.groq_api_key)
+            messages: List[Dict[str, Any]] = [
+                {"role": "system", "content": self.system_prompt}
+            ]
+            for turn in self.history[-6:]:
+                role = "assistant" if turn.get("role") == "model" else "user"
+                messages.append({"role": role, "content": turn.get("content", "")})
+            messages.append({"role": "user", "content": user_message})
+
+            tools_param = None
+            if self.enable_tools:
+                try:
+                    from tools.registry import get_tools_schema
+                    schemas = get_tools_schema()
+                    tools_param = [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": s["name"],
+                                "description": s["description"],
+                                "parameters": s.get("parameters", {}),
+                            },
+                        }
+                        for s in schemas
+                    ]
+                except Exception as exc:
+                    print(f"[WARN] Failed to load tool schemas for Groq: {exc}", file=sys.stderr)
+
+            completion = client.chat.completions.create(
+                model=self.groq_model,
+                messages=messages,
+                tools=tools_param if tools_param else None,
+                tool_choice="auto" if tools_param else None,
+                temperature=0.7,
+                max_tokens=1024,
+            )
+
+            msg = completion.choices[0].message
+            if msg.tool_calls:
+                messages.append(msg)
+                from tools.registry import execute_tool
+                for tool_call in msg.tool_calls:
+                    fn_name = tool_call.function.name
+                    fn_args = {}
+                    if tool_call.function.arguments:
+                        try:
+                            fn_args = json.loads(tool_call.function.arguments)
+                        except Exception:
+                            fn_args = {}
+                    self.last_tool_steps.append(f"{fn_name}({fn_args})")
+                    tool_res = execute_tool(fn_name, fn_args)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": fn_name,
+                        "content": tool_res.to_llm_string(),
+                    })
+
+                follow_up = client.chat.completions.create(
+                    model=self.groq_model,
+                    messages=messages,
+                )
+                final_text = (follow_up.choices[0].message.content or "").strip()
+            else:
+                final_text = (msg.content or "").strip()
+
+            self.history.append({"role": "user", "content": user_message})
+            self.history.append({"role": "model", "content": final_text})
+            return final_text
+
+        except Exception as exc:
+            error_msg = f"Groq fallback execution error: {str(exc)}"
+            print(f"[!] {error_msg}", file=sys.stderr)
+            return "Both primary neural core and backup engine encountered an execution error."
 
     def process_input(self, text: str) -> str:
         """Unified interface contract for Voice engine (Aryan) and UI (Rohit).
