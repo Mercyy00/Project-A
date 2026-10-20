@@ -77,7 +77,9 @@ class JarvisBrain:
             enable_tools: Whether to auto-discover and register tools for function calling.
         """
         api_key: str = load_api_key()
-        self.model_name: str = model_name or os.getenv("MODEL_NAME", "gemini-3.8-flash")
+        self.model_name: str = (
+            model_name or os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.8-flash"
+        )
         self.system_prompt: str = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.enable_tools: bool = enable_tools
         self.history: List[Dict[str, str]] = []
@@ -172,6 +174,72 @@ class JarvisBrain:
 
         discovered.append(search_web)
 
+        def read_file(file_path: str) -> str:
+            """Reads the contents of a text file inside workspace/ or temp_ directories.
+
+            Args:
+                file_path: Relative or absolute path to the file to read.
+            """
+            self.last_tool_steps.append(f"read_file({file_path})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("read_file", {"file_path": file_path})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to read file '{file_path}': {exc}"
+
+        discovered.append(read_file)
+
+        def write_file(file_path: str, content: str) -> str:
+            """Writes text content to a file inside workspace/ or temp_ directories.
+
+            Args:
+                file_path: Target file path to write to.
+                content: Text content to write into the file.
+            """
+            self.last_tool_steps.append(f"write_file({file_path})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("write_file", {"file_path": file_path, "content": content})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to write file '{file_path}': {exc}"
+
+        discovered.append(write_file)
+
+        def type_text(text: str, press_enter: bool = False) -> str:
+            """Types text using keyboard automation.
+
+            Args:
+                text: The text string to type.
+                press_enter: Whether to press Enter after typing.
+            """
+            self.last_tool_steps.append(f"type_text('{text}')")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("type_text", {"text": text, "press_enter": press_enter})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to type text: {exc}"
+
+        discovered.append(type_text)
+
+        def press_keys(keys: str) -> str:
+            """Simulates pressing a key or key combination (e.g. 'ctrl+s', 'enter').
+
+            Args:
+                keys: Key or key combination string.
+            """
+            self.last_tool_steps.append(f"press_keys('{keys}')")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("press_keys", {"keys": keys})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to press keys '{keys}': {exc}"
+
+        discovered.append(press_keys)
+
         return discovered
 
     def _init_chat_session(self) -> None:
@@ -232,7 +300,15 @@ class JarvisBrain:
                 self.model_name = "gemini-3.8-flash"
                 self._init_chat_session()
                 return self.chat(user_message)
-            error_msg: str = f"Gemini API error occurred: {err.message}"
+            if any(k in err_str for k in ("quota", "rate", "429", "resource_exhausted")):
+                error_msg: str = f"Gemini API rate/quota limit reached: {err.message}"
+                print(f"[!] {error_msg}", file=sys.stderr)
+                return "Gemini API quota limit reached. Please wait a moment before retrying."
+            if any(k in err_str for k in ("503", "high demand", "unavailable")):
+                error_msg = f"Gemini API service unavailable: {err.message}"
+                print(f"[!] {error_msg}", file=sys.stderr)
+                return "The neural model is experiencing high demand. Please try again shortly."
+            error_msg = f"Gemini API error occurred: {err.message}"
             print(f"[!] {error_msg}", file=sys.stderr)
             return "I encountered an error communicating with my neural core."
         except Exception as err:
@@ -269,6 +345,11 @@ class JarvisBrain:
 
 def run_interactive_cli() -> None:
     """Launch an interactive terminal REPL session with Jarvis."""
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
     print("=" * 60)
     print(" PROJECT JARVIS - TERMINAL COMMAND CENTER")
     print(" Type your command, or type 'exit' or 'quit' to end session.")
