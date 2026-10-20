@@ -489,6 +489,17 @@ def run_interactive_cli() -> None:
             break
 
 
+_default_brain = None
+
+
+def get_brain():
+    """Retrieve or initialize the shared singleton JarvisBrain instance."""
+    global _default_brain
+    if _default_brain is None:
+        _default_brain = JarvisBrain()
+    return _default_brain
+
+
 def main() -> None:
     """Module entry point."""
     run_interactive_cli()
