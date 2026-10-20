@@ -20,8 +20,12 @@ from google.genai import errors, types
 
 DEFAULT_SYSTEM_PROMPT: str = (
     "You are Jarvis, an ultra-efficient desktop assistant. "
-    "Speak concisely in 1-2 sentences suitable for voice. "
-    "You are helpful, witty, technically precise, and proactive."
+    "Reply in the same language as the user (English, Hindi, Marathi, or Hinglish). "
+    "When the user speaks Hindi or Marathi, always reply in Devanagari script so text-to-speech can pronounce it properly. "
+    "Keep replies concise in 1-2 short sentences suitable for voice. "
+    "You are helpful, witty, technically precise, and proactive. "
+    "Always ask for confirmation before executing any tool that deletes files, overwrites data, or sends messages. "
+    "If a tool fails, say so honestly."
 )
 
 
@@ -77,6 +81,7 @@ class JarvisBrain:
         self.system_prompt: str = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.enable_tools: bool = enable_tools
         self.history: List[Dict[str, str]] = []
+        self.last_tool_steps: List[str] = []
 
         self.client: genai.Client = genai.Client(api_key=api_key)
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
@@ -90,28 +95,82 @@ class JarvisBrain:
         """
         discovered: List[Callable[..., Any]] = []
 
-        # Attempt to load telemetry tool from tools.system_tools
-        try:
-            from tools.system_tools import GetSystemStatsTool
-            stats_tool = GetSystemStatsTool()
-
-            def get_system_stats() -> str:
-                """Retrieves current laptop telemetry including CPU usage percentage, RAM usage, and battery status."""
-                result = stats_tool.run()
+        def get_system_stats() -> str:
+            """Retrieves current laptop telemetry including CPU usage percentage, RAM usage, and battery status."""
+            self.last_tool_steps.append("get_system_stats")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("get_system_stats")
                 return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to get system stats: {exc}"
 
-            discovered.append(get_system_stats)
-        except (ImportError, Exception):
-            pass
+        discovered.append(get_system_stats)
 
-        # Attempt to inspect central tools.registry if available
-        try:
-            from tools import registry  # type: ignore
-            if hasattr(registry, "get_registered_tools"):
-                for tool in registry.get_registered_tools():
-                    discovered.append(tool)
-        except (ImportError, Exception):
-            pass
+        def open_app(app_name: str) -> str:
+            """Launches an installed desktop application or utility on the host machine.
+
+            Args:
+                app_name: Name of the application to open (e.g. 'notepad', 'calculator', 'paint', 'cmd', 'explorer', 'task manager').
+            """
+            self.last_tool_steps.append(f"open_app({app_name})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("open_app", {"app_name": app_name})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to open app '{app_name}': {exc}"
+
+        discovered.append(open_app)
+
+        def list_directory(directory_path: str = ".") -> str:
+            """Lists files and folders inside the specified directory path.
+
+            Args:
+                directory_path: Path of the directory to list (defaults to current directory '.').
+            """
+            self.last_tool_steps.append(f"list_directory({directory_path})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("list_directory", {"directory_path": directory_path})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to list directory '{directory_path}': {exc}"
+
+        discovered.append(list_directory)
+
+        def open_website(site: str) -> str:
+            """Opens a website shortcut (e.g. 'youtube', 'google', 'gmail', 'github') or full HTTP/HTTPS URL in the default browser.
+
+            Args:
+                site: Shortcut name or full URL to open.
+            """
+            self.last_tool_steps.append(f"open_website({site})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("open_website", {"site": site})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to open website '{site}': {exc}"
+
+        discovered.append(open_website)
+
+        def search_web(query: str, site: str = "google") -> str:
+            """Searches the web or YouTube for a query using the default web browser.
+
+            Args:
+                query: Search keyword or query string.
+                site: Target search engine ('google' or 'youtube'). Defaults to 'google'.
+            """
+            self.last_tool_steps.append(f"search_web({query}, site={site})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("search_web", {"query": query, "site": site})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to search web for '{query}': {exc}"
+
+        discovered.append(search_web)
 
         return discovered
 
@@ -156,6 +215,7 @@ class JarvisBrain:
         if not cleaned_input:
             return "I am listening. How can I assist you?"
 
+        self.last_tool_steps = []
         try:
             response = self.chat_session.send_message(cleaned_input)
             response_text: str = response.text.strip() if response.text else ""
