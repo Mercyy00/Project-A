@@ -84,6 +84,7 @@ class OpenAppTool(BaseTool):
     # Primary Windows executable path mapping for supported shortcuts
     APP_MAPPING: Dict[str, str] = {
         "calc": r"C:\Windows\System32\calc.exe",
+        "calculator": r"C:\Windows\System32\calc.exe",
         "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         "cmd": r"C:\Windows\System32\cmd.exe",
         "code": os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
@@ -105,6 +106,10 @@ class OpenAppTool(BaseTool):
     # Alternate candidates for different Windows setups
     APP_CANDIDATES: Dict[str, List[str]] = {
         "calc": [
+            r"C:\Windows\System32\calc.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\calc.exe"),
+        ],
+        "calculator": [
             r"C:\Windows\System32\calc.exe",
             os.path.expandvars(r"%SystemRoot%\System32\calc.exe"),
         ],
@@ -191,6 +196,64 @@ class OpenAppTool(BaseTool):
         ],
     }
 
+    # Extended natural language alias map for common app names
+    APP_ALIASES: Dict[str, str] = {
+        "calculator": "calc",
+        "calculator app": "calc",
+        "calc": "calc",
+        "vscode": "code",
+        "vs code": "code",
+        "visual studio code": "code",
+        "google chrome": "chrome",
+        "browser": "chrome",
+        "command prompt": "cmd",
+        "command": "cmd",
+        "ms word": "word",
+        "word": "word",
+        "microsoft word": "word",
+        "ms excel": "excel",
+        "excel": "excel",
+        "microsoft excel": "excel",
+        "ms paint": "paint",
+        "drawing": "paint",
+        "task manager": "taskmgr",
+        "taskmanager": "taskmgr",
+        "windows terminal": "terminal",
+        "file explorer": "explorer",
+        "files": "explorer",
+        "control panel": "settings",
+        "camera": "camera",
+    }
+
+    # Windows UWP protocol schemes for modern store apps
+    APP_PROTOCOLS: Dict[str, str] = {
+        "calc": "calculator:",
+        "calculator": "calculator:",
+        "settings": "ms-settings:",
+        "camera": "microsoft.windows.camera:",
+        "spotify": "spotify:",
+        "whatsapp": "whatsapp:",
+    }
+
+    @staticmethod
+    def _find_start_menu_shortcut(name: str) -> Optional[str]:
+        """Scans Windows Start Menu directories for matching .lnk application shortcuts."""
+        if os.name != "nt":
+            return None
+        dirs = [
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+            os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs"),
+        ]
+        target = name.lower()
+        for d in dirs:
+            if not os.path.exists(d):
+                continue
+            for root, _, files in os.walk(d):
+                for f in files:
+                    if f.lower().endswith(".lnk") and target in f.lower():
+                        return os.path.join(root, f)
+        return None
+
     # Common executable names mapped for PATH and Registry lookups
     APP_EXECUTABLES: Dict[str, List[str]] = {
         "calc": ["calc.exe"],
@@ -269,7 +332,7 @@ class OpenAppTool(BaseTool):
         """Launches the requested application in a non-blocking process.
 
         Args:
-            app_name: The shortcut name (e.g., 'chrome', 'cmd', 'explorer', 'notepad').
+            app_name: The shortcut or application name (e.g., 'calculator', 'chrome', 'cmd', 'notepad').
             **kwargs: Extra keyword arguments.
 
         Returns:
@@ -283,22 +346,58 @@ class OpenAppTool(BaseTool):
                     message="app_name must be a non-empty string."
                 )
 
-            key = app_name.strip().lower()
-            if key not in self.APP_MAPPING:
-                available = ", ".join(sorted(self.APP_MAPPING.keys()))
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message=f"Unknown application shortcut '{app_name}'. Supported shortcuts: {available}."
-                )
+            raw_key = app_name.strip().lower()
+            key = self.APP_ALIASES.get(raw_key, raw_key)
 
+            # 1. Try Windows UWP protocol if registered (e.g. calculator:, ms-settings:)
+            protocol = self.APP_PROTOCOLS.get(raw_key) or self.APP_PROTOCOLS.get(key)
+            if protocol and os.name == "nt":
+                try:
+                    os.startfile(protocol)
+                    return ToolResult(
+                        success=True,
+                        data={"app_name": raw_key, "protocol": protocol},
+                        message=f"Application '{app_name}' launched successfully via Windows protocol '{protocol}'."
+                    )
+                except Exception:
+                    pass
+
+            # 2. Resolve executable path
             executable_path = self._resolve_executable_path(key)
+
+            # 3. If not in predefined mapping, scan Windows Start Menu for installed .lnk shortcuts
+            if not executable_path and os.name == "nt":
+                executable_path = self._find_start_menu_shortcut(raw_key) or self._find_start_menu_shortcut(key)
+
             if not executable_path:
+                if key not in self.APP_MAPPING:
+                    available = ", ".join(sorted(self.APP_MAPPING.keys()))
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message=f"Unknown application shortcut '{app_name}'. Supported shortcuts: {available}."
+                    )
                 return ToolResult(
                     success=False,
                     data=None,
                     message=f"Executable path for '{app_name}' could not be resolved."
                 )
+
+            # 4. If Start Menu shortcut (.lnk), launch via Windows Shell
+            if executable_path.lower().endswith(".lnk") and os.name == "nt":
+                try:
+                    os.startfile(executable_path)
+                    return ToolResult(
+                        success=True,
+                        data={"app_name": raw_key, "shortcut_path": executable_path},
+                        message=f"Application '{app_name}' launched successfully from Start Menu."
+                    )
+                except Exception as exc:
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message=f"Failed to launch Start Menu shortcut for '{app_name}': {exc}"
+                    )
 
             if not os.path.exists(executable_path) and not shutil.which(executable_path):
                 return ToolResult(
