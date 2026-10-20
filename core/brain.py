@@ -20,8 +20,12 @@ from google.genai import errors, types
 
 DEFAULT_SYSTEM_PROMPT: str = (
     "You are Jarvis, an ultra-efficient desktop assistant. "
-    "Speak concisely in 1-2 sentences suitable for voice. "
-    "You are helpful, witty, technically precise, and proactive."
+    "Reply in the same language as the user (English, Hindi, Marathi, or Hinglish). "
+    "When the user speaks Hindi or Marathi, always reply in Devanagari script so text-to-speech can pronounce it properly. "
+    "Keep replies concise in 1-2 short sentences suitable for voice. "
+    "You are helpful, witty, technically precise, and proactive. "
+    "Always ask for confirmation before executing any tool that deletes files, overwrites data, or sends messages. "
+    "If a tool fails, say so honestly."
 )
 
 
@@ -73,10 +77,13 @@ class JarvisBrain:
             enable_tools: Whether to auto-discover and register tools for function calling.
         """
         api_key: str = load_api_key()
-        self.model_name: str = model_name or os.getenv("MODEL_NAME", "gemini-3.8-flash")
+        self.model_name: str = (
+            model_name or os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.8-flash"
+        )
         self.system_prompt: str = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.enable_tools: bool = enable_tools
         self.history: List[Dict[str, str]] = []
+        self.last_tool_steps: List[str] = []
 
         self.client: genai.Client = genai.Client(api_key=api_key)
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
@@ -90,28 +97,148 @@ class JarvisBrain:
         """
         discovered: List[Callable[..., Any]] = []
 
-        # Attempt to load telemetry tool from tools.system_tools
-        try:
-            from tools.system_tools import GetSystemStatsTool
-            stats_tool = GetSystemStatsTool()
-
-            def get_system_stats() -> str:
-                """Retrieves current laptop telemetry including CPU usage percentage, RAM usage, and battery status."""
-                result = stats_tool.run()
+        def get_system_stats() -> str:
+            """Retrieves current laptop telemetry including CPU usage percentage, RAM usage, and battery status."""
+            self.last_tool_steps.append("get_system_stats")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("get_system_stats")
                 return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to get system stats: {exc}"
 
-            discovered.append(get_system_stats)
-        except (ImportError, Exception):
-            pass
+        discovered.append(get_system_stats)
 
-        # Attempt to inspect central tools.registry if available
-        try:
-            from tools import registry  # type: ignore
-            if hasattr(registry, "get_registered_tools"):
-                for tool in registry.get_registered_tools():
-                    discovered.append(tool)
-        except (ImportError, Exception):
-            pass
+        def open_app(app_name: str) -> str:
+            """Launches an installed desktop application or utility on the host machine.
+
+            Args:
+                app_name: Name of the application to open (e.g. 'notepad', 'calculator', 'paint', 'cmd', 'explorer', 'task manager').
+            """
+            self.last_tool_steps.append(f"open_app({app_name})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("open_app", {"app_name": app_name})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to open app '{app_name}': {exc}"
+
+        discovered.append(open_app)
+
+        def list_directory(directory_path: str = ".") -> str:
+            """Lists files and folders inside the specified directory path.
+
+            Args:
+                directory_path: Path of the directory to list (defaults to current directory '.').
+            """
+            self.last_tool_steps.append(f"list_directory({directory_path})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("list_directory", {"directory_path": directory_path})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to list directory '{directory_path}': {exc}"
+
+        discovered.append(list_directory)
+
+        def open_website(site: str) -> str:
+            """Opens a website shortcut (e.g. 'youtube', 'google', 'gmail', 'github') or full HTTP/HTTPS URL in the default browser.
+
+            Args:
+                site: Shortcut name or full URL to open.
+            """
+            self.last_tool_steps.append(f"open_website({site})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("open_website", {"site": site})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to open website '{site}': {exc}"
+
+        discovered.append(open_website)
+
+        def search_web(query: str, site: str = "google") -> str:
+            """Searches the web or YouTube for a query using the default web browser.
+
+            Args:
+                query: Search keyword or query string.
+                site: Target search engine ('google' or 'youtube'). Defaults to 'google'.
+            """
+            self.last_tool_steps.append(f"search_web({query}, site={site})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("search_web", {"query": query, "site": site})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to search web for '{query}': {exc}"
+
+        discovered.append(search_web)
+
+        def read_file(file_path: str) -> str:
+            """Reads the contents of a text file inside workspace/ or temp_ directories.
+
+            Args:
+                file_path: Relative or absolute path to the file to read.
+            """
+            self.last_tool_steps.append(f"read_file({file_path})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("read_file", {"file_path": file_path})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to read file '{file_path}': {exc}"
+
+        discovered.append(read_file)
+
+        def write_file(file_path: str, content: str) -> str:
+            """Writes text content to a file inside workspace/ or temp_ directories.
+
+            Args:
+                file_path: Target file path to write to.
+                content: Text content to write into the file.
+            """
+            self.last_tool_steps.append(f"write_file({file_path})")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("write_file", {"file_path": file_path, "content": content})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to write file '{file_path}': {exc}"
+
+        discovered.append(write_file)
+
+        def type_text(text: str, press_enter: bool = False) -> str:
+            """Types text using keyboard automation.
+
+            Args:
+                text: The text string to type.
+                press_enter: Whether to press Enter after typing.
+            """
+            self.last_tool_steps.append(f"type_text('{text}')")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("type_text", {"text": text, "press_enter": press_enter})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to type text: {exc}"
+
+        discovered.append(type_text)
+
+        def press_keys(keys: str) -> str:
+            """Simulates pressing a key or key combination (e.g. 'ctrl+s', 'enter').
+
+            Args:
+                keys: Key or key combination string.
+            """
+            self.last_tool_steps.append(f"press_keys('{keys}')")
+            try:
+                from tools.registry import execute_tool
+                result = execute_tool("press_keys", {"keys": keys})
+                return result.to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to press keys '{keys}': {exc}"
+
+        discovered.append(press_keys)
 
         return discovered
 
@@ -156,6 +283,7 @@ class JarvisBrain:
         if not cleaned_input:
             return "I am listening. How can I assist you?"
 
+        self.last_tool_steps = []
         try:
             response = self.chat_session.send_message(cleaned_input)
             response_text: str = response.text.strip() if response.text else ""
@@ -172,7 +300,15 @@ class JarvisBrain:
                 self.model_name = "gemini-3.8-flash"
                 self._init_chat_session()
                 return self.chat(user_message)
-            error_msg: str = f"Gemini API error occurred: {err.message}"
+            if any(k in err_str for k in ("quota", "rate", "429", "resource_exhausted")):
+                error_msg: str = f"Gemini API rate/quota limit reached: {err.message}"
+                print(f"[!] {error_msg}", file=sys.stderr)
+                return "Gemini API quota limit reached. Please wait a moment before retrying."
+            if any(k in err_str for k in ("503", "high demand", "unavailable")):
+                error_msg = f"Gemini API service unavailable: {err.message}"
+                print(f"[!] {error_msg}", file=sys.stderr)
+                return "The neural model is experiencing high demand. Please try again shortly."
+            error_msg = f"Gemini API error occurred: {err.message}"
             print(f"[!] {error_msg}", file=sys.stderr)
             return "I encountered an error communicating with my neural core."
         except Exception as err:
@@ -209,6 +345,11 @@ class JarvisBrain:
 
 def run_interactive_cli() -> None:
     """Launch an interactive terminal REPL session with Jarvis."""
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
     print("=" * 60)
     print(" PROJECT JARVIS - TERMINAL COMMAND CENTER")
     print(" Type your command, or type 'exit' or 'quit' to end session.")

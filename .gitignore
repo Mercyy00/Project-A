@@ -46,6 +46,8 @@ logs/
 
 # Audio temp files (Aryan)
 temp_audio/
+temp_vision/
+temp_*/
 *.wav
 *.mp3
 
