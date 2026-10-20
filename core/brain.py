@@ -86,7 +86,7 @@ class JarvisBrain:
         self.last_tool_steps: List[str] = []
 
         self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
-        self.groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        self.groq_model: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
 
         self.client: genai.Client = genai.Client(api_key=api_key)
