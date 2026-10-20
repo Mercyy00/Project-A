@@ -70,18 +70,22 @@ class SaveNoteTool(BaseTool):
     def get_schema(self) -> Dict[str, Any]:
         """Returns OpenAPI/Gemini schema for function declaration."""
         return {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Short, clear title for the note or reminder."
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short, clear title for the note or reminder."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The detailed information or reminder text to store."
+                    }
                 },
-                "content": {
-                    "type": "string",
-                    "description": "The detailed information or reminder text to store."
-                }
-            },
-            "required": ["title", "content"]
+                "required": ["title", "content"]
+            }
         }
 
 
@@ -121,14 +125,18 @@ class SearchNotesTool(BaseTool):
     def get_schema(self) -> Dict[str, Any]:
         """Returns OpenAPI/Gemini schema for function declaration."""
         return {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search phrase or keyword to locate relevant notes."
-                }
-            },
-            "required": ["query"]
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search phrase or keyword to locate relevant notes."
+                    }
+                },
+                "required": ["query"]
+            }
         }
 
 
