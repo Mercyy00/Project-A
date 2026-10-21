@@ -244,6 +244,122 @@ class JarvisBrain:
 
         discovered.append(press_keys)
 
+        def click(x: Optional[int] = None, y: Optional[int] = None) -> str:
+            """Clicks mouse at coordinates (x, y) or at current cursor position if omitted."""
+            self.last_tool_steps.append(f"click({x}, {y})")
+            try:
+                from tools.registry import execute_tool
+                args = {}
+                if x is not None:
+                    args["x"] = x
+                if y is not None:
+                    args["y"] = y
+                return execute_tool("click", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to click: {exc}"
+
+        discovered.append(click)
+
+        def scroll(clicks: int = 3) -> str:
+            """Scrolls mouse wheel up (positive integer) or down (negative integer)."""
+            self.last_tool_steps.append(f"scroll({clicks})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("scroll", {"clicks": clicks}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to scroll: {exc}"
+
+        discovered.append(scroll)
+
+        def run_command(command: str, cwd: Optional[str] = None) -> str:
+            """Executes a shell command (such as npm, pip, python, node, git, build commands) inside safe project directory."""
+            self.last_tool_steps.append(f"run_command('{command}')")
+            try:
+                from tools.registry import execute_tool
+                args = {"command": command}
+                if cwd:
+                    args["cwd"] = cwd
+                return execute_tool("run_command", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to run command: {exc}"
+
+        discovered.append(run_command)
+
+        def edit_file(file_path: str, target_text: str, replacement_text: str) -> str:
+            """Edits a file by replacing target_text with replacement_text."""
+            self.last_tool_steps.append(f"edit_file('{file_path}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("edit_file", {
+                    "file_path": file_path,
+                    "target_text": target_text,
+                    "replacement_text": replacement_text,
+                }).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to edit file: {exc}"
+
+        discovered.append(edit_file)
+
+        def run_python(code: Optional[str] = None, file_path: Optional[str] = None) -> str:
+            """Executes inline Python code or runs a Python script file."""
+            self.last_tool_steps.append("run_python")
+            try:
+                from tools.registry import execute_tool
+                args = {}
+                if code:
+                    args["code"] = code
+                if file_path:
+                    args["file_path"] = file_path
+                return execute_tool("run_python", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to run python: {exc}"
+
+        discovered.append(run_python)
+
+        def take_screenshot() -> str:
+            """Captures a full screenshot of the active desktop screen."""
+            self.last_tool_steps.append("take_screenshot")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("take_screenshot").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to take screenshot: {exc}"
+
+        discovered.append(take_screenshot)
+
+        def describe_screen(question: str) -> str:
+            """Analyzes the computer screen and answers a question about what is currently visible."""
+            self.last_tool_steps.append(f"describe_screen('{question}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("describe_screen", {"question": question}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to describe screen: {exc}"
+
+        discovered.append(describe_screen)
+
+        def save_note(title: str, content: str) -> str:
+            """Saves an important note, reminder, or piece of information into persistent memory."""
+            self.last_tool_steps.append(f"save_note('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("save_note", {"title": title, "content": content}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to save note: {exc}"
+
+        discovered.append(save_note)
+
+        def search_notes(query: str) -> str:
+            """Searches previously saved notes and memory for a keyword or topic."""
+            self.last_tool_steps.append(f"search_notes('{query}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("search_notes", {"query": query}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to search notes: {exc}"
+
+        discovered.append(search_notes)
+
         return discovered
 
     def _init_chat_session(self) -> None:

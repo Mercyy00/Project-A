@@ -698,28 +698,27 @@ class OpenWebsiteTool(BaseTool):
 
 
 class SearchWebTool(BaseTool):
-    """Tool that searches the web or YouTube using the default browser."""
+    """Tool that searches the web for real-time information and documentation using DuckDuckGo."""
     name: str = "search_web"
-    description: str = (
-        "Searches the web or YouTube for a query using the default web browser. "
-        "Accepts a query string and an optional site target ('google' default, or 'youtube')."
-    )
+    description: str = "Searches the web for real-time information and documentation."
 
-    SEARCH_ENGINES: Dict[str, str] = {
-        "google": "https://www.google.com/search?q={query}",
-        "youtube": "https://www.youtube.com/results?search_query={query}",
-    }
-
-    def run(self, query: str, site: str = "google", **kwargs: Any) -> ToolResult:
-        """Performs a web or YouTube search and opens results in the browser.
+    def run(
+        self,
+        query: str,
+        max_results: int = 5,
+        site: Optional[str] = None,
+        **kwargs: Any
+    ) -> ToolResult:
+        """Searches DuckDuckGo for live snippets and URLs.
 
         Args:
-            query: The search term or keywords to search for.
-            site: Platform to search ('google' default, or 'youtube'). Defaults to 'google'.
+            query: The search term, topic, or technical question to search for.
+            max_results: Maximum number of search results to retrieve (default: 5).
+            site: Optional search target platform filter or alias.
             **kwargs: Extra keyword arguments.
 
         Returns:
-            ToolResult: Execution outcome with search URL details.
+            ToolResult: Execution outcome with formatted search summary or error details.
         """
         try:
             if not query or not isinstance(query, str) or not query.strip():
@@ -729,41 +728,42 @@ class SearchWebTool(BaseTool):
                     message="query must be a non-empty string."
                 )
 
-            if not site or not isinstance(site, str) or not site.strip():
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="site must be a non-empty string ('google' or 'youtube')."
-                )
-
-            site_key = site.strip().lower()
-            if site_key not in self.SEARCH_ENGINES:
-                supported = ", ".join(sorted(self.SEARCH_ENGINES.keys()))
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message=f"Unsupported search site '{site}'. Supported sites: {supported}."
-                )
-
             clean_query = query.strip()
-            encoded_query = urllib.parse.quote_plus(clean_query)
-            search_url = self.SEARCH_ENGINES[site_key].format(query=encoded_query)
+            effective_query = clean_query
+            if site and isinstance(site, str) and site.strip().lower() == "youtube":
+                effective_query = f"site:youtube.com {clean_query}"
 
-            webbrowser.open(search_url)
+            try:
+                try:
+                    from ddgs import DDGS
+                except ImportError:
+                    from duckduckgo_search import DDGS
+                results = list(DDGS().text(effective_query, max_results=max_results))
+            except ImportError:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Search failed: ddgs or duckduckgo_search library is not installed."
+                )
+
+            if not results:
+                return ToolResult(
+                    success=True,
+                    data="",
+                    message=f"No results found for '{clean_query}'."
+                )
+
+            summary = "\n\n".join([f"**{r.get('title', '')}**\n{r.get('body', '')}\n{r.get('href', '')}" for r in results])
             return ToolResult(
                 success=True,
-                data={
-                    "query": clean_query,
-                    "site": site_key,
-                    "url": search_url
-                },
-                message=f"Search for '{clean_query}' on {site_key} opened successfully."
+                data=summary,
+                message=f"Found {len(results)} search results."
             )
-        except Exception as e:
+        except Exception as exc:
             return ToolResult(
                 success=False,
                 data=None,
-                message=f"Failed to execute search for '{query}': {str(e)}"
+                message=f"Search failed: {str(exc)}"
             )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -782,14 +782,12 @@ class SearchWebTool(BaseTool):
                         "type": "string",
                         "description": "The search query or keywords to search for."
                     },
-                    "site": {
-                        "type": "string",
-                        "description": "The search platform to use ('google' or 'youtube'). Defaults to 'google'.",
-                        "enum": ["google", "youtube"],
-                        "default": "google"
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of search results to retrieve (default: 5).",
+                        "default": 5
                     }
                 },
                 "required": ["query"]
             }
         }
-

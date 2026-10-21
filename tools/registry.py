@@ -23,6 +23,11 @@ from tools.control_tools import (
     ClickTool,
     ScrollTool,
 )
+from tools.code_tools import (
+    RunCommandTool,
+    EditFileTool,
+    RunPythonTool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +80,9 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "press_keys": PressKeysTool(),
     "click": ClickTool(),
     "scroll": ScrollTool(),
+    "run_command": RunCommandTool(),
+    "edit_file": EditFileTool(),
+    "run_python": RunPythonTool(),
 })
 
 # Registry aliases
