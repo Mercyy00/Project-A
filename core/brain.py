@@ -573,13 +573,27 @@ class JarvisBrain:
                 extra_params["tools"] = tools_param
                 extra_params["tool_choice"] = "auto"
 
-            completion = client.chat.completions.create(
-                model=self.groq_model,
-                messages=messages,
-                temperature=0.4 if is_combat else 0.7,
-                max_tokens=256 if is_combat else 1024,
-                **extra_params,
-            )
+            candidate_models = [self.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+            completion = None
+            used_model = self.groq_model
+            for m in candidate_models:
+                try:
+                    completion = client.chat.completions.create(
+                        model=m,
+                        messages=messages,
+                        temperature=0.4 if is_combat else 0.7,
+                        max_tokens=256 if is_combat else 1024,
+                        **extra_params,
+                    )
+                    used_model = m
+                    break
+                except Exception as m_err:
+                    if "429" in str(m_err) or "rate" in str(m_err).lower():
+                        continue
+                    raise
+
+            if completion is None:
+                raise RuntimeError("All Groq models currently experiencing rate limits.")
 
             msg = completion.choices[0].message
             if msg.tool_calls:
@@ -603,7 +617,7 @@ class JarvisBrain:
                     })
 
                 follow_up = client.chat.completions.create(
-                    model=self.groq_model,
+                    model=used_model,
                     messages=messages,
                     max_tokens=64 if is_combat else 128,
                     temperature=0.3 if is_combat else 0.5,
