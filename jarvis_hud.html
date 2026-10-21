@@ -198,7 +198,7 @@ h1 { font-weight: 500; letter-spacing: .28em; font-size: 26px; margin: 0; }
 }
 .center-copy .stroke { height: 1px; width: 50px; background: var(--accent); margin: 8px; }
 .status { font-size: 10px; letter-spacing: .15em; color: var(--accent); }
-.core-description { font-size: 12px; color: #8ba0a9; margin-top: 4px; text-align: center; }
+.core-description { font-size: 12px; color: #8ba0a9; margin-top: 6px; text-align: center; }
 
 /* Audio Wave */
 .wave {
@@ -207,7 +207,7 @@ h1 { font-weight: 500; letter-spacing: .28em; font-size: 26px; margin: 0; }
   align-items: center;
   justify-content: center;
   gap: 4px;
-  margin: 6px 0;
+  margin: 8px 0;
 }
 .wave span {
   display: block;
@@ -235,39 +235,12 @@ h1 { font-weight: 500; letter-spacing: .28em; font-size: 26px; margin: 0; }
   border-radius: 2px;
 }
 .btn:hover { background: rgba(var(--rgb), .15); }
-.core-button { min-width: 240px; }
+.core-button { min-width: 240px; margin-top: 4px; }
 .core-button.active {
   background: rgba(34, 197, 94, 0.2);
   border-color: #22c55e;
   color: #4ade80;
   box-shadow: 0 0 14px rgba(34, 197, 94, 0.35);
-}
-
-/* Quick Chips */
-.quick-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-  margin-top: 10px;
-  max-width: 440px;
-}
-.chip {
-  background: rgba(var(--rgb), .06);
-  border: 1px solid rgba(var(--rgb), .22);
-  color: var(--text);
-  padding: 4px 9px;
-  font-size: 10px;
-  letter-spacing: .08em;
-  border-radius: 2px;
-  cursor: pointer;
-  transition: all .2s;
-}
-.chip:hover {
-  background: rgba(var(--rgb), .18);
-  border-color: var(--accent);
-  color: #fff;
-  transform: translateY(-1px);
 }
 
 /* Tactical Neural Chat Console (Right Stack) */
@@ -516,7 +489,7 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     <div class="logo">J</div>
     <div>
       <h1>J.A.R.V.I.S.</h1>
-      <div class="eyebrow mono">ADAPTIVE INTELLIGENCE INTERFACE</div>
+      <div class="eyebrow mono">ADAPTIVE MULTI-USER INTELLIGENCE INTERFACE</div>
     </div>
   </div>
   <div class="clock mono">
@@ -624,19 +597,9 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       </div>
     </div>
 
-    <div class="core-description" id="description">Intelligence at your command. Ask anything or launch apps.</div>
+    <div class="core-description" id="description">Intelligence at your command. Ask anything, set reminders, or control your PC via voice or text.</div>
     <div class="wave" id="wave" aria-hidden="true"></div>
     <button class="btn core-button mono" id="voice">◎ INITIALIZE VOICE LINK</button>
-
-    <!-- QUICK LAUNCH CHIPS -->
-    <div class="quick-chips">
-      <button class="chip" data-cmd="open chrome">🌐 Chrome</button>
-      <button class="chip" data-cmd="open whatsapp">💬 WhatsApp</button>
-      <button class="chip" data-cmd="open cmd">💻 Cmd Prompt</button>
-      <button class="chip" data-cmd="check system info">📊 Diagnostics</button>
-      <button class="chip" data-cmd="tell me the current time">⏰ Current Time</button>
-      <button class="chip" data-cmd="show my notes">📝 My Notes</button>
-    </div>
   </div>
 
   <!-- RIGHT COLUMN: COMMS & LIVE CHAT CONSOLE -->
@@ -663,14 +626,14 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       <!-- CHAT FEED -->
       <div class="chat-feed" id="chat-feed">
         <div class="chat-bubble assistant">
-          <div>Jarvis Neural Interface initialized. How may I assist you today, sir?</div>
+          <div>Jarvis Neural Interface online. Ready for voice or text directives. How may I assist you?</div>
           <div class="meta mono"><span>JARVIS CORE</span><span>ONLINE</span></div>
         </div>
       </div>
 
       <!-- INPUT BAR -->
       <form class="chat-form" id="chat-form">
-        <input type="text" class="chat-input" id="chat-input" placeholder="Type command or question (e.g. Open Chrome, Time)..." autocomplete="off" />
+        <input type="text" class="chat-input" id="chat-input" placeholder="Type command, question, or note (e.g. 'I am Shiv', 'Remind me...')..." autocomplete="off" />
         <button type="button" class="icon-btn" id="mic-btn" title="Speak to Jarvis">🎤</button>
         <button type="submit" class="icon-btn" id="send-btn" title="Send to Jarvis">➤</button>
       </form>
@@ -712,7 +675,7 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
 
 <!-- FOOTER ACTIONS -->
 <footer class="actions">
-  <div class="tiny mono">J.A.R.V.I.S. / ADAPTIVE SYSTEM / ROHIT UI & MEMORY</div>
+  <div class="tiny mono">J.A.R.V.I.S. / ADAPTIVE SYSTEM / MULTI-USER AI CORE</div>
   <div class="action-buttons">
     <button class="btn mono" id="diagnostic">RUN DIAGNOSTIC</button>
     <button class="btn mono" id="btn-notes-vault">NOTES VAULT</button>
@@ -748,13 +711,14 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
 (()=>{
   // 1. Operational Profiles / Modes
   const modes = {
-    classic: { hex: '#6deaf6', rgb: '109,234,246', profile: '01 / STANDARD OPERATIONS', status: 'SYSTEM READY', description: 'Intelligence at your command. Ask anything or launch apps.', operation: 'NORMAL' },
+    classic: { hex: '#6deaf6', rgb: '109,234,246', profile: '01 / STANDARD OPERATIONS', status: 'SYSTEM READY', description: 'Intelligence at your command. Ask anything, set reminders, or control your PC via voice or text.', operation: 'NORMAL' },
     stealth: { hex: '#b99cff', rgb: '185,156,255', profile: '02 / STEALTH OPERATIONS', status: 'STEALTH ENABLED', description: 'Quiet. Precise. Focused.', operation: 'STEALTH' },
     combat:  { hex: '#ff6377', rgb: '255,99,119', profile: '03 / TACTICAL OPERATIONS', status: 'TACTICAL MODE', description: 'Tactical defense & system automation online.', operation: 'TACTICAL' }
   };
 
   const $ = s => document.querySelector(s);
   let activeMode = 'classic';
+  let activeUserName = '';
   let ttsEnabled = true;
   let voiceListening = false;
   let recognition = null;
@@ -783,7 +747,7 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     document.body.dataset.mode = name;
     document.documentElement.style.setProperty('--accent', m.hex);
     document.documentElement.style.setProperty('--rgb', m.rgb);
-    $('#profile').textContent = m.profile;
+    $('#profile').textContent = activeUserName ? ('USER PROFILE / ' + activeUserName) : m.profile;
     $('#description').textContent = m.description;
     $('#operation').textContent = m.operation;
     if (!voiceListening) updateStatus(m.status);
@@ -890,7 +854,8 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     const meta = document.createElement('div');
     meta.className = 'meta mono';
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    meta.innerHTML = `<span>${role === 'user' ? 'ROHIT' : 'JARVIS CORE'}</span><span>${timeStr}</span>`;
+    const userLabel = activeUserName ? activeUserName : 'USER';
+    meta.innerHTML = `<span>${role === 'user' ? userLabel : 'JARVIS CORE'}</span><span>${timeStr}</span>`;
     bubble.appendChild(meta);
 
     chatFeed.appendChild(bubble);
@@ -935,7 +900,6 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ action: "chat", text: trimmed }));
     } else {
-      // Fallback HTTP POST /api/notes or offline message
       setTimeout(() => {
         removeThinkingBubble();
         appendChatBubble('assistant', "Local server connection pending. Please ensure 'python -m uvicorn ui.server:app' is running.");
@@ -950,6 +914,10 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       } else if (data.status === 'idle') {
         removeThinkingBubble();
       }
+    } else if (data.type === 'user_identified') {
+      activeUserName = data.name.toUpperCase();
+      $('#profile').textContent = 'USER PROFILE / ' + activeUserName;
+      log('USER IDENTIFIED: ' + activeUserName);
     } else if (data.type === 'response') {
       removeThinkingBubble();
       appendChatBubble('assistant', data.text);
@@ -965,18 +933,6 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     const val = chatInput.value;
     chatInput.value = '';
     sendChatMessage(val);
-  });
-
-  // Quick chips
-  document.querySelectorAll('.chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const cmd = chip.getAttribute('data-cmd');
-      if (cmd === 'show my notes') {
-        openNotesModal();
-      } else {
-        sendChatMessage(cmd);
-      }
-    });
   });
 
   // -------------------------------------------------------------
@@ -1225,6 +1181,8 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
 
   $('#reset').addEventListener('click', () => {
     voiceListening = false;
+    activeUserName = '';
+    $('#profile').textContent = '01 / STANDARD OPERATIONS';
     if (recognition) recognition.stop();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     chatFeed.innerHTML = `
