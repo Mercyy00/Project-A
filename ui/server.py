@@ -16,7 +16,7 @@ import re
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -255,6 +255,51 @@ async def get_neural_tts(
         raise HTTPException(
             status_code=500,
             detail=f"TTS synthesis error: {str(exc)}",
+        ) from exc
+
+
+@app.post("/api/stt")
+async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
+    """Transcribe raw audio stream (WebM/WAV) using local faster-whisper STT.
+
+    Provides a 100% offline, local speech recognition alternative when browser
+    cloud STT encounters network errors or firewall blocks.
+    """
+    try:
+        from voice.stt import get_transcriber
+        import tempfile
+
+        audio_bytes = await request.body()
+        if not audio_bytes or len(audio_bytes) < 64:
+            raise HTTPException(status_code=400, detail="Audio buffer is empty")
+
+        content_type = request.headers.get("content-type", "audio/webm").lower()
+        suffix = ".wav" if "wav" in content_type else (".mp3" if "mp3" in content_type else ".webm")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = Path(tmp.name)
+
+        try:
+            transcriber = get_transcriber()
+            result = transcriber.transcribe_file(tmp_path)
+            return {
+                "success": True,
+                "text": result.get("text", "").strip(),
+                "language": result.get("language", "en"),
+            }
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Whisper STT processing error: {str(exc)}",
         ) from exc
 
 

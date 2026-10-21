@@ -1040,14 +1040,6 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     rec.interimResults = true;
     rec.lang = 'en-US';
 
-    rec.onstart = () => {
-      isListening = true;
-      btnVoice.classList.add('active-voice');
-      btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
-      setCoreState('listening');
-      log('VOICE RECEPTORS ENGAGED');
-    };
-
     rec.onresult = (event) => {
       if (isJarvisSpeaking) return; // Prevent speaker acoustic echo
 
@@ -1077,19 +1069,54 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       }
     };
 
+    let consecutiveNetworkErrors = 0;
+
+    rec.onstart = () => {
+      isListening = true;
+      consecutiveNetworkErrors = 0;
+      btnVoice.classList.add('active-voice');
+      btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
+      setCoreState('listening');
+      log('VOICE RECEPTORS ENGAGED');
+    };
+
     rec.onerror = (e) => {
-      if (e.error !== 'no-speech') {
-        log(`MIC NOTICE: ${e.error}`);
+      if (e.error === 'no-speech') return;
+
+      if (e.error === 'network') {
+        consecutiveNetworkErrors++;
+        log('MIC: CLOUD STT NETWORK HICCUP');
+        if (consecutiveNetworkErrors >= 2) {
+          log('TIP: USE KEYBOARD OR RETRY VOICE LINK');
+          appendFeedMessage('jarvis', 'Browser speech recognition network timed out connecting to Google speech servers. You can transmit directives by keyboard or check your internet/VPN connection.');
+        }
+        return;
       }
+
+      if (e.error === 'not-allowed') {
+        log('MIC ERROR: PERMISSION BLOCKED IN BROWSER');
+        isListening = false;
+        btnVoice.classList.remove('active-voice');
+        btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
+        setCoreState('idle');
+        return;
+      }
+
+      log(`MIC NOTICE: ${e.error}`);
     };
 
     rec.onend = () => {
       if (isListening) {
+        const restartDelay = consecutiveNetworkErrors > 0 ? 2500 : 350;
         setTimeout(() => {
           if (isListening && recognition) {
-            try { recognition.start(); } catch (e) {}
+            try {
+              recognition.start();
+            } catch (e) {
+              console.warn('Speech restart exception:', e);
+            }
           }
-        }, 300);
+        }, restartDelay);
       } else {
         btnVoice.classList.remove('active-voice');
         btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
