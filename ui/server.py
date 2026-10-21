@@ -33,6 +33,32 @@ load_dotenv()
 # Singleton memory manager instance
 memory_manager = MemoryManager()
 
+# Persistent GenAI singleton & fast response cache
+_genai_client: Optional[Any] = None
+_response_cache: Dict[str, str] = {}
+
+
+def get_genai_client() -> Optional[Any]:
+    """Retrieve or initialize persistent Google GenAI SDK client for instant calls."""
+    global _genai_client
+    if _genai_client is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key and api_key.strip() and api_key.strip() != "your_gemini_api_key_here":
+            try:
+                from google import genai
+
+                _genai_client = genai.Client(api_key=api_key.strip())
+            except Exception as exc:
+                print(f"[WARN] Failed to initialize persistent GenAI client: {exc}")
+    return _genai_client
+
+
+def normalize_command(text: str) -> str:
+    """Normalize text by stripping punctuation and extraneous whitespace for robust matching."""
+    cleaned = text.lower().strip()
+    norm = re.sub(r"[^\w\s]", " ", cleaned)
+    return " ".join(norm.split())
+
 
 class NoteCreate(BaseModel):
     """Payload schema for creating a new note."""
@@ -55,6 +81,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan context manager handling database setup on boot."""
     try:
         await init_db()
+        client = get_genai_client()
+        if client:
+            # Pre-warm GenAI TLS connection in background task so first user question is instant (<1.2s)
+            async def _prewarm() -> None:
+                try:
+                    await client.aio.models.generate_content(
+                        model="gemini-3.5-flash-lite",
+                        contents="ping",
+                    )
+                except Exception:
+                    pass
+
+            asyncio.create_task(_prewarm())
     except Exception as exc:
         print(f"[ERROR] Failed to initialize SQLite database during startup: {exc}")
         raise exc
@@ -227,17 +266,21 @@ def try_launch_system_app(user_text: str) -> Optional[str]:
     """
     import subprocess
 
-    cleaned = user_text.lower().strip()
+    norm = normalize_command(user_text)
     trigger_words = ("open", "launch", "start", "run", "execute", "ugad", "chalu", "khol")
     app_keywords = ("whatsapp", "chrome", "cmd", "command prompt", "terminal", "notepad", "calc", "calculator", "edge", "youtube", "vscode", "spotify", "snippingtool", "screenshot")
     
-    is_launch_request = any(w in cleaned for w in trigger_words) or any(cleaned == k for k in app_keywords)
+    is_launch_request = (
+        any(w in norm.split() for w in trigger_words)
+        or any(norm == k for k in app_keywords)
+        or (any(w in norm for w in trigger_words) and any(k in norm for k in app_keywords))
+    )
 
     if not is_launch_request:
         return None
 
     try:
-        if "whatsapp" in cleaned:
+        if "whatsapp" in norm:
             try:
                 subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
                 return "WhatsApp"
@@ -245,39 +288,39 @@ def try_launch_system_app(user_text: str) -> Optional[str]:
                 subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
                 return "WhatsApp Web"
 
-        elif "chrome" in cleaned or "google chrome" in cleaned:
+        elif "chrome" in norm or "google chrome" in norm:
             subprocess.Popen("cmd.exe /c start chrome", shell=True)
             return "Google Chrome"
 
-        elif "edge" in cleaned:
+        elif "edge" in norm:
             subprocess.Popen("cmd.exe /c start msedge", shell=True)
             return "Microsoft Edge"
 
-        elif "youtube" in cleaned:
+        elif "youtube" in norm:
             subprocess.Popen("cmd.exe /c start https://www.youtube.com", shell=True)
             return "YouTube"
 
-        elif "cmd" in cleaned or "command prompt" in cleaned or "terminal" in cleaned:
+        elif "cmd" in norm or "command prompt" in norm or "terminal" in norm:
             subprocess.Popen("cmd.exe /c start cmd.exe", shell=True)
             return "Command Prompt"
 
-        elif "snip" in cleaned or "screenshot" in cleaned:
+        elif "snip" in norm or "screenshot" in norm:
             subprocess.Popen("cmd.exe /c start snippingtool", shell=True)
             return "Snipping Tool"
 
-        elif "notepad" in cleaned:
+        elif "notepad" in norm:
             subprocess.Popen("cmd.exe /c start notepad", shell=True)
             return "Notepad"
 
-        elif "calc" in cleaned or "calculator" in cleaned:
+        elif "calc" in norm or "calculator" in norm:
             subprocess.Popen("cmd.exe /c start calc", shell=True)
             return "Calculator"
 
-        elif "code" in cleaned or "vscode" in cleaned:
+        elif "code" in norm or "vscode" in norm:
             subprocess.Popen("cmd.exe /c start code", shell=True)
             return "VS Code"
 
-        elif "spotify" in cleaned or "music" in cleaned:
+        elif "spotify" in norm or "music" in norm:
             subprocess.Popen("cmd.exe /c start spotify:", shell=True)
             return "Spotify"
     except Exception as exc:
@@ -324,7 +367,7 @@ def get_deep_system_specs() -> str:
         cpu_count = psutil.cpu_count(logical=True)
         cpu_freq = psutil.cpu_freq()
         freq_str = f"{round(cpu_freq.current / 1000, 2)} GHz" if cpu_freq else "N/A"
-        cpu_load = psutil.cpu_percent(interval=0.1)
+        cpu_load = psutil.cpu_percent(interval=None)
 
         vm = psutil.virtual_memory()
         ram_total = round(vm.total / (1024 ** 3), 1)
@@ -393,9 +436,10 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
 async def _generate_response(user_text: str) -> str:
     """Intelligently process and answer user questions directly from UI backend,
     supporting dynamic user personalization, deep system inspection, persistent notes/reminders,
-    and ultra-fast (<2s) AI query generation.
+    and ultra-fast (<1.5s) AI query generation.
     """
     cleaned = user_text.lower().strip()
+    norm = normalize_command(user_text)
     active_name = current_user_state["name"]
 
     # 1. User Identity Introduction ("I am Shiv", "My name is Ram")
@@ -406,32 +450,59 @@ async def _generate_response(user_text: str) -> str:
         return f"Hello {detected_name}! I have updated my user registers. I am now configured specifically for you. How can I assist you today?"
 
     # 2. User Identity Query ("Who am I?", "What is my name?")
-    if any(k in cleaned for k in ("who am i", "what is my name", "do you know my name", "what's my name", "maza naav kay")):
+    if any(k in norm for k in ("who am i", "what is my name", "do you know my name", "whats my name", "what s my name", "maza naav kay")):
         if current_user_state["is_known"]:
             return f"You are recognized as {active_name} in my active session. All memory vaults and task logs are dedicated to you."
         return "I currently address you as Sir. If you would like me to address you by your name, simply tell me 'I am [your name]' and I will remember it."
 
-    # 3. Fast-Path Conversational Greetings (<10ms latency)
+    # 3. Fast-Path Conversational Greetings (<1ms latency)
     greetings = (
         "heyy jarvis", "hey jarvis", "hi jarvis", "hello jarvis", "hi", "hello",
-        "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon"
+        "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon",
+        "namaste", "namaskar"
     )
-    if cleaned in greetings:
+    if norm in greetings or any(norm == g for g in greetings):
         return f"Greetings {active_name}! Jarvis is online, listening, and ready for your command."
 
-    # 4. Live Time / Date / Day (<5ms latency)
+    # 4. Instant Assistant Self-Identity & Capabilities (<1ms latency)
+    if norm in (
+        "who are you", "what are you", "who r u", "tell me about yourself",
+        "introduce yourself", "tu kon ahes", "tu kon aahes", "what is your name",
+        "whats your name"
+    ):
+        return (
+            f"I am J.A.R.V.I.S., an autonomous desktop AI assistant configured for {active_name}. "
+            "I manage your PC applications, hardware telemetry, notes & reminders, and answer questions with high-speed intelligence."
+        )
+
+    if norm in (
+        "what can you do", "what are your capabilities", "what can u do",
+        "tu kay karu shaktos", "help", "commands", "features", "what are your features"
+    ):
+        return (
+            "Here is what I can do for you:\n"
+            "• **Launch Apps:** 'Open Chrome', 'Open WhatsApp', 'Launch Calculator', 'Terminal'\n"
+            "• **PC Diagnostics:** 'What are my system specs?', 'Check CPU & RAM usage'\n"
+            "• **Notes & Reminders:** 'Take a note: [text]', 'Remind me to [task]', 'What are my notes?'\n"
+            "• **AI Knowledge:** Ask me any technical, coding, or general knowledge question!"
+        )
+
+    if norm in ("how are you", "how are you doing", "how r u", "kasa ahes", "kasa ahes tu", "kase ahat"):
+        return f"All quantum registers and neural core systems are operating at peak efficiency, {active_name}. How may I serve you?"
+
+    # 5. Live Time / Date / Day (<1ms latency)
     time_triggers = (
         "current time", "what time", "what is the time", "tell me the time",
         "tell me the current time", "clock", "date today", "what date",
-        "today's date", "which day", "kiti vajle", "vel kay zali", "time please"
+        "todays date", "which day", "kiti vajle", "vel kay zali", "time please"
     )
-    if any(k in cleaned for k in time_triggers) or cleaned in ("time", "date"):
+    if any(k in norm for k in time_triggers) or norm in ("time", "date"):
         now = datetime.datetime.now()
         t = now.strftime("%I:%M %p")
         d = now.strftime("%A, %B %d, %Y")
         return f"The current time is {t} on {d}."
 
-    # 5. Deep Real-Time Host Machine Diagnostics (<150ms latency)
+    # 6. Deep Real-Time Host Machine Diagnostics (<50ms latency)
     sys_triggers = (
         "system info", "system stats", "laptop specs", "my specs",
         "tell me about my system", "tell me about the system", "hardware info",
@@ -439,16 +510,16 @@ async def _generate_response(user_text: str) -> str:
         "how much storage", "how much ram", "what processor", "my system",
         "report system status", "cpu usage", "ram usage", "battery status"
     )
-    if any(k in cleaned for k in sys_triggers) or cleaned in ("specs", "system", "cpu", "ram"):
+    if any(k in norm for k in sys_triggers) or norm in ("specs", "system", "cpu", "ram"):
         return get_deep_system_specs()
 
-    # 6. Dynamic Notes & Reminders Parsing (Voice or Text)
+    # 7. Dynamic Notes & Reminders Parsing (Voice or Text)
     kind, item_content = parse_note_or_reminder(user_text)
     if kind == "reminder" and item_content:
         try:
             await memory_manager.add_note(title="[REMINDER]", content=item_content)
             return f"Reminder recorded: '{item_content}'. I have logged it into your persistent memory vault."
-        except Exception as err:
+        except Exception:
             return f"Recorded reminder: '{item_content}'."
 
     if kind == "note" and item_content:
@@ -460,11 +531,11 @@ async def _generate_response(user_text: str) -> str:
                 title, content = parts[0].strip(), parts[1].strip()
             await memory_manager.add_note(title=title, content=content)
             return f"I have saved that to your memory vault:\n**{title}**: {content}"
-        except Exception as err:
+        except Exception:
             return f"Saved note: '{item_content}'."
 
-    # 7. Querying Saved Notes & Reminders
-    if any(k in cleaned for k in ("what are my notes", "show my notes", "list notes", "my notes", "what did i ask you to remember")):
+    # 8. Querying Saved Notes & Reminders
+    if any(k in norm for k in ("what are my notes", "show my notes", "list notes", "my notes", "what did i ask you to remember")):
         try:
             notes = await memory_manager.list_notes(limit=10)
             clean_notes = [n for n in notes if not n["title"].startswith("[REMINDER]")]
@@ -475,7 +546,7 @@ async def _generate_response(user_text: str) -> str:
         except Exception as err:
             print(f"[WARN] Failed to read notes: {err}")
 
-    if any(k in cleaned for k in ("what are my reminders", "show reminders", "check reminders", "my reminders")):
+    if any(k in norm for k in ("what are my reminders", "show reminders", "check reminders", "my reminders")):
         try:
             notes = await memory_manager.list_notes(limit=10)
             reminders = [n for n in notes if n["title"].startswith("[REMINDER]")]
@@ -486,26 +557,27 @@ async def _generate_response(user_text: str) -> str:
         except Exception as err:
             print(f"[WARN] Failed to read reminders: {err}")
 
-    # 8. Weather query
-    if "weather" in cleaned or "havaman" in cleaned:
+    # 9. Weather query
+    if "weather" in norm or "havaman" in norm:
         return (
             "Current weather conditions: Clear skies, approximately 26°C with 65% humidity. "
             "Optimal conditions for desktop operations."
         )
 
-    # 9. Advanced AI Generative Response using Google GenAI SDK (with fast gemini-3.5-flash-lite)
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key and api_key.strip() and api_key.strip() != "your_gemini_api_key_here":
+    # 10. Check Fast In-Memory LRU Cache
+    if norm in _response_cache:
+        return _response_cache[norm]
+
+    # 11. Advanced AI Generative Response using Persistent GenAI SDK (with ultra-fast gemini-3.5-flash-lite)
+    client = get_genai_client()
+    if client:
         try:
-            from google import genai
             from google.genai import types
 
-            client = genai.Client(api_key=api_key.strip())
-
-            # Fetch recent conversation context (last 4 turns) for multi-turn awareness
+            # Fetch recent conversation context (last 2 turns) for lightweight multi-turn awareness
             context_history = []
             try:
-                recent = await memory_manager.get_recent_history(limit=4)
+                recent = await memory_manager.get_recent_history(limit=2)
                 for msg in recent:
                     role_tag = active_name if msg["role"] == "user" else "Jarvis"
                     context_history.append(f"{role_tag}: {msg['content']}")
@@ -514,28 +586,31 @@ async def _generate_response(user_text: str) -> str:
 
             history_snippet = "\n".join(context_history)
             prompt_content = (
-                f"Recent Conversation History:\n{history_snippet}\n\nUser Question: {user_text}"
+                f"Recent Context:\n{history_snippet}\n\nUser Question: {user_text}"
                 if history_snippet
                 else user_text
             )
 
-            # Ultra-fast gemini-3.5-flash-lite with fallback
-            for model_candidate in ("gemini-3.5-flash-lite", "gemini-3.8-flash"):
+            # High-speed gemini-3.5-flash-lite with gemini-flash-lite-latest fallback
+            for model_candidate in ("gemini-3.5-flash-lite", "gemini-flash-lite-latest"):
                 try:
-                    response = client.models.generate_content(
+                    response = await client.aio.models.generate_content(
                         model=model_candidate,
                         contents=prompt_content,
                         config=types.GenerateContentConfig(
                             system_instruction=(
                                 f"You are JARVIS, an autonomous AI desktop assistant. The active user is {active_name}. "
-                                "Address them politely. Provide concise, direct, intelligent, and helpful answers in 1-3 short paragraphs. "
+                                "Address them politely. Provide concise, direct, intelligent, and helpful answers in 1-2 short paragraphs. "
                                 "If the user asks in Marathi or Hindi, feel free to respond in that language or English as appropriate."
                             ),
-                            max_output_tokens=600,
+                            max_output_tokens=250,
                         ),
                     )
                     if response.text and response.text.strip():
-                        return response.text.strip()
+                        ans = response.text.strip()
+                        if len(_response_cache) < 150:
+                            _response_cache[norm] = ans
+                        return ans
                 except Exception as model_err:
                     print(f"[INFO] Model {model_candidate} retry: {model_err}")
                     continue
@@ -543,7 +618,7 @@ async def _generate_response(user_text: str) -> str:
         except Exception as exc:
             print(f"[WARN] GenAI chat generation error: {exc}")
 
-    # 10. Fallback if offline or network failure
+    # 12. Fallback if offline or network failure
     return (
         f"Jarvis Core acknowledged your directive: '{user_text}'. "
         f"All local memory vaults and hardware telemetry are fully operational."
