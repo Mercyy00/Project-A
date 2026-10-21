@@ -734,13 +734,16 @@ class SearchWebTool(BaseTool):
                 effective_query = f"site:youtube.com {clean_query}"
 
             try:
-                from duckduckgo_search import DDGS
+                try:
+                    from ddgs import DDGS
+                except ImportError:
+                    from duckduckgo_search import DDGS
                 results = list(DDGS().text(effective_query, max_results=max_results))
             except ImportError:
                 return ToolResult(
                     success=False,
                     data=None,
-                    message="Search failed: duckduckgo_search library is not installed."
+                    message="Search failed: ddgs or duckduckgo_search library is not installed."
                 )
 
             if not results:
