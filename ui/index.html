@@ -1,2505 +1,1248 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JARVIS // Autonomous Desktop AI Assistant</title>
-  <style>
-    :root {
-      --bg-main: #060c18;
-      --bg-panel: rgba(10, 18, 35, 0.85);
-      --bg-card: rgba(14, 25, 48, 0.7);
-      --bg-card-hover: rgba(20, 36, 68, 0.85);
-      --cyan-neon: #00d2ff;
-      --cyan-bright: #38bdf8;
-      --cyan-glow: rgba(0, 210, 255, 0.45);
-      --cyan-dim: rgba(0, 210, 255, 0.12);
-      --blue-accent: #0284c7;
-      --blue-bubble: #172554;
-      --text-main: #f1f5f9;
-      --text-muted: #8899b5;
-      --border-cyan: rgba(0, 210, 255, 0.25);
-      --border-cyan-active: rgba(0, 210, 255, 0.75);
-      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      background-color: var(--bg-main);
-      background-image: 
-        radial-gradient(ellipse at 50% 0%, rgba(0, 210, 255, 0.12) 0%, transparent 65%),
-        radial-gradient(circle at 10% 90%, rgba(2, 132, 199, 0.08) 0%, transparent 40%),
-        linear-gradient(180deg, #040812 0%, #081120 100%);
-      color: var(--text-main);
-      font-family: var(--font-ui);
-      height: 100vh;
-      overflow: hidden;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 12px;
-    }
-
-    /* Main Desktop Shell Window */
-    .desktop-app {
-      width: 100%;
-      max-width: 1520px;
-      height: 94vh;
-      background: var(--bg-panel);
-      border: 1px solid var(--border-cyan);
-      border-radius: 18px;
-      box-shadow: 
-        0 0 35px rgba(0, 0, 0, 0.8),
-        0 0 25px rgba(0, 210, 255, 0.18),
-        inset 0 0 20px rgba(0, 210, 255, 0.05);
-      display: grid;
-      grid-template-columns: 220px 1fr 420px;
-      overflow: hidden;
-      position: relative;
-      backdrop-filter: blur(20px);
-    }
-
-    /* Top glowing accent border */
-    .desktop-app::after {
-      content: "";
-      position: absolute;
-      top: 0; left: 8%; right: 8%; height: 1px;
-      background: linear-gradient(90deg, transparent, var(--cyan-neon), transparent);
-      box-shadow: 0 0 10px var(--cyan-neon);
-      pointer-events: none;
-    }
-
-    /* Window Controls in top right */
-    .window-controls {
-      position: absolute;
-      top: 14px;
-      right: 18px;
-      display: flex;
-      gap: 12px;
-      z-index: 100;
-    }
-
-    .win-btn {
-      width: 13px;
-      height: 13px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.15);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .win-btn.close:hover { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
-    .win-btn.max:hover { background: #eab308; box-shadow: 0 0 8px #eab308; }
-    .win-btn.min:hover { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
-
-    /* ========================================================
-       LEFT SIDEBAR NAVIGATION
-       ======================================================== */
-    .sidebar-left {
-      background: rgba(7, 14, 28, 0.85);
-      border-right: 1px solid var(--border-cyan);
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      padding: 24px 14px;
-    }
-
-    .brand-box {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 0 6px 20px 6px;
-      border-bottom: 1px solid rgba(0, 210, 255, 0.15);
-    }
-
-    .jarvis-emblem {
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #0ea5e9 0%, #032b50 80%);
-      border: 1.5px solid var(--cyan-neon);
-      box-shadow: 0 0 12px var(--cyan-glow);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .jarvis-emblem svg {
-      width: 22px;
-      height: 22px;
-      fill: var(--cyan-neon);
-    }
-
-    .brand-title {
-      font-size: 1.15rem;
-      font-weight: 800;
-      letter-spacing: 2px;
-      color: #ffffff;
-      text-transform: uppercase;
-      text-shadow: 0 0 12px var(--cyan-glow);
-    }
-
-    .brand-subtitle {
-      font-size: 0.7rem;
-      color: var(--cyan-bright);
-      letter-spacing: 0.8px;
-    }
-
-    .nav-menu {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin-top: 18px;
-    }
-
-    .nav-btn {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      border-radius: 10px;
-      color: var(--text-muted);
-      background: transparent;
-      border: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.25s ease;
-      position: relative;
-    }
-
-    .nav-btn svg {
-      width: 18px;
-      height: 18px;
-      fill: currentColor;
-      transition: transform 0.2s;
-    }
-
-    .nav-btn:hover {
-      color: var(--text-main);
-      background: rgba(0, 210, 255, 0.08);
-    }
-
-    .nav-btn.active {
-      color: #ffffff;
-      background: linear-gradient(90deg, rgba(2, 132, 199, 0.45) 0%, rgba(0, 210, 255, 0.15) 100%);
-      border-left: 3px solid var(--cyan-neon);
-      box-shadow: inset 0 0 14px rgba(0, 210, 255, 0.12);
-    }
-
-    .nav-btn.active svg {
-      fill: var(--cyan-neon);
-      filter: drop-shadow(0 0 6px var(--cyan-neon));
-    }
-
-    .sidebar-footer {
-      padding: 16px 8px 4px 8px;
-      border-top: 1px solid rgba(0, 210, 255, 0.15);
-      font-size: 0.72rem;
-      color: #556987;
-      line-height: 1.4;
-    }
-
-    /* ========================================================
-       CENTER WORKSPACE
-       ======================================================== */
-    .workspace {
-      display: flex;
-      flex-direction: column;
-      position: relative;
-      background: rgba(9, 17, 33, 0.5);
-      overflow: hidden;
-    }
-
-    .top-header {
-      padding: 18px 24px;
-      border-bottom: 1px solid var(--border-cyan);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: rgba(10, 20, 38, 0.6);
-    }
-
-    .page-title {
-      font-size: 1.15rem;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      color: #ffffff;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .page-desc {
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .header-indicators {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-right: 50px;
-    }
-
-    .badge-online {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 12px;
-      background: rgba(34, 197, 94, 0.12);
-      border: 1px solid rgba(34, 197, 94, 0.4);
-      border-radius: 20px;
-      font-size: 0.75rem;
-      color: #4ade80;
-      font-weight: 500;
-    }
-
-    .badge-online .dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #22c55e;
-      box-shadow: 0 0 8px #22c55e;
-      animation: pulseGreen 2s infinite;
-    }
-
-    .audio-stream-icon {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: var(--cyan-dim);
-      border: 1px solid var(--border-cyan);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      color: var(--cyan-neon);
-      transition: all 0.2s;
-    }
-
-    .audio-stream-icon:hover {
-      box-shadow: 0 0 10px var(--cyan-neon);
-      transform: scale(1.08);
-    }
-
-    .audio-stream-icon.active-mic {
-      background: rgba(239, 68, 68, 0.25);
-      border-color: #ef4444;
-      color: #ef4444;
-      box-shadow: 0 0 14px rgba(239, 68, 68, 0.7);
-      animation: pulseMic 1.2s infinite;
-    }
-
-    @keyframes pulseMic {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.15); box-shadow: 0 0 20px #ef4444; }
-    }
-
-    /* Tab Views Container */
-    .view-panel {
-      flex: 1;
-      display: none;
-      flex-direction: column;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .view-panel.active-view {
-      display: flex;
-    }
-
-    /* ---------------- Chat View ---------------- */
-    .chat-messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
-    .chat-bubble {
-      max-width: 80%;
-      display: flex;
-      gap: 12px;
-      animation: slideInUp 0.3s ease;
-    }
-
-    .chat-bubble.user {
-      align-self: flex-end;
-      flex-direction: row-reverse;
-    }
-
-    .chat-avatar {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid var(--border-cyan);
-    }
-
-    .chat-avatar.jarvis {
-      background: radial-gradient(circle, #0284c7 0%, #032b50 100%);
-      box-shadow: 0 0 8px var(--cyan-glow);
-    }
-
-    .chat-avatar.user {
-      background: #1e3a8a;
-      border-color: rgba(96, 165, 250, 0.4);
-    }
-
-    .chat-body {
-      background: var(--bg-card);
-      border: 1px solid var(--border-cyan);
-      border-radius: 12px;
-      padding: 14px 18px;
-      position: relative;
-    }
-
-    .chat-bubble.user .chat-body {
-      background: #1e3a8a;
-      border-color: rgba(96, 165, 250, 0.4);
-      color: #eff6ff;
-    }
-
-    .chat-bubble.jarvis .chat-body {
-      border-left: 3px solid var(--cyan-neon);
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    }
-
-    .chat-text {
-      font-size: 0.92rem;
-      line-height: 1.55;
-      color: var(--text-main);
-    }
-
-    .chat-features-list {
-      margin: 8px 0 10px 18px;
-      font-size: 0.88rem;
-      color: #cbd5e1;
-      line-height: 1.6;
-    }
-
-    .chat-time {
-      font-size: 0.7rem;
-      color: #64748b;
-      margin-top: 6px;
-      text-align: right;
-    }
-
-    /* Quick Action Chips */
-    .quick-chips-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      padding: 0 24px 12px 24px;
-    }
-
-    .chip-btn {
-      background: rgba(14, 25, 48, 0.8);
-      border: 1px solid var(--border-cyan);
-      border-radius: 20px;
-      padding: 6px 14px;
-      font-size: 0.8rem;
-      color: var(--cyan-bright);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-    }
-
-    .chip-btn:hover {
-      background: rgba(0, 210, 255, 0.15);
-      border-color: var(--cyan-neon);
-      box-shadow: 0 0 10px var(--cyan-glow);
-      transform: translateY(-1px);
-    }
-
-    /* Input Console */
-    .chat-input-bar {
-      padding: 16px 24px 20px 24px;
-      background: rgba(10, 18, 35, 0.8);
-      border-top: 1px solid var(--border-cyan);
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .input-wrapper {
-      flex: 1;
-      position: relative;
-      display: flex;
-      align-items: center;
-    }
-
-    .attach-icon {
-      position: absolute;
-      left: 14px;
-      color: var(--cyan-bright);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s;
-    }
-
-    .attach-icon:hover {
-      color: var(--cyan-neon);
-      transform: scale(1.15);
-      filter: drop-shadow(0 0 6px var(--cyan-neon));
-    }
-
-    .attach-icon.active-mic {
-      color: #ef4444;
-      animation: pulseMic 1s infinite;
-      filter: drop-shadow(0 0 8px #ef4444);
-    }
-
-    .main-input {
-      width: 100%;
-      background: rgba(14, 25, 48, 0.9);
-      border: 1px solid var(--border-cyan);
-      border-radius: 25px;
-      padding: 13px 48px 13px 44px;
-      font-size: 0.92rem;
-      color: #ffffff;
-      outline: none;
-      transition: all 0.25s;
-    }
-
-    .main-input:focus {
-      border-color: var(--cyan-neon);
-      box-shadow: 0 0 15px rgba(0, 210, 255, 0.35);
-    }
-
-    .send-icon-btn {
-      width: 42px;
-      height: 42px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #0284c7 0%, #00d2ff 100%);
-      border: 1px solid var(--cyan-neon);
-      color: #070b14;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: all 0.2s ease;
-      box-shadow: 0 0 12px rgba(0, 210, 255, 0.35);
-    }
-
-    .send-icon-btn:hover {
-      transform: scale(1.05);
-      box-shadow: 0 0 18px var(--cyan-neon);
-    }
-
-    /* Voice Listening Banner */
-    .voice-active-bar {
-      display: none;
-      align-items: center;
-      justify-content: space-between;
-      padding: 9px 18px;
-      margin: 0 24px 10px 24px;
-      background: linear-gradient(90deg, rgba(2, 132, 199, 0.25) 0%, rgba(0, 210, 255, 0.15) 100%);
-      border: 1px solid var(--cyan-neon);
-      border-radius: 12px;
-      box-shadow: 0 0 16px rgba(0, 210, 255, 0.25);
-      animation: fadeIn 0.25s ease;
-    }
-
-    .voice-active-bar.active {
-      display: flex;
-    }
-
-    .voice-bar-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      overflow: hidden;
-    }
-
-    .voice-pulse-ring {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #ef4444;
-      box-shadow: 0 0 10px #ef4444;
-      animation: pulseMic 1s infinite;
-      flex-shrink: 0;
-    }
-
-    .voice-bar-text {
-      font-size: 0.82rem;
-      color: #fff;
-      font-weight: 700;
-      flex-shrink: 0;
-    }
-
-    .voice-transcript-preview {
-      font-size: 0.82rem;
-      color: var(--cyan-bright);
-      font-style: italic;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 380px;
-    }
-
-    .btn-stop-voice {
-      background: rgba(239, 68, 68, 0.2);
-      border: 1px solid #ef4444;
-      color: #fca5a5;
-      padding: 4px 12px;
-      border-radius: 8px;
-      font-size: 0.72rem;
-      cursor: pointer;
-      font-weight: 600;
-      flex-shrink: 0;
-      transition: all 0.2s;
-    }
-
-    .btn-stop-voice:hover {
-      background: rgba(239, 68, 68, 0.4);
-    }
-
-    /* Inline Thinking Bubble (Non-blocking) */
-    .chat-bubble.thinking-bubble {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      opacity: 0.95;
-      animation: fadeIn 0.2s ease;
-    }
-
-    .thinking-dots {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 10px 16px;
-      background: rgba(14, 25, 48, 0.8);
-      border: 1px solid var(--border-cyan);
-      border-radius: 18px;
-      border-top-left-radius: 4px;
-    }
-
-    .thinking-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--cyan-neon);
-      box-shadow: 0 0 8px var(--cyan-neon);
-      animation: thinkingBounce 1.2s infinite ease-in-out;
-    }
-
-    .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
-    .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes thinkingBounce {
-      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-      40% { transform: scale(1.2); opacity: 1; }
-    }
-
-    .thinking-text-label {
-      font-size: 0.78rem;
-      color: var(--cyan-bright);
-      margin-left: 6px;
-      letter-spacing: 0.5px;
-      font-family: var(--font-mono);
-    }
-
-    /* ---------------- Interactive Hologram State Overlays ---------------- */
-    .hud-state-overlay {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(6, 12, 24, 0.95);
-      backdrop-filter: blur(12px);
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 50;
-      animation: fadeIn 0.3s ease;
-    }
-
-    .hud-state-overlay.active-overlay {
-      display: flex;
-    }
-
-    .hologram-orb-container {
-      position: relative;
-      width: 180px;
-      height: 180px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 24px;
-    }
-
-    .hologram-outer-ring {
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      border: 2px dashed rgba(0, 210, 255, 0.5);
-      animation: spinClockwise 12s linear infinite;
-    }
-
-    .hologram-inner-ring {
-      position: absolute;
-      width: 75%;
-      height: 75%;
-      border-radius: 50%;
-      border: 2px solid rgba(0, 210, 255, 0.8);
-      border-top-color: transparent;
-      animation: spinCounter 6s linear infinite;
-    }
-
-    .hologram-core-sphere {
-      width: 90px;
-      height: 90px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #0ea5e9 0%, #032b50 80%);
-      box-shadow: 0 0 30px var(--cyan-neon);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .hologram-title {
-      font-size: 1.4rem;
-      font-weight: 700;
-      letter-spacing: 2px;
-      color: var(--cyan-bright);
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      text-shadow: 0 0 12px var(--cyan-glow);
-    }
-
-    .hologram-subtitle {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      letter-spacing: 1px;
-    }
-
-    /* Soundwave Visualizer Bar */
-    .audio-visualizer {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      height: 32px;
-      margin-top: 20px;
-    }
-
-    .wave-bar {
-      width: 3.5px;
-      background: var(--cyan-neon);
-      border-radius: 2px;
-      box-shadow: 0 0 8px var(--cyan-neon);
-      animation: waveOscillate 1.2s infinite ease-in-out;
-    }
-
-    .wave-bar:nth-child(2) { animation-delay: 0.1s; }
-    .wave-bar:nth-child(3) { animation-delay: 0.2s; }
-    .wave-bar:nth-child(4) { animation-delay: 0.3s; }
-    .wave-bar:nth-child(5) { animation-delay: 0.4s; }
-    .wave-bar:nth-child(6) { animation-delay: 0.5s; }
-    .wave-bar:nth-child(7) { animation-delay: 0.6s; }
-    .wave-bar:nth-child(8) { animation-delay: 0.7s; }
-    .wave-bar:nth-child(9) { animation-delay: 0.8s; }
-    .wave-bar:nth-child(10) { animation-delay: 0.9s; }
-
-    .state-dismiss-btn {
-      position: absolute;
-      top: 24px;
-      right: 24px;
-      background: transparent;
-      border: 1px solid var(--border-cyan);
-      border-radius: 20px;
-      padding: 6px 16px;
-      color: var(--cyan-bright);
-      font-size: 0.75rem;
-      cursor: pointer;
-    }
-    .state-dismiss-btn:hover { background: rgba(0, 210, 255, 0.15); }
-
-    /* ---------------- Notes Manager View ---------------- */
-    .notes-view-content {
-      padding: 24px;
-      overflow-y: auto;
-      flex: 1;
-    }
-
-    .notes-top-bar {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .notes-search-input {
-      flex: 1;
-      max-width: 400px;
-      background: var(--bg-card);
-      border: 1px solid var(--border-cyan);
-      border-radius: 8px;
-      padding: 10px 16px;
-      color: #fff;
-      font-size: 0.85rem;
-      outline: none;
-    }
-
-    .btn-new-note {
-      background: linear-gradient(135deg, #0284c7 0%, #00d2ff 100%);
-      color: #070b14;
-      font-weight: 700;
-      border: none;
-      border-radius: 8px;
-      padding: 10px 20px;
-      font-size: 0.85rem;
-      cursor: pointer;
-      box-shadow: 0 0 12px var(--cyan-glow);
-      transition: all 0.2s;
-    }
-    .btn-new-note:hover { transform: translateY(-1px); box-shadow: 0 0 18px var(--cyan-neon); }
-
-    .notes-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
-    }
-
-    .note-grid-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-cyan);
-      border-radius: 12px;
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      transition: all 0.2s ease;
-      cursor: pointer;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .note-grid-card::before {
-      content: "";
-      position: absolute;
-      top: 0; left: 0; width: 4px; height: 100%;
-      background: var(--cyan-neon);
-      box-shadow: 0 0 8px var(--cyan-neon);
-    }
-
-    .note-grid-card:hover {
-      background: var(--bg-card-hover);
-      border-color: var(--cyan-bright);
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-    }
-
-    .note-card-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-
-    .note-icon-badge {
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
-      background: rgba(2, 132, 199, 0.2);
-      border: 1px solid var(--border-cyan);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--cyan-neon);
-    }
-
-    .note-title-text {
-      font-size: 0.95rem;
-      font-weight: 700;
-      color: #ffffff;
-    }
-
-    .note-snippet {
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 14px;
-    }
-
-    .note-date-tag {
-      font-size: 0.7rem;
-      color: #64748b;
-      align-self: flex-end;
-    }
-
-    /* ---------------- Tools Panel View ---------------- */
-    .tools-view-content {
-      padding: 24px;
-      overflow-y: auto;
-      flex: 1;
-    }
-
-    .tools-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-      gap: 18px;
-    }
-
-    .tool-tile {
-      background: var(--bg-card);
-      border: 1px solid var(--border-cyan);
-      border-radius: 12px;
-      padding: 20px;
-      display: flex;
-      gap: 16px;
-      align-items: flex-start;
-      cursor: pointer;
-      transition: all 0.25s ease;
-    }
-
-    .tool-tile:hover {
-      background: var(--bg-card-hover);
-      border-color: var(--cyan-neon);
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(0, 210, 255, 0.15);
-    }
-
-    .tool-tile-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(0, 210, 255, 0.1) 100%);
-      border: 1px solid var(--border-cyan);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--cyan-neon);
-      flex-shrink: 0;
-    }
-
-    .tool-tile-title {
-      font-size: 0.95rem;
-      font-weight: 700;
-      color: #ffffff;
-      margin-bottom: 4px;
-    }
-
-    .tool-tile-desc {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      line-height: 1.4;
-    }
-
-    /* ========================================================
-       RIGHT TELEMETRY & HOLOGRAM SIDEBAR
-       ======================================================== */
-    .sidebar-right {
-      background: rgba(7, 14, 28, 0.9);
-      border-left: 1px solid var(--border-cyan);
-      display: flex;
-      flex-direction: column;
-      padding: 0;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .chat-sidebar-header {
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--border-cyan);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: rgba(10, 18, 35, 0.85);
-      flex-shrink: 0;
-    }
-
-    .chat-header-title {
-      font-size: 1.05rem;
-      font-weight: 800;
-      letter-spacing: 1.5px;
-      color: #fff;
-      text-transform: uppercase;
-      text-shadow: 0 0 10px var(--cyan-glow);
-    }
-
-    .chat-header-subtitle {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    /* Center Stage 3D Neural Starburst Core (Image 1 in Center) */
-    .core-stage-container {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      overflow-y: auto;
-      gap: 18px;
-    }
-
-    .hero-3d-core-card {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-    }
-
-    .canvas-3d-wrapper.hero-wrapper {
-      position: relative;
-      width: 290px;
-      height: 290px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 14px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(0, 210, 255, 0.1) 0%, rgba(4, 12, 28, 0.7) 70%, transparent 100%);
-      box-shadow: 0 0 45px rgba(0, 210, 255, 0.35), inset 0 0 30px rgba(0, 210, 255, 0.2);
-      border: 1px solid rgba(0, 210, 255, 0.35);
-      overflow: hidden;
-      cursor: crosshair;
-    }
-
-    #jarvis-3d-core {
-      width: 100%;
-      height: 100%;
-      display: block;
-      filter: drop-shadow(0 0 14px rgba(0, 210, 255, 0.75));
-    }
-
-    .core-status-badge {
-      position: absolute;
-      bottom: 10px;
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      letter-spacing: 1.8px;
-      color: #38bdf8;
-      background: rgba(6, 12, 24, 0.9);
-      padding: 3px 14px;
-      border-radius: 12px;
-      border: 1px solid rgba(0, 210, 255, 0.4);
-      text-transform: uppercase;
-      pointer-events: none;
-      box-shadow: 0 0 12px rgba(0, 210, 255, 0.25);
-    }
-
-    .hero-core-title {
-      font-size: 1.35rem;
-      font-weight: 900;
-      letter-spacing: 3px;
-      color: #ffffff;
-      text-transform: uppercase;
-      text-shadow: 0 0 15px var(--cyan-glow);
-      margin-bottom: 4px;
-    }
-
-    .hero-core-sub {
-      font-size: 0.82rem;
-      color: var(--cyan-bright);
-      letter-spacing: 2px;
-      margin-bottom: 6px;
-      font-weight: 700;
-    }
-
-    .hero-core-tagline {
-      font-size: 0.76rem;
-      color: var(--text-muted);
-    }
-
-    .center-chips {
-      justify-content: center;
-      max-width: 680px;
-      padding: 0;
-    }
-
-    .hero-telemetry-panel {
-      width: 100%;
-      max-width: 680px;
-      margin: 0;
-    }
-
-    .telemetry-grid-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-    }
-
-    .hero-action-card {
-      width: 100%;
-      max-width: 680px;
-      margin: 0;
-    }
-
-    /* System Status Widget Card */
-    .telemetry-card-panel {
-      background: var(--bg-card);
-      border: 1px solid var(--border-cyan);
-      border-radius: 14px;
-      padding: 16px 18px;
-    }
-
-    .card-panel-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.85rem;
-      font-weight: 700;
-      color: #ffffff;
-      margin-bottom: 14px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .metric-row {
-      margin-bottom: 12px;
-    }
-
-    .metric-labels {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.76rem;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-    }
-
-    .metric-bar-bg {
-      width: 100%;
-      height: 6px;
-      background: rgba(0, 210, 255, 0.1);
-      border-radius: 3px;
-      overflow: hidden;
-    }
-
-    .metric-bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #0284c7 0%, var(--cyan-neon) 100%);
-      border-radius: 3px;
-      transition: width 0.5s ease;
-      box-shadow: 0 0 8px var(--cyan-glow);
-    }
-
-    /* Current Action Card */
-    .current-action-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-cyan);
-      border-radius: 14px;
-      padding: 14px 18px;
-    }
-
-    .action-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 8px;
-    }
-
-    .action-status-text {
-      font-size: 1rem;
-      font-weight: 700;
-      color: var(--cyan-neon);
-      margin-bottom: 2px;
-    }
-
-    .action-detail-text {
-      font-size: 0.74rem;
-      color: #64748b;
-    }
-
-    /* Modal for New Note */
-    .modal-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(8px);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .modal-card {
-      background: #0f1a2e;
-      border: 1px solid var(--cyan-neon);
-      box-shadow: 0 0 30px rgba(0, 210, 255, 0.3);
-      border-radius: 14px;
-      padding: 24px;
-      width: 90%;
-      max-width: 440px;
-    }
-
-    .modal-title {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: #fff;
-      margin-bottom: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .modal-input {
-      width: 100%;
-      background: rgba(6, 12, 24, 0.8);
-      border: 1px solid var(--border-cyan);
-      border-radius: 6px;
-      padding: 10px 14px;
-      color: #fff;
-      font-size: 0.85rem;
-      margin-bottom: 12px;
-      outline: none;
-    }
-
-    .modal-textarea {
-      width: 100%;
-      min-height: 90px;
-      background: rgba(6, 12, 24, 0.8);
-      border: 1px solid var(--border-cyan);
-      border-radius: 6px;
-      padding: 10px 14px;
-      color: #fff;
-      font-size: 0.85rem;
-      margin-bottom: 16px;
-      outline: none;
-      resize: vertical;
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-    }
-
-    .btn-modal-cancel {
-      background: transparent;
-      border: 1px solid #475569;
-      color: #94a3b8;
-      border-radius: 6px;
-      padding: 8px 16px;
-      cursor: pointer;
-    }
-
-    /* Keyframes Animations */
-    @keyframes spinClockwise {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes spinCounter {
-      from { transform: rotate(360deg); }
-      to { transform: rotate(0deg); }
-    }
-
-    @keyframes pulseGreen {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.9); }
-    }
-
-    @keyframes waveOscillate {
-      0%, 100% { height: 6px; }
-      50% { height: 26px; }
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    @keyframes slideInUp {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Custom Scrollbar */
-    ::-webkit-scrollbar {
-      width: 5px;
-    }
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: rgba(0, 210, 255, 0.2);
-      border-radius: 3px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: var(--cyan-neon);
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>J.A.R.V.I.S. | Adaptive HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --accent: #6deaf6;
+  --rgb: 109,234,246;
+  --bg: #050d14;
+  --text: #d5faff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.mono { font-family: 'Space Mono', Consolas, monospace; }
+
+.hud {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: radial-gradient(ellipse at 50% 45%, rgba(var(--rgb), .095), transparent 57%), #050d14;
+  transition: background .5s;
+}
+.hud:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(var(--rgb), .035) 1px, transparent 1px), linear-gradient(90deg, rgba(var(--rgb), .035) 1px, transparent 1px);
+  background-size: 36px 36px;
+  pointer-events: none;
+}
+.shell {
+  position: relative;
+  max-width: 1480px;
+  margin: auto;
+  padding: 20px 26px;
+}
+
+/* Header */
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(var(--rgb), .18);
+}
+.brand { display: flex; align-items: center; gap: 14px; }
+.logo {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 32px;
+  font-weight: 700;
+  clip-path: polygon(20% 0, 80% 0, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0 80%, 0 20%);
+  background: rgba(var(--rgb), .08);
+}
+h1 { font-weight: 500; letter-spacing: .28em; font-size: 26px; margin: 0; }
+.eyebrow, .tiny { font-size: 10px; letter-spacing: .14em; color: #8097a1; }
+.clock { text-align: right; }
+.clock strong { display: block; font-weight: 400; font-size: 19px; }
+.online { color: var(--accent); }
+
+/* Operational Profiles / Modes */
+.intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin: 16px 0 12px;
+  gap: 14px;
+}
+.intro h2 { font-size: 20px; font-weight: 400; margin: 4px 0 0; }
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.mode {
+  border: 1px solid rgba(var(--rgb), .18);
+  background: rgba(10, 25, 33, .7);
+  color: #a1b6c1;
+  text-align: left;
+  padding: 12px 16px;
+  transition: .3s;
+}
+.mode[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: rgba(var(--rgb), .1);
+  color: var(--accent);
+  box-shadow: inset 0 0 24px rgba(var(--rgb), .055);
+}
+.mode strong { display: flex; align-items: center; gap: 10px; font-size: 14px; letter-spacing: .15em; font-weight: 600; }
+.mode small { display: block; margin-top: 6px; font-size: 10px; letter-spacing: .15em; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.classic-dot { background: #6deaf6; }
+.stealth-dot { background: #b99cff; }
+.combat-dot { background: #ff6377; }
+
+/* Dashboard 3-Column Layout */
+.dashboard {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(340px, 2.2fr) minmax(320px, 1.9fr);
+  gap: 14px;
+  margin-top: 16px;
+}
+.stack { display: grid; gap: 14px; }
+.panel {
+  position: relative;
+  border: 1px solid rgba(var(--rgb), .21);
+  background: rgba(10, 26, 35, .66);
+  padding: 15px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.panel:before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 27px;
+  height: 2px;
+  background: var(--accent);
+}
+.panel h3 { margin: 0; font-size: 10px; letter-spacing: .15em; font-weight: 400; color: #8aa0a9; }
+.metric { font-weight: 300; font-size: 34px; margin-top: 10px; line-height: 1.1; }
+.metric small { font-size: 14px; color: var(--accent); }
+.note { font-size: 10px; letter-spacing: .1em; color: #8398a2; margin-top: 10px; }
+.bars { display: flex; align-items: end; gap: 4px; height: 32px; margin-top: 10px; }
+.bars span { flex: 1; background: var(--accent); opacity: .7; transition: height .4s ease; }
+.progress { height: 4px; background: rgba(var(--rgb), .16); margin-top: 18px; border-radius: 2px; overflow: hidden; }
+.progress i { display: block; width: 50%; height: 100%; background: var(--accent); box-shadow: 0 0 11px rgba(var(--rgb), .35); transition: width .5s ease; }
+.spark { width: 100%; height: 45px; margin-top: 8px; }
+.spark path { stroke: var(--accent); }
+
+/* Center Core Area */
+.core-area {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  min-width: 0;
+}
+.core-label {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: .1em;
+  color: #708d9a;
+  margin-bottom: 6px;
+}
+.reactor {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  aspect-ratio: 1;
+}
+.reactor svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 14px rgba(var(--rgb), .15));
+}
+.arc { stroke: var(--accent); fill: none; transition: stroke .5s; }
+.spin { transform-origin: 250px 250px; animation: spin 37s linear infinite; }
+.reverse { transform-origin: 250px 250px; animation: spin 31s linear infinite reverse; }
+.pulse { transform-origin: 250px 250px; animation: pulse 3s ease-in-out infinite; }
+.center-copy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  pointer-events: none;
+}
+.center-copy .subtitle { font-size: 9px; letter-spacing: .28em; color: #86a6af; }
+.center-copy .word {
+  font-weight: 300;
+  font-size: clamp(28px, 4.5vw, 42px);
+  letter-spacing: .20em;
+  color: #e8fcff;
+  text-shadow: 0 0 21px rgba(var(--rgb), .6);
+  margin: 5px 0;
+}
+.center-copy .stroke { height: 1px; width: 50px; background: var(--accent); margin: 8px; }
+.status { font-size: 10px; letter-spacing: .15em; color: var(--accent); }
+.core-description { font-size: 12px; color: #8ba0a9; margin-top: 4px; text-align: center; }
+
+/* Audio Wave */
+.wave {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 6px 0;
+}
+.wave span {
+  display: block;
+  width: 3px;
+  height: 20px;
+  background: var(--accent);
+  opacity: .68;
+  animation: wave 1.2s ease-in-out infinite alternate;
+}
+.wave.listening span {
+  animation-duration: 0.4s !important;
+  background: #22c55e !important;
+  opacity: 0.95 !important;
+}
+
+/* Core Buttons */
+.btn {
+  border: 1px solid rgba(var(--rgb), .45);
+  color: var(--accent);
+  background: rgba(var(--rgb), .055);
+  padding: 10px 16px;
+  font-size: 11px;
+  letter-spacing: .13em;
+  transition: all .2s;
+  border-radius: 2px;
+}
+.btn:hover { background: rgba(var(--rgb), .15); }
+.core-button { min-width: 240px; }
+.core-button.active {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: #22c55e;
+  color: #4ade80;
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.35);
+}
+
+/* Quick Chips */
+.quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 10px;
+  max-width: 440px;
+}
+.chip {
+  background: rgba(var(--rgb), .06);
+  border: 1px solid rgba(var(--rgb), .22);
+  color: var(--text);
+  padding: 4px 9px;
+  font-size: 10px;
+  letter-spacing: .08em;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.chip:hover {
+  background: rgba(var(--rgb), .18);
+  border-color: var(--accent);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* Tactical Neural Chat Console (Right Stack) */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 380px;
+  padding: 12px 14px;
+}
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(var(--rgb), .18);
+}
+.chat-feed {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 4px 8px 0;
+  margin: 6px 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--rgb), .3) transparent;
+}
+.chat-bubble {
+  max-width: 90%;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+  animation: fadeIn 0.2s ease;
+}
+.chat-bubble.user {
+  align-self: flex-end;
+  background: rgba(var(--rgb), .15);
+  border: 1px solid rgba(var(--rgb), .45);
+  color: #fff;
+}
+.chat-bubble.assistant {
+  align-self: flex-start;
+  background: rgba(10, 26, 35, .85);
+  border: 1px solid rgba(var(--rgb), .25);
+  color: var(--text);
+  box-shadow: 0 0 12px rgba(var(--rgb), .06);
+}
+.chat-bubble .meta {
+  font-size: 9px;
+  color: #708d9a;
+  margin-top: 5px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.chat-form {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  border-top: 1px solid rgba(var(--rgb), .18);
+  padding-top: 9px;
+}
+.chat-input {
+  flex: 1;
+  background: rgba(5, 13, 20, .9);
+  border: 1px solid rgba(var(--rgb), .3);
+  color: #fff;
+  padding: 8px 11px;
+  font-size: 12px;
+  border-radius: 3px;
+  outline: none;
+  transition: border-color .2s;
+}
+.chat-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(var(--rgb), .25);
+}
+.icon-btn {
+  background: rgba(var(--rgb), .08);
+  border: 1px solid rgba(var(--rgb), .35);
+  color: var(--accent);
+  width: 34px;
+  height: 34px;
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all .2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+.icon-btn:hover { background: rgba(var(--rgb), .2); border-color: var(--accent); }
+.icon-btn.active { background: var(--accent); color: var(--bg); }
+
+/* Thinking Animation */
+.thinking-bubble {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+.thinking-dots span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dotPulse 1.2s infinite ease-in-out;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.3); }
+}
+
+/* System Log & Comms Info */
+.data-line { display: flex; justify-content: space-between; margin-top: 10px; font-size: 10px; color: #8a9fab; }
+.data-line span:last-child { color: var(--accent); }
+.log { font-size: 10px; line-height: 1.8; color: #9cb2bc; margin-top: 10px; overflow: hidden; }
+.log div:last-child { color: var(--accent); }
+
+/* Footer Stats & Actions */
+.footer-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+.mini { border: 1px solid rgba(var(--rgb), .18); background: rgba(10, 26, 35, .55); padding: 11px 14px; }
+.mini strong { display: block; color: var(--accent); font-weight: 400; font-size: 13px; margin-top: 5px; }
+.actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid rgba(var(--rgb), .18);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+.action-buttons { display: flex; gap: 9px; }
+
+/* Notes Vault Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 13, 20, .85);
+  backdrop-filter: blur(8px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+  background: rgba(10, 26, 35, .96);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 32px rgba(var(--rgb), .25);
+  width: 100%;
+  max-width: 600px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  border-radius: 3px;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(var(--rgb), .2);
+}
+.modal-header h3 { margin: 0; font-size: 14px; letter-spacing: .15em; color: var(--accent); }
+.modal-close { background: none; border: none; color: #8aa0a9; font-size: 18px; cursor: pointer; }
+.modal-close:hover { color: #fff; }
+.modal-body {
+  overflow-y: auto;
+  padding: 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.modal-input, .modal-textarea {
+  width: 100%;
+  background: rgba(5, 13, 20, .9);
+  border: 1px solid rgba(var(--rgb), .3);
+  color: #fff;
+  padding: 9px 12px;
+  font-size: 12px;
+  border-radius: 3px;
+  outline: none;
+}
+.modal-textarea { min-height: 70px; resize: vertical; }
+.modal-input:focus, .modal-textarea:focus { border-color: var(--accent); }
+.notes-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; max-height: 220px; overflow-y: auto; }
+.note-item {
+  background: rgba(var(--rgb), .05);
+  border: 1px solid rgba(var(--rgb), .18);
+  padding: 9px 12px;
+  border-radius: 3px;
+}
+.note-item-title { font-weight: 600; font-size: 12px; color: var(--accent); }
+.note-item-content { font-size: 11px; color: var(--text); margin-top: 3px; }
+.note-item-date { font-size: 9px; color: #708d9a; margin-top: 4px; text-align: right; }
+
+/* Animations & Mode Overrides */
+body[data-mode="combat"] .spin { animation-duration: 12s; }
+body[data-mode="combat"] .reverse { animation-duration: 9s; }
+body[data-mode="stealth"] .spin { animation-duration: 70s; }
+body[data-mode="stealth"] .reverse { animation-duration: 82s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: .4; transform: scale(.97); } }
+@keyframes wave { from { transform: scaleY(.2); } to { transform: scaleY(1); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Responsive */
+@media(max-width: 1080px) {
+  .dashboard { grid-template-columns: 1fr; }
+  .stack { grid-template-columns: repeat(3, 1fr); }
+  .chat-panel { height: 320px; }
+  .core-area { padding: 10px 0 20px; }
+}
+@media(max-width: 650px) {
+  .shell { padding: 14px 10px; }
+  .top { align-items: flex-start; }
+  .modes { gap: 6px; }
+  .mode { padding: 8px; }
+  .stack { grid-template-columns: 1fr; }
+  .footer-stats { grid-template-columns: 1fr 1fr; }
+  .actions { flex-direction: column; align-items: stretch; }
+  .action-buttons > * { flex: 1; }
+}
+</style>
 </head>
-<body>
+<body data-mode="classic">
+<main class="hud" id="hud">
+<div class="shell">
 
-  <!-- Main Desktop Window -->
-  <div class="desktop-app">
-
-    <!-- Top Window Controls -->
-    <div class="window-controls">
-      <div class="win-btn min" title="Minimize"></div>
-      <div class="win-btn max" title="Maximize"></div>
-      <div class="win-btn close" title="Close"></div>
+<!-- TOP HEADER -->
+<header class="top">
+  <div class="brand">
+    <div class="logo">J</div>
+    <div>
+      <h1>J.A.R.V.I.S.</h1>
+      <div class="eyebrow mono">ADAPTIVE INTELLIGENCE INTERFACE</div>
     </div>
+  </div>
+  <div class="clock mono">
+    <strong id="clock">--:--:--</strong>
+    <div class="tiny" id="date">--</div>
+    <div class="tiny online" id="ws-indicator">● SYSTEM ONLINE</div>
+  </div>
+</header>
 
-    <!-- ========================================================
-         1. LEFT NAVIGATION SIDEBAR
-         ======================================================== -->
-    <aside class="sidebar-left">
-      <div>
-        <div class="brand-box">
-          <div class="jarvis-emblem">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-            </svg>
-          </div>
-          <div>
-            <div class="brand-title">JARVIS</div>
-            <div class="brand-subtitle">Your AI Assistant</div>
-          </div>
-        </div>
+<!-- PROFILE MODES INTRO -->
+<section class="intro">
+  <div>
+    <div class="eyebrow mono">INTERFACE CONFIGURATION / 03 PROFILES</div>
+    <h2>Operational modes</h2>
+  </div>
+  <div class="tiny mono" id="profile">01 / STANDARD OPERATIONS</div>
+</section>
 
-        <nav class="nav-menu">
-          <button class="nav-btn active" data-view="view-chat">
-            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6z"/></svg>
-            <span>JARVIS Core</span>
-          </button>
-          <button class="nav-btn" data-view="view-notes">
-            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-            <span>Notes</span>
-          </button>
-          <button class="nav-btn" data-view="view-system">
-            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
-            <span>System</span>
-          </button>
-          <button class="nav-btn" data-view="view-tools">
-            <svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
-            <span>Tools</span>
-          </button>
-          <button class="nav-btn" data-view="view-settings">
-            <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
-            <span>Settings</span>
-          </button>
-        </nav>
-      </div>
+<!-- MODE BUTTONS -->
+<nav class="modes" aria-label="HUD modes">
+  <button class="mode" data-mode="classic" aria-pressed="true">
+    <strong><i class="dot classic-dot"></i>CLASSIC</strong>
+    <small class="mono">01 / CYAN</small>
+  </button>
+  <button class="mode" data-mode="stealth" aria-pressed="false">
+    <strong><i class="dot stealth-dot"></i>STEALTH</strong>
+    <small class="mono">02 / VIOLET</small>
+  </button>
+  <button class="mode" data-mode="combat" aria-pressed="false">
+    <strong><i class="dot combat-dot"></i>COMBAT</strong>
+    <small class="mono">03 / CRIMSON</small>
+  </button>
+</nav>
 
-      <div class="sidebar-footer">
-        <div>Smarter Tools.</div>
-        <div>Better Decisions.</div>
-        <div>Together.</div>
-      </div>
-    </aside>
+<!-- 3-COLUMN DASHBOARD -->
+<section class="dashboard">
 
-    <!-- ========================================================
-         2. CENTER WORKSPACE
-         ======================================================== -->
-    <main class="workspace">
-      
-      <!-- Top Header -->
-      <div class="top-header">
-        <div>
-          <div class="page-title" id="page-title-text">
-            <span>JARVIS Core</span>
-          </div>
-          <div class="page-desc" id="page-desc-text">Next-Gen 3D Neural Starburst Core &bull; Autonomous Desktop Assistant</div>
-        </div>
-        <div class="header-indicators">
-          <div class="badge-online">
-            <span class="dot"></span>
-            <span>Online</span>
-          </div>
-        </div>
-      </div>
+  <!-- LEFT COLUMN: SYSTEM TELEMETRY -->
+  <div class="stack">
+    <article class="panel">
+      <h3 class="mono">PROCESSOR LOAD</h3>
+      <div class="metric"><span id="cpu">--</span><small>%</small></div>
+      <div class="bars" id="cpuBars"></div>
+      <div class="note mono" id="cpu-status">HOST MACHINE / NOMINAL</div>
+    </article>
 
-      <!-- VIEW 1: QUANTUM 3D CORE HERO STAGE (Image 1 in Center) -->
-      <div class="view-panel active-view" id="view-chat">
-        <div class="core-stage-container">
-          
-          <!-- Center 3D Starburst Core Card -->
-          <div class="hero-3d-core-card">
-            <div class="canvas-3d-wrapper hero-wrapper" title="Interactive 3D Starburst Core - Move mouse to rotate">
-              <canvas id="jarvis-3d-core" width="300" height="300"></canvas>
-              <div class="core-status-badge" id="core-status-badge">CORE: IDLE</div>
-            </div>
-            <div class="hero-core-title">JARVIS AI</div>
-            <div class="hero-core-sub" id="core-state-text">QUANTUM STARBURST CORE</div>
-            <div class="hero-core-tagline" id="core-fps-label">Next-Gen 3D Neural Engine &bull; Interactive 3D Particles &bull; 60 FPS</div>
-          </div>
+    <article class="panel">
+      <h3 class="mono">MEMORY USAGE</h3>
+      <div class="metric"><span id="ram-metric">--</span> <small>GB</small></div>
+      <div class="progress"><i id="ram-progress" style="width: 50%;"></i></div>
+      <div class="note mono" id="ram-note">HOST RAM / ACTIVE</div>
+    </article>
 
-          <!-- Quick Action Prompt Chips in Center -->
-          <div class="quick-chips-row center-chips">
-            <button class="chip-btn" data-prompt="Open Google Chrome">
-              <span>🌐</span> Open Chrome
-            </button>
-            <button class="chip-btn" data-prompt="open whatsapp">
-              <span>💬</span> Open WhatsApp
-            </button>
-            <button class="chip-btn" data-prompt="can you open command prompt ?">
-              <span>💻</span> Command Prompt
-            </button>
-            <button class="chip-btn" data-prompt="Check system info and RAM usage">
-              <span>📊</span> System Info
-            </button>
-            <button class="chip-btn" data-prompt="Save a note: Finish Project-A integration">
-              <span>📝</span> Save Note
-            </button>
-            <button class="chip-btn" data-prompt="What's the weather and current time?">
-              <span>🌤️</span> Weather
-            </button>
-          </div>
-
-          <!-- Live System Status Diagnostics Bar -->
-          <div class="telemetry-card-panel hero-telemetry-panel">
-            <div class="card-panel-header">
-              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 6px #22c55e;"></span>
-              <span>Host Machine Diagnostics</span>
-            </div>
-
-            <div class="telemetry-grid-row">
-              <!-- CPU -->
-              <div class="metric-row">
-                <div class="metric-labels">
-                  <span>CPU Load</span>
-                  <span id="rt-cpu-val" style="font-weight:700; color:#fff;">-- %</span>
-                </div>
-                <div class="metric-bar-bg">
-                  <div class="metric-bar-fill" id="rt-cpu-bar" style="width: 18%;"></div>
-                </div>
-              </div>
-
-              <!-- RAM -->
-              <div class="metric-row">
-                <div class="metric-labels">
-                  <span>RAM Usage</span>
-                  <span id="rt-ram-val" style="font-weight:700; color:#fff;">-- %</span>
-                </div>
-                <div class="metric-bar-bg">
-                  <div class="metric-bar-fill" id="rt-ram-bar" style="width: 42%;"></div>
-                </div>
-              </div>
-
-              <!-- Battery -->
-              <div class="metric-row" style="margin-bottom: 0;">
-                <div class="metric-labels">
-                  <span>Battery</span>
-                  <span id="rt-battery-val" style="font-weight:700; color:#fff;">-- %</span>
-                </div>
-                <div class="metric-bar-bg">
-                  <div class="metric-bar-fill" id="rt-battery-bar" style="width: 87%;"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Current Action Card -->
-          <div class="current-action-card hero-action-card">
-            <div class="action-header">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-              </svg>
-              <span>Current Action</span>
-            </div>
-            <div class="action-status-text" id="action-mode-label">Idle</div>
-            <div class="action-detail-text" id="action-detail-label">Waiting for your command...</div>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- VIEW 2: NOTES MANAGER -->
-      <div class="view-panel" id="view-notes">
-        <div class="notes-view-content">
-          <div class="notes-top-bar">
-            <input type="text" class="notes-search-input" id="notes-search" placeholder="🔍 Search notes..." />
-            <button class="btn-new-note" id="btn-open-note-modal">+ New Note</button>
-          </div>
-          <div class="notes-grid" id="notes-grid-container">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-      </div>
-
-      <!-- VIEW 3: SYSTEM VIEW -->
-      <div class="view-panel" id="view-system">
-        <div class="tools-view-content">
-          <h2 style="font-size: 1.1rem; color: #fff; margin-bottom: 16px;">Core Telemetry Diagnostics</h2>
-          <div class="tools-grid">
-            <div class="tool-tile">
-              <div class="tool-tile-icon">⚡</div>
-              <div>
-                <div class="tool-tile-title">CPU Processor</div>
-                <div class="tool-tile-desc" id="sys-cpu-detail">Loading utilization...</div>
-              </div>
-            </div>
-            <div class="tool-tile">
-              <div class="tool-tile-icon">💾</div>
-              <div>
-                <div class="tool-tile-title">Memory (RAM)</div>
-                <div class="tool-tile-desc" id="sys-ram-detail">Loading memory status...</div>
-              </div>
-            </div>
-            <div class="tool-tile">
-              <div class="tool-tile-icon">🔋</div>
-              <div>
-                <div class="tool-tile-title">Power Source</div>
-                <div class="tool-tile-desc" id="sys-battery-detail">Checking power sensors...</div>
-              </div>
-            </div>
-            <div class="tool-tile">
-              <div class="tool-tile-icon">🗄️</div>
-              <div>
-                <div class="tool-tile-title">Database Storage</div>
-                <div class="tool-tile-desc">SQLite 3 (WAL mode active). Path: memory/jarvis.db</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- VIEW 4: TOOLS PANEL -->
-      <div class="view-panel" id="view-tools">
-        <div class="tools-view-content">
-          <h2 style="font-size: 1.1rem; color: #fff; margin-bottom: 16px;">Available Autonomous Tools</h2>
-          <div class="tools-grid" id="tools-catalog-grid">
-            <div class="tool-tile" data-tool="open_app">
-              <div class="tool-tile-icon">📱</div>
-              <div>
-                <div class="tool-tile-title">Open Application</div>
-                <div class="tool-tile-desc">Launch any installed application (Chrome, Notepad, Calc, Spotify)</div>
-              </div>
-            </div>
-            <div class="tool-tile" data-tool="file_ops">
-              <div class="tool-tile-icon">📁</div>
-              <div>
-                <div class="tool-tile-title">File Operations</div>
-                <div class="tool-tile-desc">Read, write, and manage sandboxed workspace files safely</div>
-              </div>
-            </div>
-            <div class="tool-tile" data-tool="system_info">
-              <div class="tool-tile-icon">⚙️</div>
-              <div>
-                <div class="tool-tile-title">System Info</div>
-                <div class="tool-tile-desc">Get CPU, RAM, battery, and host telemetry diagnostics</div>
-              </div>
-            </div>
-            <div class="tool-tile" data-tool="web_search">
-              <div class="tool-tile-icon">🌐</div>
-              <div>
-                <div class="tool-tile-title">Web Search</div>
-                <div class="tool-tile-desc">Search the internet for real-time live information</div>
-              </div>
-            </div>
-            <div class="tool-tile" data-tool="screenshots">
-              <div class="tool-tile-icon">📷</div>
-              <div>
-                <div class="tool-tile-title">Screenshots</div>
-                <div class="tool-tile-desc">Capture full screen or specific application windows</div>
-              </div>
-            </div>
-            <div class="tool-tile" data-tool="automation">
-              <div class="tool-tile-icon">🤖</div>
-              <div>
-                <div class="tool-tile-title">Automation</div>
-                <div class="tool-tile-desc">Execute safe automation commands with confirmation guards</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- VIEW 5: SETTINGS -->
-      <div class="view-panel" id="view-settings">
-        <div class="tools-view-content">
-          <h2 style="font-size: 1.1rem; color: #fff; margin-bottom: 16px;">Jarvis Configuration</h2>
-          <div style="background: var(--bg-card); border: 1px solid var(--border-cyan); border-radius: 12px; padding: 20px; max-width: 600px;">
-            <div style="margin-bottom: 16px;">
-              <label style="display:block; font-size:0.8rem; color:var(--cyan-bright); margin-bottom:6px;">VOICE ENGINE (TTS)</label>
-              <input type="text" class="notes-search-input" style="max-width:100%;" value="en-US-GuyNeural (Edge-TTS)" readonly />
-            </div>
-            <div style="margin-bottom: 16px;">
-              <label style="display:block; font-size:0.8rem; color:var(--cyan-bright); margin-bottom:6px;">WAKE WORD</label>
-              <input type="text" class="notes-search-input" style="max-width:100%;" value="Hey Jarvis" readonly />
-            </div>
-            <div style="margin-bottom: 16px;">
-              <label style="display:block; font-size:0.8rem; color:var(--cyan-bright); margin-bottom:6px;">WEBSOCKET ENDPOINT</label>
-              <input type="text" class="notes-search-input" style="max-width:100%;" value="ws://127.0.0.1:8000/ws/jarvis" readonly />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ---------------- OVERLAY: LISTENING MODE ---------------- -->
-      <div class="hud-state-overlay" id="overlay-listening">
-        <button class="state-dismiss-btn" id="btn-close-listening">✕ Close Mode</button>
-        <div class="hologram-orb-container">
-          <div class="hologram-outer-ring"></div>
-          <div class="hologram-inner-ring"></div>
-          <div class="hologram-core-sphere">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="#00d2ff">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
-            </svg>
-          </div>
-        </div>
-        <div class="hologram-title">Listening...</div>
-        <div class="hologram-subtitle">Speak now! Jarvis is listening to your microphone</div>
-        <div class="audio-visualizer">
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-          <div class="wave-bar"></div>
-        </div>
-      </div>
-
-      <!-- ---------------- OVERLAY: THINKING MODE ---------------- -->
-      <div class="hud-state-overlay" id="overlay-thinking">
-        <div class="hologram-orb-container">
-          <div class="hologram-outer-ring" style="border-color:#38bdf8;"></div>
-          <div class="hologram-inner-ring" style="border-color:#60a5fa;"></div>
-          <div class="hologram-core-sphere" style="background: radial-gradient(circle, #2563eb 0%, #082f49 90%);">
-            <svg width="42" height="42" viewBox="0 0 24 24" fill="#67e8f9">
-              <path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 21l3.54-.7c1.23.45 2.57.7 3.98.7 4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 15c-1.16 0-2.28-.24-3.3-.68l-.42-.18-2.1.42.42-2.1-.18-.42C6.24 14.28 6 13.16 6 12c0-3.31 2.69-6 6-6s6 2.69 6 6-2.69 6-6 6z"/>
-            </svg>
-          </div>
-        </div>
-        <div class="hologram-title">Thinking...</div>
-        <div class="hologram-subtitle">Analyzing your request with Core Brain AI Model</div>
-        <div style="width: 240px; height: 5px; background: rgba(0, 210, 255, 0.15); border-radius: 3px; margin-top: 18px; overflow: hidden;">
-          <div style="width: 60%; height: 100%; background: var(--cyan-neon); box-shadow: 0 0 10px var(--cyan-neon); animation: thinkingProgress 1.4s infinite ease-in-out;"></div>
-        </div>
-      </div>
-
-      <!-- ---------------- OVERLAY: SPEAKING MODE ---------------- -->
-      <div class="hud-state-overlay" id="overlay-speaking">
-        <button class="state-dismiss-btn" id="btn-close-speaking">✕ Close</button>
-        <div class="hologram-orb-container">
-          <div class="hologram-outer-ring"></div>
-          <div class="hologram-inner-ring"></div>
-          <div class="hologram-core-sphere">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="#00d2ff">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
-          </div>
-        </div>
-        <div class="hologram-title">Speaking...</div>
-        <div class="hologram-subtitle" id="speaking-text-preview">Here's what I found for you:</div>
-        <div class="audio-visualizer">
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-          <div class="wave-bar"></div>
-        </div>
-      </div>
-
-    </main>
-
-    <!-- ========================================================
-         3. RIGHT TELEMETRY & HOLOGRAM SIDEBAR
-         ======================================================== -->
-    <aside class="sidebar-right chat-sidebar">
-      
-      <!-- Top Chat Header -->
-      <div class="chat-sidebar-header">
-        <div class="chat-header-info">
-          <div class="chat-header-title">Chat Console</div>
-          <div class="chat-header-subtitle">Ask anything, I'm here to help.</div>
-        </div>
-        <div class="header-indicators">
-          <div class="badge-online">
-            <span class="dot"></span>
-            <span>Online</span>
-          </div>
-          <div class="audio-stream-icon" id="btn-toggle-speech" title="Voice Output (TTS) Enabled">
-            <svg id="icon-speaker" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
-          </div>
-          <div class="audio-stream-icon" id="btn-toggle-mic" title="Voice Input Mode (Click to Speak)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      <!-- Chat Messages Feed (Image 2) -->
-      <div class="chat-messages" id="chat-feed">
-        <!-- Jarvis Greeting Message -->
-        <div class="chat-bubble jarvis">
-          <div class="chat-avatar jarvis">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-            </svg>
-          </div>
-          <div class="chat-body">
-            <div class="chat-text">
-              Hello! I'm <strong>JARVIS</strong> &mdash; your autonomous AI assistant. Ready to launch apps, manage notes, or answer queries!
-            </div>
-            <div class="chat-time" id="greeting-time">10:24 AM</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Voice Input Status Capsule -->
-      <div class="voice-active-bar" id="voice-active-bar">
-        <div class="voice-bar-left">
-          <div class="voice-pulse-ring"></div>
-          <span class="voice-bar-text">Listening:</span>
-          <span class="voice-transcript-preview" id="voice-transcript-preview">Speak now into your microphone...</span>
-        </div>
-        <button type="button" class="btn-stop-voice" id="btn-cancel-voice">✕</button>
-      </div>
-
-      <!-- Chat Input Bar -->
-      <form class="chat-input-bar" id="chat-form">
-        <div class="input-wrapper">
-          <span class="attach-icon" id="btn-mic-inline" title="Click to speak (Voice Recognition)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
-            </svg>
-          </span>
-          <input 
-            type="text" 
-            class="main-input" 
-            id="user-input" 
-            placeholder="Ask anything or click mic..." 
-            autocomplete="off"
-          />
-        </div>
-        <button type="submit" class="send-icon-btn" title="Send (Enter)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-          </svg>
-        </button>
-      </form>
-
-    </aside>
-
+    <article class="panel">
+      <h3 class="mono">CORE BATTERY & HEALTH</h3>
+      <div class="metric"><span id="battery-metric">--</span><small>%</small></div>
+      <svg class="spark" viewBox="0 0 140 45" preserveAspectRatio="none" fill="none">
+        <path d="M0 32 12 29 23 34 34 13 44 24 55 9 67 24 79 15 91 29 105 13 118 21 130 9 140 19" stroke-width="1.5"/>
+      </svg>
+      <div class="note mono" id="battery-note">● HARDWARE TELEMETRY ACTIVE</div>
+    </article>
   </div>
 
-  <!-- Modal for Creating New Note -->
-  <div class="modal-overlay" id="note-modal">
-    <div class="modal-card">
-      <div class="modal-title">
-        <span>Create SQLite Note</span>
-        <button id="btn-close-modal" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+  <!-- CENTER COLUMN: NEURAL ARC REACTOR CORE -->
+  <div class="core-area">
+    <div class="core-label mono">
+      <span>NEURAL QUANTUM CORE / 01</span>
+      <span>DESKTOP AI ASSISTANT</span>
+    </div>
+
+    <div class="reactor">
+      <svg viewBox="0 0 500 500" aria-label="Animated JARVIS reactor core" role="img">
+        <circle class="arc" cx="250" cy="250" r="236" stroke-width=".7" stroke-dasharray="2 11" opacity=".35"/>
+        <circle class="arc" cx="250" cy="250" r="224" stroke-width=".7" opacity=".3"/>
+        <g class="spin">
+          <circle class="arc" cx="250" cy="250" r="214" stroke-width="3" stroke-dasharray="95 24 5 42 46 30 2 40" opacity=".8"/>
+          <circle class="arc" cx="250" cy="250" r="203" stroke-width="1" stroke-dasharray="2 10" opacity=".5"/>
+        </g>
+        <g class="reverse">
+          <circle class="arc" cx="250" cy="250" r="190" stroke-width="12" stroke-dasharray="52 32 100 39 15 60 42 101" opacity=".5"/>
+          <circle class="arc" cx="250" cy="250" r="175" stroke-width="1" stroke-dasharray="86 19 3 31" opacity=".7"/>
+        </g>
+        <circle class="arc" cx="250" cy="250" r="163" stroke-width=".7" opacity=".4"/>
+        <g class="spin">
+          <circle class="arc" cx="250" cy="250" r="151" stroke-width="2" stroke-dasharray="3 5 60 20 6 25" opacity=".85"/>
+          <circle class="arc" cx="250" cy="250" r="140" stroke-width="6" stroke-dasharray="1 6" opacity=".22"/>
+        </g>
+        <g class="reverse">
+          <circle class="arc" cx="250" cy="250" r="125" stroke-width="3" stroke-dasharray="87 20 8 45 25 35" opacity=".8"/>
+          <circle class="arc" cx="250" cy="250" r="112" stroke-width="1" stroke-dasharray="34 12 5 18" opacity=".5"/>
+        </g>
+        <circle class="arc" cx="250" cy="250" r="99" stroke-width="1" opacity=".4"/>
+        <g class="pulse">
+          <circle class="arc" cx="250" cy="250" r="75" stroke-width="1.5" stroke-dasharray="19 7" opacity=".7"/>
+          <circle class="arc" cx="250" cy="250" r="66" stroke-width=".7" opacity=".4"/>
+        </g>
+        <path class="arc" d="M250 13v20M250 467v20M13 250h20M467 250h20" stroke-width="1.6"/>
+        <path class="arc" d="M46 65V46h19M435 46h19v19M46 435v19h19M454 435v19h-19" opacity=".45"/>
+      </svg>
+      <div class="center-copy">
+        <div class="subtitle mono">ARTIFICIAL INTELLIGENCE</div>
+        <div class="word">JARVIS</div>
+        <div class="stroke"></div>
+        <div class="status mono" id="status">SYSTEM READY</div>
       </div>
-      <form id="modal-note-form">
-        <input type="text" class="modal-input" id="modal-note-title" placeholder="Note Title (e.g. Project Ideas)" required />
-        <textarea class="modal-textarea" id="modal-note-content" placeholder="Type your note content here..." required></textarea>
-        <div class="modal-actions">
-          <button type="button" class="btn-modal-cancel" id="btn-cancel-modal">Cancel</button>
-          <button type="submit" class="btn-new-note">Save to SQLite</button>
-        </div>
-      </form>
+    </div>
+
+    <div class="core-description" id="description">Intelligence at your command. Ask anything or launch apps.</div>
+    <div class="wave" id="wave" aria-hidden="true"></div>
+    <button class="btn core-button mono" id="voice">◎ INITIALIZE VOICE LINK</button>
+
+    <!-- QUICK LAUNCH CHIPS -->
+    <div class="quick-chips">
+      <button class="chip" data-cmd="open chrome">🌐 Chrome</button>
+      <button class="chip" data-cmd="open whatsapp">💬 WhatsApp</button>
+      <button class="chip" data-cmd="open cmd">💻 Cmd Prompt</button>
+      <button class="chip" data-cmd="check system info">📊 Diagnostics</button>
+      <button class="chip" data-cmd="tell me the current time">⏰ Current Time</button>
+      <button class="chip" data-cmd="show my notes">📝 My Notes</button>
     </div>
   </div>
 
-  <!-- ========================================================
-       JAVASCRIPT HUD CONTROLLER
-       ======================================================== -->
-  <script>
-    // Navigation & View Switching
-    const navButtons = document.querySelectorAll('.nav-btn');
-    const viewPanels = document.querySelectorAll('.view-panel');
-    const pageTitleText = document.getElementById('page-title-text');
-    const pageDescText = document.getElementById('page-desc-text');
+  <!-- RIGHT COLUMN: COMMS & LIVE CHAT CONSOLE -->
+  <div class="stack">
+    <!-- MINI NETWORK & COMMS STATUS -->
+    <article class="panel" style="padding: 10px 14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 class="mono">NEURAL COMMS LINK</h3>
+        <button class="icon-btn" id="tts-toggle" title="Toggle Voice Speech Output" style="width:26px; height:26px; font-size:12px;">🔊</button>
+      </div>
+      <div class="data-line mono" style="margin-top:6px;">
+        <span>WS CHANNEL</span>
+        <span id="ws-state">CONNECTED</span>
+      </div>
+    </article>
 
-    const viewMeta = {
-      'view-chat': { title: 'JARVIS Core', desc: 'Next-Gen 3D Neural Starburst Core • Autonomous Desktop Assistant' },
-      'view-notes': { title: 'My Notes', desc: 'Persistent notes & memory vault (SQLite)' },
-      'view-system': { title: 'System Diagnostics', desc: 'Hardware telemetry, CPU, RAM & sensors' },
-      'view-tools': { title: 'Available Tools', desc: 'Autonomous system tools and shortcuts' },
-      'view-settings': { title: 'Settings', desc: 'Voice, wake word & API configurations' }
+    <!-- LIVE CHAT CONSOLE -->
+    <article class="panel chat-panel">
+      <div class="chat-header">
+        <h3 class="mono">LIVE INTERACTION TERMINAL</h3>
+        <span class="tiny mono" id="msg-counter">0 MESSAGES</span>
+      </div>
+
+      <!-- CHAT FEED -->
+      <div class="chat-feed" id="chat-feed">
+        <div class="chat-bubble assistant">
+          <div>Jarvis Neural Interface initialized. How may I assist you today, sir?</div>
+          <div class="meta mono"><span>JARVIS CORE</span><span>ONLINE</span></div>
+        </div>
+      </div>
+
+      <!-- INPUT BAR -->
+      <form class="chat-form" id="chat-form">
+        <input type="text" class="chat-input" id="chat-input" placeholder="Type command or question (e.g. Open Chrome, Time)..." autocomplete="off" />
+        <button type="button" class="icon-btn" id="mic-btn" title="Speak to Jarvis">🎤</button>
+        <button type="submit" class="icon-btn" id="send-btn" title="Send to Jarvis">➤</button>
+      </form>
+    </article>
+
+    <!-- SYSTEM LOG STREAM -->
+    <article class="panel" style="padding: 12px 14px;">
+      <h3 class="mono">SYSTEM LOG</h3>
+      <div class="log mono" id="log" aria-live="polite">
+        <div>✓ BOOT COMPLETE</div>
+        <div>✓ HUD INITIALIZED</div>
+        <div>✓ WEBSOCKET ACTIVE</div>
+        <div>› AWAITING INPUT</div>
+      </div>
+    </article>
+  </div>
+
+</section>
+
+<!-- FOOTER STATS -->
+<section class="footer-stats">
+  <div class="mini">
+    <div class="tiny mono">ENGINE</div>
+    <strong class="mono">JARVIS 8.02</strong>
+  </div>
+  <div class="mini">
+    <div class="tiny mono">BACKEND & MEMORY</div>
+    <strong class="mono" id="foot-db">SQLITE / WAL</strong>
+  </div>
+  <div class="mini">
+    <div class="tiny mono">OPERATION</div>
+    <strong class="mono" id="operation">NORMAL</strong>
+  </div>
+  <div class="mini">
+    <div class="tiny mono">CORE HEALTH</div>
+    <strong class="mono">OPTIMAL</strong>
+  </div>
+</section>
+
+<!-- FOOTER ACTIONS -->
+<footer class="actions">
+  <div class="tiny mono">J.A.R.V.I.S. / ADAPTIVE SYSTEM / ROHIT UI & MEMORY</div>
+  <div class="action-buttons">
+    <button class="btn mono" id="diagnostic">RUN DIAGNOSTIC</button>
+    <button class="btn mono" id="btn-notes-vault">NOTES VAULT</button>
+    <button class="btn mono" id="reset">RESET SYSTEM</button>
+  </div>
+</footer>
+
+</div>
+</main>
+
+<!-- NOTES VAULT MODAL (SQLITE) -->
+<div class="modal-overlay" id="notes-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 class="mono">PERSISTENT SQLITE MEMORY VAULT</h3>
+      <button class="modal-close" id="close-notes-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="new-note-form" style="display:flex; flex-direction:column; gap:8px;">
+        <input type="text" class="modal-input" id="note-title" placeholder="Note Title (e.g. Project-A Meeting)" required />
+        <textarea class="modal-textarea" id="note-content" placeholder="Type your note content here..." required></textarea>
+        <button type="submit" class="btn mono" style="align-self:flex-end;">+ SAVE TO SQLITE</button>
+      </form>
+      <input type="text" class="modal-input" id="search-notes-input" placeholder="🔍 Search saved notes in database..." style="margin-top:8px;" />
+      <div class="notes-list" id="notes-list-container">
+        <!-- Dynamically loaded -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(()=>{
+  // 1. Operational Profiles / Modes
+  const modes = {
+    classic: { hex: '#6deaf6', rgb: '109,234,246', profile: '01 / STANDARD OPERATIONS', status: 'SYSTEM READY', description: 'Intelligence at your command. Ask anything or launch apps.', operation: 'NORMAL' },
+    stealth: { hex: '#b99cff', rgb: '185,156,255', profile: '02 / STEALTH OPERATIONS', status: 'STEALTH ENABLED', description: 'Quiet. Precise. Focused.', operation: 'STEALTH' },
+    combat:  { hex: '#ff6377', rgb: '255,99,119', profile: '03 / TACTICAL OPERATIONS', status: 'TACTICAL MODE', description: 'Tactical defense & system automation online.', operation: 'TACTICAL' }
+  };
+
+  const $ = s => document.querySelector(s);
+  let activeMode = 'classic';
+  let ttsEnabled = true;
+  let voiceListening = false;
+  let recognition = null;
+  let messageCount = 1;
+
+  // Logger
+  function log(msg) {
+    const el = $('#log');
+    if (!el) return;
+    const line = document.createElement('div');
+    line.textContent = '› ' + msg;
+    el.appendChild(line);
+    while (el.children.length > 4) el.firstElementChild.remove();
+  }
+
+  function updateStatus(text) {
+    const st = $('#status');
+    if (st) st.textContent = text;
+  }
+
+  // Profile Mode Switcher
+  function changeMode(name) {
+    const m = modes[name];
+    if (!m) return;
+    activeMode = name;
+    document.body.dataset.mode = name;
+    document.documentElement.style.setProperty('--accent', m.hex);
+    document.documentElement.style.setProperty('--rgb', m.rgb);
+    $('#profile').textContent = m.profile;
+    $('#description').textContent = m.description;
+    $('#operation').textContent = m.operation;
+    if (!voiceListening) updateStatus(m.status);
+    document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === name)));
+    log(name.toUpperCase() + ' MODE ACTIVATED');
+  }
+
+  document.querySelectorAll('[data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => changeMode(btn.dataset.mode));
+  });
+
+  // Dynamic Visual Bars
+  const cpuBarsEl = $('#cpuBars');
+  for (let i = 0; i < 23; i++) {
+    let bar = document.createElement('span');
+    bar.style.height = (20 + Math.random() * 60) + '%';
+    cpuBarsEl.appendChild(bar);
+  }
+
+  const waveEl = $('#wave');
+  for (let i = 0; i < 40; i++) {
+    let bar = document.createElement('span');
+    bar.style.height = (8 + Math.random() * 26) + 'px';
+    bar.style.animationDelay = (-i * .08) + 's';
+    waveEl.appendChild(bar);
+  }
+
+  // Real-time Clock & Date
+  function updateClock() {
+    const now = new Date();
+    $('#clock').textContent = now.toLocaleTimeString('en-GB', { hour12: false });
+    $('#date').textContent = now.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // -------------------------------------------------------------
+  // 2. WEBSOCKET REAL-TIME BIDIRECTIONAL CHANNEL
+  // -------------------------------------------------------------
+  let socket = null;
+  let reconnectTimer = null;
+
+  function initWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host || '127.0.0.1:8000';
+    const wsUrl = `${protocol}//${host}/ws/jarvis`;
+
+    try {
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        $('#ws-indicator').textContent = '● SYSTEM ONLINE';
+        $('#ws-indicator').style.color = 'var(--accent)';
+        $('#ws-state').textContent = 'CONNECTED';
+        $('#ws-state').style.color = 'var(--accent)';
+        log('WEBSOCKET CONNECTED TO CORE');
+        if (reconnectTimer) clearInterval(reconnectTimer);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleIncomingMessage(data);
+        } catch (e) {
+          console.error("Malformed WS message", e);
+        }
+      };
+
+      socket.onclose = () => {
+        $('#ws-indicator').textContent = '○ DISCONNECTED';
+        $('#ws-indicator').style.color = '#ef4444';
+        $('#ws-state').textContent = 'RECONNECTING...';
+        $('#ws-state').style.color = '#ef4444';
+        log('WEBSOCKET DISCONNECTED');
+        if (!reconnectTimer) {
+          reconnectTimer = setInterval(initWebSocket, 3000);
+        }
+      };
+
+      socket.onerror = (err) => {
+        console.warn("WebSocket error:", err);
+      };
+    } catch (e) {
+      console.warn("WS init failed:", e);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 3. CHAT ENGINE & UI RENDERING
+  // -------------------------------------------------------------
+  const chatFeed = $('#chat-feed');
+  const chatForm = $('#chat-form');
+  const chatInput = $('#chat-input');
+  let currentThinkingBubble = null;
+
+  function appendChatBubble(role, text) {
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble ${role}`;
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.textContent = text;
+    bubble.appendChild(contentDiv);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta mono';
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    meta.innerHTML = `<span>${role === 'user' ? 'ROHIT' : 'JARVIS CORE'}</span><span>${timeStr}</span>`;
+    bubble.appendChild(meta);
+
+    chatFeed.appendChild(bubble);
+    chatFeed.scrollTop = chatFeed.scrollHeight;
+
+    messageCount++;
+    $('#msg-counter').textContent = `${messageCount} MESSAGES`;
+    return bubble;
+  }
+
+  function showThinkingBubble() {
+    if (currentThinkingBubble) return;
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble assistant thinking-bubble';
+    bubble.id = 'thinking-bubble-active';
+    bubble.innerHTML = `
+      <div class="thinking-dots"><span></span><span></span><span></span></div>
+      <span class="mono tiny" style="color:var(--accent);">JARVIS PROCESSING...</span>
+    `;
+    chatFeed.appendChild(bubble);
+    chatFeed.scrollTop = chatFeed.scrollHeight;
+    currentThinkingBubble = bubble;
+    updateStatus('THINKING...');
+  }
+
+  function removeThinkingBubble() {
+    if (currentThinkingBubble) {
+      currentThinkingBubble.remove();
+      currentThinkingBubble = null;
+    }
+    updateStatus(modes[activeMode].status);
+  }
+
+  function sendChatMessage(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    appendChatBubble('user', trimmed);
+    log('USER COMMAND: ' + trimmed.substring(0, 28));
+    showThinkingBubble();
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ action: "chat", text: trimmed }));
+    } else {
+      // Fallback HTTP POST /api/notes or offline message
+      setTimeout(() => {
+        removeThinkingBubble();
+        appendChatBubble('assistant', "Local server connection pending. Please ensure 'python -m uvicorn ui.server:app' is running.");
+      }, 700);
+    }
+  }
+
+  function handleIncomingMessage(data) {
+    if (data.type === 'status') {
+      if (data.status === 'thinking') {
+        showThinkingBubble();
+      } else if (data.status === 'idle') {
+        removeThinkingBubble();
+      }
+    } else if (data.type === 'response') {
+      removeThinkingBubble();
+      appendChatBubble('assistant', data.text);
+      log('JARVIS REPLIED');
+      if (ttsEnabled) speakText(data.text);
+    } else if (data.type === 'telemetry') {
+      updateTelemetryUI(data.data);
+    }
+  }
+
+  chatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const val = chatInput.value;
+    chatInput.value = '';
+    sendChatMessage(val);
+  });
+
+  // Quick chips
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const cmd = chip.getAttribute('data-cmd');
+      if (cmd === 'show my notes') {
+        openNotesModal();
+      } else {
+        sendChatMessage(cmd);
+      }
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 4. SPEECH SYNTHESIS & SPEECH RECOGNITION (VOICE)
+  // -------------------------------------------------------------
+  const ttsBtn = $('#tts-toggle');
+  ttsBtn.addEventListener('click', () => {
+    ttsEnabled = !ttsEnabled;
+    ttsBtn.textContent = ttsEnabled ? '🔊' : '🔇';
+    log('TTS VOICE AUDIO ' + (ttsEnabled ? 'ENABLED' : 'MUTED'));
+    if (!ttsEnabled && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  });
+
+  function speakText(text) {
+    if (!ttsEnabled || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const clean = text.replace(/[*#`_•]/g, ' ');
+    const utterance = new SpeechSynthesisUtterance(clean);
+    utterance.rate = 1.05;
+    utterance.pitch = 0.95;
+    utterance.onstart = () => {
+      updateStatus('SPEAKING...');
+    };
+    utterance.onend = () => {
+      updateStatus(modes[activeMode].status);
+    };
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Voice Link Mic
+  const voiceBtn = $('#voice');
+  const micBtn = $('#mic-btn');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      voiceListening = true;
+      voiceBtn.textContent = '◉ LISTENING (SPEAK NOW)...';
+      voiceBtn.classList.add('active');
+      micBtn.classList.add('active');
+      waveEl.classList.add('listening');
+      updateStatus('ACOUSTIC LISTENING...');
+      log('VOICE RECOGNITION ACTIVE');
     };
 
-    navButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        navButtons.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+    recognition.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      log('VOICE HEARD: ' + transcript);
+      chatInput.value = transcript;
+      sendChatMessage(transcript);
+    };
 
-        const targetView = btn.getAttribute('data-view');
-        viewPanels.forEach(panel => {
-          if (panel.id === targetView) {
-            panel.classList.add('active-view');
-          } else {
-            panel.classList.remove('active-view');
-          }
-        });
+    recognition.onerror = (e) => {
+      console.warn("Speech recognition error:", e);
+      log('VOICE ERROR: ' + (e.error || 'MIC FAILED'));
+    };
 
-        if (viewMeta[targetView]) {
-          pageTitleText.textContent = viewMeta[targetView].title;
-          pageDescText.textContent = viewMeta[targetView].desc;
-        }
+    recognition.onend = () => {
+      voiceListening = false;
+      voiceBtn.textContent = '◎ INITIALIZE VOICE LINK';
+      voiceBtn.classList.remove('active');
+      micBtn.classList.remove('active');
+      waveEl.classList.remove('listening');
+      updateStatus(modes[activeMode].status);
+    };
+  }
 
-        if (targetView === 'view-notes') loadNotes();
-      });
-    });
-
-    // Clock
-    function formatTime(date) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  function toggleVoiceListening() {
+    if (!recognition) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+      return;
     }
-    document.getElementById('greeting-time').textContent = formatTime(new Date());
-
-    // -------------------------------------------------------------
-    // 1. NEXT-GEN 3D PARTICLE STARBURST ENGINE (Matching Image 4)
-    // -------------------------------------------------------------
-    class JarvisStarburst3D {
-      constructor(canvasId) {
-        this.canvas = document.getElementById(canvasId);
-        if (!this.canvas) return;
-        this.ctx = this.canvas.getContext('2d');
-        
-        this.dpr = window.devicePixelRatio || 1;
-        this.width = 300;
-        this.height = 300;
-        this.canvas.width = this.width * this.dpr;
-        this.canvas.height = this.height * this.dpr;
-        this.ctx.scale(this.dpr, this.dpr);
-
-        this.cx = this.width / 2;
-        this.cy = this.height / 2;
-        this.numRays = 300;
-        this.state = 'idle'; // 'idle' | 'listening' | 'thinking' | 'speaking'
-        
-        this.rotX = 0.25;
-        this.rotY = 0;
-        this.rotZ = 0;
-        this.targetRotX = 0.25;
-        this.targetRotY = 0;
-        
-        this.time = 0;
-        this.rays = [];
-
-        this.initRays();
-        this.initMouse();
-        this.animate = this.animate.bind(this);
-        requestAnimationFrame(this.animate);
-      }
-
-      initRays() {
-        this.rays = [];
-        const phi = (1 + Math.sqrt(5)) / 2; // Golden ratio
-        for (let i = 0; i < this.numRays; i++) {
-          const theta = 2 * Math.PI * i / phi;
-          const z = 1 - (2 * i + 1) / this.numRays;
-          const radiusAtZ = Math.sqrt(Math.max(0, 1 - z * z));
-          const x = radiusAtZ * Math.cos(theta);
-          const y = radiusAtZ * Math.sin(theta);
-          
-          this.rays.push({
-            x, y, z,
-            innerR: 16 + Math.random() * 14,
-            baseLen: 55 + Math.random() * 75,
-            pulseSpeed: 1.2 + Math.random() * 1.8,
-            phase: Math.random() * Math.PI * 2,
-            width: 1.0 + Math.random() * 1.6,
-            hasSpark: Math.random() > 0.38
-          });
-        }
-      }
-
-      initMouse() {
-        const wrapper = this.canvas.parentElement;
-        if (!wrapper) return;
-        wrapper.addEventListener('mousemove', (e) => {
-          const rect = wrapper.getBoundingClientRect();
-          const mx = (e.clientX - rect.left - rect.width / 2) / (rect.width / 2);
-          const my = (e.clientY - rect.top - rect.height / 2) / (rect.height / 2);
-          this.targetRotY = mx * 0.75;
-          this.targetRotX = -my * 0.6 + 0.25;
-        });
-        wrapper.addEventListener('mouseleave', () => {
-          this.targetRotX = 0.25;
-          this.targetRotY = 0;
-        });
-      }
-
-      setState(newState) {
-        this.state = newState;
-        const statusBadge = document.getElementById('core-status-badge');
-        const stateText = document.getElementById('core-state-text');
-        if (statusBadge) {
-          statusBadge.textContent = `CORE: ${newState.toUpperCase()}`;
-          if (newState === 'thinking') statusBadge.style.color = '#38bdf8';
-          else if (newState === 'listening') statusBadge.style.color = '#4ade80';
-          else if (newState === 'speaking') statusBadge.style.color = '#00d2ff';
-          else statusBadge.style.color = '#38bdf8';
-        }
-        if (stateText) {
-          if (newState === 'thinking') stateText.textContent = 'NEURAL PROCESSING ACTIVE';
-          else if (newState === 'listening') stateText.textContent = 'ACOUSTIC SENSORS ACTIVE';
-          else if (newState === 'speaking') stateText.textContent = 'SPEECH SYNTHESIS ACTIVE';
-          else stateText.textContent = 'QUANTUM STARBURST CORE';
-        }
-      }
-
-      animate() {
-        this.time += 0.02;
-
-        this.rotX += (this.targetRotX - this.rotX) * 0.05;
-        
-        let speedY = 0.008;
-        let speedX = 0.002;
-        let speedZ = 0.001;
-        let coreGlowSize = 28;
-
-        if (this.state === 'thinking') {
-          speedY = 0.045;
-          speedX = 0.015;
-          speedZ = 0.02;
-          coreGlowSize = 42;
-        } else if (this.state === 'listening') {
-          speedY = 0.016;
-          coreGlowSize = 34;
-        } else if (this.state === 'speaking') {
-          speedY = 0.012;
-          coreGlowSize = 36;
-        }
-
-        this.rotY += speedY;
-        this.rotX += speedX;
-        this.rotZ += speedZ;
-
-        const ctx = this.ctx;
-        ctx.clearRect(0, 0, this.width, this.height);
-
-        const cosY = Math.cos(this.rotY), sinY = Math.sin(this.rotY);
-        const cosX = Math.cos(this.rotX), sinX = Math.sin(this.rotX);
-        const cosZ = Math.cos(this.rotZ), sinZ = Math.sin(this.rotZ);
-
-        const focal = 240;
-        const projectedRays = [];
-
-        for (let i = 0; i < this.numRays; i++) {
-          const r = this.rays[i];
-          
-          let x1 = r.x * cosY + r.z * sinY;
-          let y1 = r.y;
-          let z1 = -r.x * sinY + r.z * cosY;
-
-          let y2 = y1 * cosX - z1 * sinX;
-          let z2 = y1 * sinX + z1 * cosX;
-
-          let x3 = x1 * cosZ - y2 * sinZ;
-          let y3 = x1 * sinZ + y2 * cosZ;
-          let z3 = z2;
-
-          let dynamicLen = r.baseLen;
-          if (this.state === 'thinking') {
-            dynamicLen = r.baseLen * (1.2 + 0.35 * Math.sin(this.time * 12 + r.phase));
-          } else if (this.state === 'listening') {
-            dynamicLen = r.baseLen * (1.0 + 0.3 * Math.sin(this.time * 7 + r.phase));
-          } else if (this.state === 'speaking') {
-            dynamicLen = r.baseLen * (1.0 + 0.25 * Math.sin(this.time * 5 + r.phase));
-          } else {
-            dynamicLen = r.baseLen * (1.0 + 0.08 * Math.sin(this.time * r.pulseSpeed + r.phase));
-          }
-
-          const inX = x3 * r.innerR;
-          const inY = y3 * r.innerR;
-          const inZ = z3 * r.innerR;
-
-          const outX = x3 * (r.innerR + dynamicLen);
-          const outY = y3 * (r.innerR + dynamicLen);
-          const outZ = z3 * (r.innerR + dynamicLen);
-
-          const scaleIn = focal / (focal + inZ);
-          const scaleOut = focal / (focal + outZ);
-
-          const pxIn = this.cx + inX * scaleIn;
-          const pyIn = this.cy + inY * scaleIn;
-
-          const pxOut = this.cx + outX * scaleOut;
-          const pyOut = this.cy + outY * scaleOut;
-
-          projectedRays.push({
-            pxIn, pyIn, pxOut, pyOut,
-            z: z3,
-            scale: scaleOut,
-            width: r.width * scaleOut,
-            hasSpark: r.hasSpark
-          });
-        }
-
-        projectedRays.sort((a, b) => a.z - b.z);
-
-        for (let i = 0; i < projectedRays.length; i++) {
-          const pr = projectedRays[i];
-          const depthAlpha = Math.max(0.18, Math.min(1.0, (pr.z + 1.2) / 2.2));
-          
-          ctx.beginPath();
-          ctx.moveTo(pr.pxIn, pr.pyIn);
-          ctx.lineTo(pr.pxOut, pr.pyOut);
-
-          const grad = ctx.createLinearGradient(pr.pxIn, pr.pyIn, pr.pxOut, pr.pyOut);
-          if (this.state === 'thinking') {
-            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.95})`);
-            grad.addColorStop(0.3, `rgba(56, 189, 248, ${depthAlpha * 0.9})`);
-            grad.addColorStop(1, `rgba(0, 210, 255, 0)`);
-          } else if (this.state === 'listening') {
-            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.9})`);
-            grad.addColorStop(0.35, `rgba(74, 222, 128, ${depthAlpha * 0.85})`);
-            grad.addColorStop(1, `rgba(0, 210, 255, 0)`);
-          } else {
-            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.9})`);
-            grad.addColorStop(0.3, `rgba(0, 210, 255, ${depthAlpha * 0.8})`);
-            grad.addColorStop(1, `rgba(2, 132, 199, 0)`);
-          }
-
-          ctx.strokeStyle = grad;
-          ctx.lineWidth = Math.max(0.7, pr.width);
-          ctx.lineCap = 'round';
-          ctx.stroke();
-
-          if (pr.hasSpark && pr.z > 0.2) {
-            ctx.beginPath();
-            ctx.arc(pr.pxOut, pr.pyOut, 1.2 * pr.scale, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255, 255, 255, ${depthAlpha * 0.8})`;
-            ctx.fill();
-          }
-        }
-
-        const coreGrad = ctx.createRadialGradient(this.cx, this.cy, 2, this.cx, this.cy, coreGlowSize);
-        if (this.state === 'thinking') {
-          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-          coreGrad.addColorStop(0.2, 'rgba(56, 189, 248, 0.95)');
-          coreGrad.addColorStop(0.6, 'rgba(0, 210, 255, 0.4)');
-          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
-        } else if (this.state === 'listening') {
-          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-          coreGrad.addColorStop(0.25, 'rgba(74, 222, 128, 0.9)');
-          coreGrad.addColorStop(0.65, 'rgba(0, 210, 255, 0.35)');
-          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
-        } else {
-          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-          coreGrad.addColorStop(0.25, 'rgba(0, 210, 255, 0.9)');
-          coreGrad.addColorStop(0.6, 'rgba(2, 132, 199, 0.35)');
-          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
-        }
-
-        ctx.beginPath();
-        ctx.arc(this.cx, this.cy, coreGlowSize, 0, Math.PI * 2);
-        ctx.fillStyle = coreGrad;
-        ctx.fill();
-
-        ctx.save();
-        ctx.translate(this.cx, this.cy);
-        ctx.rotate(this.time * 0.5);
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 36, 18, Math.PI / 4, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0, 210, 255, 0.35)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 6]);
-        ctx.stroke();
-        ctx.restore();
-
-        requestAnimationFrame(this.animate);
-      }
-    }
-
-    const neuralCore = new JarvisStarburst3D('jarvis-3d-core');
-
-    // Chat Controller
-    const chatFeed = document.getElementById('chat-feed');
-    const chatForm = document.getElementById('chat-form');
-    const userInput = document.getElementById('user-input');
-    const actionModeLabel = document.getElementById('action-mode-label');
-    const actionDetailLabel = document.getElementById('action-detail-label');
-
-    function setHUDAction(status, detail) {
-      actionModeLabel.textContent = status;
-      actionDetailLabel.textContent = detail;
-    }
-
-    function appendUserMessage(text) {
-      const bubble = document.createElement('div');
-      bubble.className = 'chat-bubble user';
-      bubble.innerHTML = `
-        <div class="chat-avatar user">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#93c5fd">
-            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-          </svg>
-        </div>
-        <div class="chat-body">
-          <div class="chat-text">${escapeHtml(text)}</div>
-          <div class="chat-time">${formatTime(new Date())}</div>
-        </div>
-      `;
-      chatFeed.appendChild(bubble);
-      chatFeed.scrollTop = chatFeed.scrollHeight;
-    }
-
-    function appendJarvisMessage(text) {
-      const bubble = document.createElement('div');
-      bubble.className = 'chat-bubble jarvis';
-      bubble.innerHTML = `
-        <div class="chat-avatar jarvis">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-          </svg>
-        </div>
-        <div class="chat-body">
-          <div class="chat-text">${escapeHtml(text)}</div>
-          <div class="chat-time">${formatTime(new Date())}</div>
-        </div>
-      `;
-      chatFeed.appendChild(bubble);
-      chatFeed.scrollTop = chatFeed.scrollHeight;
-    }
-
-    function showThinkingIndicator() {
-      hideThinkingIndicator();
-      const bubble = document.createElement('div');
-      bubble.className = 'chat-bubble jarvis thinking-bubble';
-      bubble.id = 'chat-thinking-indicator';
-      bubble.innerHTML = `
-        <div class="chat-avatar jarvis">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#00d2ff">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-          </svg>
-        </div>
-        <div class="chat-body">
-          <div class="thinking-dots">
-            <span class="thinking-dot"></span>
-            <span class="thinking-dot"></span>
-            <span class="thinking-dot"></span>
-            <span class="thinking-text-label">JARVIS is thinking...</span>
-          </div>
-        </div>
-      `;
-      chatFeed.appendChild(bubble);
-      chatFeed.scrollTop = chatFeed.scrollHeight;
-    }
-
-    function hideThinkingIndicator() {
-      const el = document.getElementById('chat-thinking-indicator');
-      if (el) el.remove();
-    }
-
-    function escapeHtml(str) {
-      return (str || '').replace(/[&<>"']/g, function(m) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
-      });
-    }
-
-    // -------------------------------------------------------------
-    // 2. TEXT-TO-SPEECH (TTS SYNTHESIZER)
-    // -------------------------------------------------------------
-    let ttsEnabled = true;
-    const btnToggleSpeech = document.getElementById('btn-toggle-speech');
-
-    if (btnToggleSpeech) {
-      btnToggleSpeech.addEventListener('click', () => {
-        ttsEnabled = !ttsEnabled;
-        if (!ttsEnabled) {
-          if (window.speechSynthesis) window.speechSynthesis.cancel();
-          btnToggleSpeech.style.opacity = '0.45';
-          btnToggleSpeech.title = "Voice Output (TTS) Muted";
-        } else {
-          btnToggleSpeech.style.opacity = '1.0';
-          btnToggleSpeech.title = "Voice Output (TTS) Enabled";
-        }
-      });
-    }
-
-    function speakJarvisResponse(rawText) {
-      if (!ttsEnabled || !window.speechSynthesis) return;
-
-      window.speechSynthesis.cancel();
-
-      const cleanText = rawText
-        .replace(/```[\s\S]*?```/g, 'Code block output attached.')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/[*_#~]/g, '')
-        .replace(/https?:\/\/\S+/g, 'link')
-        .trim();
-
-      if (!cleanText) return;
-
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.05;
-      utterance.pitch = 1.0;
-
-      const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('George')));
-      if (preferred) utterance.voice = preferred;
-
-      utterance.onstart = () => {
-        if (neuralCore) neuralCore.setState('speaking');
-        setHUDAction('Speaking', 'Voice synthesis transmission active...');
-      };
-
-      utterance.onend = () => {
-        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
-        setHUDAction('Idle', 'Waiting for your command...');
-      };
-
-      utterance.onerror = () => {
-        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
-        setHUDAction('Idle', 'Waiting for your command...');
-      };
-
-      window.speechSynthesis.speak(utterance);
-    }
-
-    if (window.speechSynthesis) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices();
-      };
-    }
-
-    // -------------------------------------------------------------
-    // 3. SPEECH RECOGNITION (WEB SPEECH API)
-    // -------------------------------------------------------------
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition = null;
-    let isListening = false;
-
-    const voiceActiveBar = document.getElementById('voice-active-bar');
-    const voiceTranscriptPreview = document.getElementById('voice-transcript-preview');
-    const btnCancelVoice = document.getElementById('btn-cancel-voice');
-    const btnToggleMic = document.getElementById('btn-toggle-mic');
-    const btnMicInline = document.getElementById('btn-mic-inline');
-
-    function initSpeechRecognition() {
-      if (!SpeechRecognition) {
-        return null;
-      }
-      const rec = new SpeechRecognition();
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.lang = 'en-US';
-
-      rec.onstart = () => {
-        isListening = true;
-        if (btnToggleMic) btnToggleMic.classList.add('active-mic');
-        if (btnMicInline) btnMicInline.classList.add('active-mic');
-        if (voiceActiveBar) voiceActiveBar.classList.add('active');
-        if (voiceTranscriptPreview) voiceTranscriptPreview.textContent = 'Listening... Speak now';
-        setHUDAction('Listening', 'Acoustic voice frequencies capturing...');
-        if (neuralCore) neuralCore.setState('listening');
-      };
-
-      rec.onresult = (event) => {
-        let interimText = '';
-        let finalText = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalText += transcript;
-          } else {
-            interimText += transcript;
-          }
-        }
-
-        if (interimText && voiceTranscriptPreview) {
-          voiceTranscriptPreview.textContent = `"${interimText}..."`;
-          userInput.value = interimText;
-        }
-
-        if (finalText) {
-          userInput.value = finalText.trim();
-          stopListening();
-          sendMessage(finalText.trim());
-        }
-      };
-
-      rec.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error);
-        if (voiceTranscriptPreview) {
-          if (event.error === 'not-allowed') {
-            voiceTranscriptPreview.textContent = 'Mic blocked. Please allow microphone in browser bar.';
-          } else if (event.error === 'no-speech') {
-            voiceTranscriptPreview.textContent = 'No voice detected. Click mic to retry.';
-          } else {
-            voiceTranscriptPreview.textContent = `Voice status: ${event.error}`;
-          }
-        }
-        setTimeout(stopListening, 2200);
-      };
-
-      rec.onend = () => {
-        stopListening();
-      };
-
-      return rec;
-    }
-
-    function startListening() {
-      if (!SpeechRecognition) {
-        alert('Voice speech recognition requires Chrome, Edge, or Brave browser. Please allow microphone permissions.');
-        return;
-      }
-      if (!recognition) {
-        recognition = initSpeechRecognition();
-      }
+    if (voiceListening) {
+      recognition.stop();
+    } else {
       try {
         recognition.start();
       } catch (e) {
-        console.warn('Recognition start exception:', e);
+        recognition.stop();
       }
     }
+  }
 
-    function stopListening() {
-      isListening = false;
-      if (recognition) {
-        try { recognition.stop(); } catch(e) {}
-      }
-      if (btnToggleMic) btnToggleMic.classList.remove('active-mic');
-      if (btnMicInline) btnMicInline.classList.remove('active-mic');
-      if (voiceActiveBar) voiceActiveBar.classList.remove('active');
-      if (neuralCore && neuralCore.state === 'listening') neuralCore.setState('idle');
-      setHUDAction('Idle', 'Waiting for your command...');
-    }
+  voiceBtn.addEventListener('click', toggleVoiceListening);
+  micBtn.addEventListener('click', toggleVoiceListening);
 
-    if (btnToggleMic) {
-      btnToggleMic.addEventListener('click', () => {
-        if (isListening) stopListening();
-        else startListening();
+  // -------------------------------------------------------------
+  // 5. LIVE TELEMETRY ENGINE
+  // -------------------------------------------------------------
+  function updateTelemetryUI(data) {
+    if (!data) return;
+    
+    // CPU
+    if (data.cpu_usage_percent !== undefined) {
+      $('#cpu').textContent = Math.round(data.cpu_usage_percent);
+      const bars = document.querySelectorAll('#cpuBars span');
+      bars.forEach(bar => {
+        const factor = (data.cpu_usage_percent / 100);
+        bar.style.height = Math.max(12, Math.min(100, (factor * 85) + (Math.random() * 25))) + '%';
       });
     }
 
-    if (btnMicInline) {
-      btnMicInline.addEventListener('click', () => {
-        if (isListening) stopListening();
-        else startListening();
-      });
+    // RAM
+    if (data.ram_usage_percent !== undefined) {
+      const ramUsedGb = data.ram_used_gb ? data.ram_used_gb.toFixed(1) : (data.ram_usage_percent * 0.16).toFixed(1);
+      $('#ram-metric').textContent = ramUsedGb;
+      $('#ram-progress').style.width = data.ram_usage_percent + '%';
+      const totalGb = data.ram_total_gb ? data.ram_total_gb.toFixed(1) : '16.0';
+      $('#ram-note').textContent = `${data.ram_usage_percent}% OF ${totalGb} GB / REAL-TIME`;
     }
 
-    if (btnCancelVoice) {
-      btnCancelVoice.addEventListener('click', stopListening);
+    // Battery
+    if (data.battery_percent !== undefined && data.battery_percent !== null) {
+      $('#battery-metric').textContent = Math.round(data.battery_percent);
+      $('#battery-note').textContent = `● BATTERY ${Math.round(data.battery_percent)}% / HARDWARE ACTIVE`;
+    } else {
+      $('#battery-metric').textContent = '100';
+      $('#battery-note').textContent = '● AC POWER CONNECTED / NOMINAL';
     }
+  }
 
-    // -------------------------------------------------------------
-    // 4. WEBSOCKET REAL-TIME COMM CHANNEL (Fast 1-3s Latency)
-    // -------------------------------------------------------------
-    let ws = null;
-    function connectWS() {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/jarvis`;
-      try {
-        ws = new WebSocket(wsUrl);
-        ws.onopen = () => console.log('Jarvis WebSocket connected');
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'status') {
-              if (data.status === 'thinking') {
-                showThinkingIndicator();
-                if (neuralCore) neuralCore.setState('thinking');
-                setHUDAction('Thinking', 'Synthesizing with Core Neural Model...');
-              } else if (data.status === 'idle') {
-                hideThinkingIndicator();
-                if (neuralCore && neuralCore.state === 'thinking') neuralCore.setState('idle');
-                setHUDAction('Idle', 'Waiting for your command...');
-              }
-            } else if (data.type === 'response') {
-              hideThinkingIndicator();
-              appendJarvisMessage(data.text);
-              speakJarvisResponse(data.text);
-            }
-          } catch (e) {
-            console.error(e);
-          }
-        };
-        ws.onclose = () => setTimeout(connectWS, 2500);
-      } catch (err) {
-        console.warn(err);
-      }
-    }
-    connectWS();
-
-    function sendMessage(text) {
-      if (!text) return;
-      appendUserMessage(text);
-      showThinkingIndicator();
-      if (neuralCore) neuralCore.setState('thinking');
-      setHUDAction('Thinking', 'Synthesizing with Core Neural Model...');
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action: 'chat', text }));
-      } else {
-        setTimeout(() => {
-          hideThinkingIndicator();
-          const fallbackReply = `Acknowledged, Rohit: "${text}". All subsystems nominal.`;
-          appendJarvisMessage(fallbackReply);
-          speakJarvisResponse(fallbackReply);
-        }, 800);
-      }
-    }
-
-    chatForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const text = userInput.value.trim();
-      if (!text) return;
-      userInput.value = '';
-      sendMessage(text);
-    });
-
-    // Quick Chips Trigger
-    document.querySelectorAll('.chip-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const prompt = btn.getAttribute('data-prompt');
-        sendMessage(prompt);
-      });
-    });
-
-    // Telemetry Poller
-    const rtCpuVal = document.getElementById('rt-cpu-val');
-    const rtCpuBar = document.getElementById('rt-cpu-bar');
-    const rtRamVal = document.getElementById('rt-ram-val');
-    const rtRamBar = document.getElementById('rt-ram-bar');
-    const rtBatteryVal = document.getElementById('rt-battery-val');
-    const rtBatteryBar = document.getElementById('rt-battery-bar');
-
-    const sysCpuDetail = document.getElementById('sys-cpu-detail');
-    const sysRamDetail = document.getElementById('sys-ram-detail');
-    const sysBatteryDetail = document.getElementById('sys-battery-detail');
-
-    async function pollTelemetry() {
-      try {
-        const res = await fetch('/api/telemetry');
-        if (!res.ok) return;
+  async function fetchTelemetry() {
+    try {
+      const res = await fetch('/api/telemetry');
+      if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
-          const s = json.data;
-          // CPU
-          rtCpuVal.textContent = `${s.cpu_usage_percent}%`;
-          rtCpuBar.style.width = `${Math.min(s.cpu_usage_percent, 100)}%`;
-          sysCpuDetail.textContent = `Current load: ${s.cpu_usage_percent}%. Probes active.`;
-
-          // RAM
-          rtRamVal.textContent = `${s.ram_usage_percent}%`;
-          rtRamBar.style.width = `${Math.min(s.ram_usage_percent, 100)}%`;
-          sysRamDetail.textContent = `${s.ram_used_gb} GB used of ${s.ram_total_gb} GB total (${s.ram_usage_percent}%)`;
-
-          // Battery
-          const battMatches = (s.battery || '').match(/(\d+)%/);
-          const battPercent = battMatches ? parseInt(battMatches[1], 10) : 85;
-          rtBatteryVal.textContent = `${battPercent}%`;
-          rtBatteryBar.style.width = `${battPercent}%`;
-          sysBatteryDetail.textContent = s.battery || 'AC Power Connected';
+          updateTelemetryUI(json.data);
         }
-      } catch (e) {
-        console.warn('Telemetry error:', e);
       }
-    }
-    setInterval(pollTelemetry, 2500);
-    pollTelemetry();
+    } catch (e) {}
+  }
+  fetchTelemetry();
+  setInterval(fetchTelemetry, 4000);
 
-    // Notes Manager
-    const notesGridContainer = document.getElementById('notes-grid-container');
-    const notesSearch = document.getElementById('notes-search');
-    const noteModal = document.getElementById('note-modal');
-    const btnOpenNoteModal = document.getElementById('btn-open-note-modal');
-    const btnCloseModal = document.getElementById('btn-close-modal');
-    const btnCancelModal = document.getElementById('btn-cancel-modal');
-    const modalNoteForm = document.getElementById('modal-note-form');
-    const modalNoteTitle = document.getElementById('modal-note-title');
-    const modalNoteContent = document.getElementById('modal-note-content');
+  // -------------------------------------------------------------
+  // 6. NOTES VAULT (SQLITE)
+  // -------------------------------------------------------------
+  const notesModal = $('#notes-modal');
+  const btnNotesVault = $('#btn-notes-vault');
+  const closeNotesModal = $('#close-notes-modal');
+  const notesListContainer = $('#notes-list-container');
+  const newNoteForm = $('#new-note-form');
+  const searchNotesInput = $('#search-notes-input');
 
-    btnOpenNoteModal.addEventListener('click', () => { noteModal.style.display = 'flex'; });
-    btnCloseModal.addEventListener('click', () => { noteModal.style.display = 'none'; });
-    btnCancelModal.addEventListener('click', () => { noteModal.style.display = 'none'; });
-
-    // Preloaded default sample cards matching mockup design if database is empty
-    const defaultSampleNotes = [
-      { title: "Project Ideas", content: "Build an AI assistant for daily tasks, speech recognition, and desktop control.", created_at: "Apr 24, 2026" },
-      { title: "Study Plan", content: "Complete Python, FastAPI, React, SQLite, and ChromaDB vector embeddings.", created_at: "Apr 22, 2026" },
-      { title: "Meeting Notes", content: "Discussed project timeline, modular isolation contracts, and Day 4 integration.", created_at: "Apr 20, 2026" },
-      { title: "Personal Notes", content: "Remember to stay consistent, focused, and test all code line-by-line.", created_at: "Apr 18, 2026" }
-    ];
-
-    async function loadNotes(filterQuery = '') {
-      try {
-        const url = filterQuery ? `/api/notes/search?q=${encodeURIComponent(filterQuery)}` : '/api/notes';
-        const res = await fetch(url);
-        let notes = res.ok ? await res.json() : [];
-
-        if (notes.length === 0 && !filterQuery) {
-          notes = defaultSampleNotes;
-        }
-
-        notesGridContainer.innerHTML = '';
-        notes.forEach(note => {
-          const card = document.createElement('div');
-          card.className = 'note-grid-card';
-          card.innerHTML = `
-            <div>
-              <div class="note-card-header">
-                <div class="note-icon-badge">📄</div>
-                <div class="note-title-text">${escapeHtml(note.title)}</div>
-              </div>
-              <div class="note-snippet">${escapeHtml(note.content)}</div>
-            </div>
-            <div class="note-date-tag">${note.created_at || 'Saved'}</div>
-          `;
-          card.addEventListener('click', () => {
-            sendMessage(`Show me details about note: "${note.title}"`);
-            document.querySelector('[data-view="view-chat"]').click();
-          });
-          notesGridContainer.appendChild(card);
-        });
-      } catch (e) {
-        console.error('Error loading notes:', e);
-      }
-    }
-
-    notesSearch.addEventListener('input', (e) => {
-      loadNotes(e.target.value.trim());
-    });
-
-    modalNoteForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const title = modalNoteTitle.value.trim();
-      const content = modalNoteContent.value.trim();
-      if (!title || !content) return;
-
-      try {
-        const res = await fetch('/api/notes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, content })
-        });
-        if (res.ok) {
-          modalNoteTitle.value = '';
-          modalNoteContent.value = '';
-          noteModal.style.display = 'none';
-          loadNotes();
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    });
-
-    // Tool Tile Click Handler -> triggers interactive chat action
-    document.querySelectorAll('.tool-tile').forEach(tile => {
-      tile.addEventListener('click', () => {
-        const toolName = tile.querySelector('.tool-tile-title')?.textContent || 'tool';
-        sendMessage(`Execute tool: ${toolName}`);
-        document.querySelector('[data-view="view-chat"]').click();
-      });
-    });
-
+  function openNotesModal() {
+    notesModal.classList.add('open');
     loadNotes();
-  </script>
+    log('NOTES VAULT OPENED');
+  }
+
+  function closeNotesModalFn() {
+    notesModal.classList.remove('open');
+  }
+
+  btnNotesVault.addEventListener('click', openNotesModal);
+  closeNotesModal.addEventListener('click', closeNotesModalFn);
+  notesModal.addEventListener('click', (e) => {
+    if (e.target === notesModal) closeNotesModalFn();
+  });
+
+  async function loadNotes(query = '') {
+    notesListContainer.innerHTML = '<div class="tiny mono" style="color:#708d9a;">Loading SQLite records...</div>';
+    try {
+      const url = query ? `/api/notes/search?q=${encodeURIComponent(query)}` : '/api/notes';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const notes = await res.json();
+
+      if (!notes || notes.length === 0) {
+        notesListContainer.innerHTML = '<div class="tiny mono" style="color:#708d9a;">No persistent notes found in database.</div>';
+        return;
+      }
+
+      notesListContainer.innerHTML = '';
+      notes.forEach(n => {
+        const item = document.createElement('div');
+        item.className = 'note-item';
+        item.innerHTML = `
+          <div class="note-item-title">${escapeHtml(n.title)}</div>
+          <div class="note-item-content">${escapeHtml(n.content)}</div>
+          <div class="note-item-date mono">${n.created_at || 'Saved'}</div>
+        `;
+        notesListContainer.appendChild(item);
+      });
+    } catch (e) {
+      notesListContainer.innerHTML = '<div class="tiny mono" style="color:#ef4444;">Failed to read SQLite notes. Ensure server is active.</div>';
+    }
+  }
+
+  newNoteForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = $('#note-title').value.trim();
+    const content = $('#note-content').value.trim();
+    if (!title || !content) return;
+
+    try {
+      const res = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content })
+      });
+      if (res.ok) {
+        $('#note-title').value = '';
+        $('#note-content').value = '';
+        log('NOTE SAVED TO SQLITE: ' + title.substring(0, 20));
+        loadNotes();
+      }
+    } catch (e) {
+      alert("Failed to save note to server.");
+    }
+  });
+
+  let searchTimeout = null;
+  searchNotesInput.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      loadNotes(searchNotesInput.value.trim());
+    }, 300);
+  });
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // -------------------------------------------------------------
+  // 7. DIAGNOSTICS & RESET BUTTONS
+  // -------------------------------------------------------------
+  $('#diagnostic').addEventListener('click', async () => {
+    updateStatus('DIAGNOSTICS ACTIVE...');
+    log('RUNNING SYSTEM HARDWARE DIAGNOSTIC');
+    await fetchTelemetry();
+    setTimeout(() => {
+      updateStatus(modes[activeMode].status);
+      log('DIAGNOSTIC COMPLETE: ALL SYSTEMS NOMINAL');
+    }, 1200);
+  });
+
+  $('#reset').addEventListener('click', () => {
+    voiceListening = false;
+    if (recognition) recognition.stop();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    chatFeed.innerHTML = `
+      <div class="chat-bubble assistant">
+        <div>System reset complete. All neural registers refreshed. Ready for commands.</div>
+        <div class="meta mono"><span>JARVIS CORE</span><span>ONLINE</span></div>
+      </div>
+    `;
+    messageCount = 1;
+    $('#msg-counter').textContent = '1 MESSAGE';
+    changeMode('classic');
+    log('SYSTEM RESET COMPLETE');
+  });
+
+  // Start WebSocket
+  initWebSocket();
+
+})();
+</script>
 </body>
 </html>
