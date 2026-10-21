@@ -2203,10 +2203,12 @@
     // -------------------------------------------------------------
     let ttsEnabled = true;
     let currentAudio = null;
+    let isJarvisSpeaking = false;
     const btnToggleSpeech = document.getElementById('btn-toggle-speech');
     const btnCloseSpeaking = document.getElementById('btn-close-speaking');
 
     function stopAllSpeech() {
+      isJarvisSpeaking = false;
       if (currentAudio) {
         try {
           currentAudio.pause();
@@ -2218,9 +2220,157 @@
         try { window.speechSynthesis.cancel(); } catch (e) {}
       }
       if (neuralCore && neuralCore.state === 'speaking') {
-        neuralCore.setState('idle');
+        neuralCore.setState(isListening ? 'listening' : 'idle');
       }
-      setHUDAction('Idle', 'Waiting for your command...');
+      setHUDAction(isListening ? 'Listening' : 'Idle', isListening ? 'Acoustic receptors capturing...' : 'Waiting for your command...');
+    }
+
+    if (btnCloseSpeaking) {
+      btnCloseSpeaking.addEventListener('click', () => {
+        stopAllSpeech();
+        const overlaySpeaking = document.getElementById('overlay-speaking');
+        if (overlaySpeaking) overlaySpeaking.classList.remove('active');
+      });
+    }
+
+    if (btnToggleSpeech) {
+      btnToggleSpeech.addEventListener('click', () => {
+        ttsEnabled = !ttsEnabled;
+        if (!ttsEnabled) {
+          stopAllSpeech();
+          btnToggleSpeech.style.opacity = '0.45';
+          btnToggleSpeech.title = "Voice Output (TTS) Muted";
+        } else {
+          btnToggleSpeech.style.opacity = '1.0';
+          btnToggleSpeech.title = "Voice Output (TTS) Enabled";
+        }
+      });
+    }
+
+    function speakBrowserFallback(cleanText) {
+      if (!ttsEnabled || !window.speechSynthesis) {
+        isJarvisSpeaking = false;
+        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState(isListening ? 'listening' : 'idle');
+        setHUDAction(isListening ? 'Listening' : 'Idle', isListening ? 'Acoustic receptors capturing...' : 'Waiting for your command...');
+        return;
+      }
+
+      isJarvisSpeaking = true;
+      window.speechSynthesis.cancel();
+      const isDevanagari = /[\u0900-\u097F]/.test(cleanText);
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = (typeof currentMode !== 'undefined' && currentMode === 'combat') ? 1.25 : 1.05;
+      utterance.pitch = 1.0;
+      if (isDevanagari) utterance.lang = 'hi-IN';
+
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => isDevanagari ? (v.lang.includes('hi') || v.lang.includes('mr') || v.lang.includes('IN')) : (v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David'))));
+      if (preferred) utterance.voice = preferred;
+
+      utterance.onstart = () => {
+        isJarvisSpeaking = true;
+        if (neuralCore) neuralCore.setState('speaking');
+        setHUDAction('Speaking', (typeof currentMode !== 'undefined' && currentMode === 'combat') ? 'Combat Tactical Output...' : 'Voice synthesis active...');
+      };
+
+      utterance.onend = () => {
+        setTimeout(() => { isJarvisSpeaking = false; }, 350);
+        if (neuralCore && neuralCore.state === 'speaking') {
+          neuralCore.setState(isListening ? 'listening' : 'idle');
+        }
+        setHUDAction(
+          isListening ? (currentMode === 'combat' ? 'Combat Listening' : 'Listening') : 'Idle',
+          isListening ? 'Acoustic receptors capturing...' : 'Waiting for your command...'
+        );
+      };
+
+      utterance.onerror = () => {
+        isJarvisSpeaking = false;
+        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState(isListening ? 'listening' : 'idle');
+        setHUDAction(isListening ? 'Listening' : 'Idle', 'Waiting for your command...');
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function speakJarvisResponse(rawText) {
+      if (!ttsEnabled) return;
+
+      stopAllSpeech();
+
+      const cleanText = rawText
+        .replace(/```[\s\S]*?```/g, 'Code block output attached.')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/[*_#~>\[\]]/g, '')
+        .replace(/https?:\/\/\S+/g, 'link')
+        .trim();
+
+      if (!cleanText) return;
+
+      // Update subtitle preview if speaking overlay is open
+      const previewEl = document.getElementById('speaking-text-preview');
+      if (previewEl) {
+        previewEl.textContent = cleanText.length > 80 ? cleanText.substring(0, 77) + '...' : cleanText;
+      }
+
+      // Ultra-Fast Combat Mode: Use immediate zero-latency local speech synthesis
+      if (typeof currentMode !== 'undefined' && currentMode === 'combat') {
+        speakBrowserFallback(cleanText);
+        return;
+      }
+
+      // Attentive/Silent Mode: Use high-fidelity Microsoft Edge Neural TTS audio from backend
+      isJarvisSpeaking = true;
+      if (neuralCore) neuralCore.setState('speaking');
+      setHUDAction('Speaking', 'Neural voice stream active (Edge-TTS)...');
+
+      try {
+        const audioUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+        const audio = new Audio(audioUrl);
+        audio.volume = 1.0;
+        currentAudio = audio;
+
+        audio.onplay = () => {
+          isJarvisSpeaking = true;
+          if (neuralCore) neuralCore.setState('speaking');
+          setHUDAction('Speaking', 'Neural voice stream active (Edge-TTS)...');
+        };
+
+        audio.onended = () => {
+          if (currentAudio === audio) currentAudio = null;
+          setTimeout(() => { isJarvisSpeaking = false; }, 350);
+          if (neuralCore && neuralCore.state === 'speaking') {
+            neuralCore.setState(isListening ? 'listening' : 'idle');
+          }
+          setHUDAction(
+            isListening ? (currentMode === 'combat' ? 'Combat Listening' : 'Listening') : 'Idle',
+            isListening ? 'Acoustic receptors capturing...' : 'Waiting for your command...'
+          );
+        };
+
+        audio.onerror = () => {
+          console.warn('[TTS] Neural audio endpoint unavailable, using browser speech fallback.');
+          if (currentAudio === audio) currentAudio = null;
+          speakBrowserFallback(cleanText);
+        };
+
+        audio.play().catch(playErr => {
+          console.warn('[TTS] Audio autoplay blocked or failed, falling back:', playErr);
+          speakBrowserFallback(cleanText);
+        });
+      } catch (err) {
+        console.warn('[TTS] Failed to initialize Audio object:', err);
+        speakBrowserFallback(cleanText);
+      }
+    }
+
+    if (window.speechSynthesis) {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+      }
+      if (neuralCore && neuralCore.state === 'speaking') {
+        neuralCore.setState(isListening ? 'listening' : 'idle');
+      }
+      setHUDAction(isListening ? 'Listening' : 'Idle', isListening ? 'Acoustic receptors capturing...' : 'Waiting for your command...');
     }
 
     if (btnCloseSpeaking) {
@@ -2414,7 +2564,75 @@
         }
       };
 
+      let silenceDebounceTimer = null;
+      let lastSpokenSubmitted = '';
+      let lastSubmitTimestamp = 0;
+
+      function handleSpokenInput(spokenCandidate) {
+        if (isJarvisSpeaking) return;
+        const spoken = (spokenCandidate || '').trim();
+        if (!spoken || spoken.length < 2) return;
+
+        // Debounce identical rapid triggers within 1.5 seconds
+        const now = Date.now();
+        if (spoken === lastSpokenSubmitted && (now - lastSubmitTimestamp) < 1500) {
+          return;
+        }
+        lastSpokenSubmitted = spoken;
+        lastSubmitTimestamp = now;
+
+        const lower = spoken.toLowerCase();
+        userInput.value = '';
+        if (voiceTranscriptPreview) voiceTranscriptPreview.textContent = '';
+
+        // 1. Verbal mode switching detection
+        if (lower.includes('silent mode') || lower.includes('go to silent') || lower === 'standby') {
+          setOperatingMode('silent');
+          speakJarvisResponse("Silent mode engaged, sir. Awaiting your wake word.");
+          return;
+        }
+        if (lower.includes('attentive mode') || lower.includes('go to attentive') || lower.includes('always listen')) {
+          setOperatingMode('attentive');
+          speakJarvisResponse("Attentive mode activated. Always listening.");
+          return;
+        }
+        if (lower.includes('combat mode') || lower.includes('engage combat')) {
+          setOperatingMode('combat');
+          speakJarvisResponse("Combat protocol engaged. All neural nodes running at maximum clock.");
+          return;
+        }
+        if (lower.includes('exit combat') || lower.includes('disengage combat') || lower.includes('disable combat')) {
+          setOperatingMode('attentive');
+          speakJarvisResponse("Combat protocol disengaged. Returning to attentive mode.");
+          return;
+        }
+
+        // 2. Silent Mode: ONLY trigger when wake word is spoken
+        if (currentMode === 'silent') {
+          const wakeWords = ['hey jarvis', 'ok jarvis', 'jarvis', 'हे जार्विस', 'जार्विस'];
+          const matched = wakeWords.find(w => lower.includes(w));
+          if (!matched) {
+            return; // Ignore background chatter in silent mode
+          }
+          let directive = spoken;
+          const idx = lower.indexOf(matched);
+          directive = spoken.substring(idx + matched.length).replace(/^[,:;. -]+/, '').trim();
+          if (!directive) {
+            speakJarvisResponse("Yes sir? I am listening.");
+            return;
+          }
+          sendMessage(directive);
+          return;
+        }
+
+        // 3. Attentive or Combat mode: process directly
+        sendMessage(spoken);
+      }
+
       rec.onresult = (event) => {
+        // Ignore audio if Jarvis itself is actively speaking through the speakers
+        if (isJarvisSpeaking) return;
+
         let interimText = '';
         let finalText = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -2430,54 +2648,19 @@
           voiceTranscriptPreview.textContent = `"${interimText}..."`;
         }
 
+        clearTimeout(silenceDebounceTimer);
+
         if (finalText) {
-          const spoken = finalText.trim();
-          const lower = spoken.toLowerCase();
-          userInput.value = '';
-          if (voiceTranscriptPreview) voiceTranscriptPreview.textContent = '';
-
-          // 1. Verbal mode switching detection
-          if (lower.includes('silent mode') || lower.includes('go to silent') || lower === 'standby') {
-            setOperatingMode('silent');
-            speakJarvisResponse("Silent mode engaged, sir. Awaiting your wake word.");
-            return;
-          }
-          if (lower.includes('attentive mode') || lower.includes('go to attentive') || lower.includes('always listen')) {
-            setOperatingMode('attentive');
-            speakJarvisResponse("Attentive mode activated. Always listening.");
-            return;
-          }
-          if (lower.includes('combat mode') || lower.includes('engage combat')) {
-            setOperatingMode('combat');
-            speakJarvisResponse("Combat protocol engaged. All neural nodes running at maximum clock.");
-            return;
-          }
-          if (lower.includes('exit combat') || lower.includes('disengage combat') || lower.includes('disable combat')) {
-            setOperatingMode('attentive');
-            speakJarvisResponse("Combat protocol disengaged. Returning to attentive mode.");
-            return;
-          }
-
-          // 2. Silent Mode: ONLY trigger when wake word is spoken
-          if (currentMode === 'silent') {
-            const wakeWords = ['hey jarvis', 'ok jarvis', 'jarvis', 'हे जार्विस', 'जार्विस'];
-            const matched = wakeWords.find(w => lower.includes(w));
-            if (!matched) {
-              return; // Ignore background chatter in silent mode
+          handleSpokenInput(finalText);
+        } else if (interimText && interimText.trim().length > 2) {
+          // Fast-trigger silence debounce: don't wait 2.5s for browser's internal silence timeout!
+          const candidate = interimText.trim();
+          const debounceDelay = (typeof currentMode !== 'undefined' && currentMode === 'combat') ? 500 : 750;
+          silenceDebounceTimer = setTimeout(() => {
+            if (!isJarvisSpeaking && isListening && candidate.length > 2) {
+              handleSpokenInput(candidate);
             }
-            let directive = spoken;
-            const idx = lower.indexOf(matched);
-            directive = spoken.substring(idx + matched.length).replace(/^[,:;. -]+/, '').trim();
-            if (!directive) {
-              speakJarvisResponse("Yes sir? I am listening.");
-              return;
-            }
-            sendMessage(directive);
-            return;
-          }
-
-          // 3. Attentive or Combat mode: process directly
-          sendMessage(spoken);
+          }, debounceDelay);
         }
       };
 
@@ -2579,6 +2762,8 @@
             } else if (data.type === 'response') {
               hideThinkingIndicator();
               appendJarvisMessage(data.text);
+              if (neuralCore) neuralCore.setState('speaking');
+              setHUDAction('Speaking', (typeof currentMode !== 'undefined' && currentMode === 'combat') ? 'Combat tactical output...' : 'Neural voice transmission...');
               speakJarvisResponse(data.text);
             }
           } catch (e) {

@@ -8,6 +8,7 @@ via edge-tts, with pygame playback, hotkey stop(), and offline pyttsx3 fallback.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import sys
 import tempfile
@@ -134,15 +135,17 @@ class JarvisSpeaker:
         if not clean_text:
             return ""
 
-        self._cleanup_old_audio()
         voice = self.get_voice_for_language(lang, clean_text)
-        file_name = f"speech_{int(time.time() * 1000)}.mp3"
-        out_path = self.temp_dir / file_name
+        # Check high-speed neural audio cache first (instant 0ms response)
+        cache_hash = hashlib.md5(f"{voice}::{clean_text}".encode("utf-8")).hexdigest()
+        cache_path = self.temp_dir / f"tts_cache_{cache_hash}.mp3"
+        if cache_path.is_file() and cache_path.stat().st_size > 0:
+            return str(cache_path.resolve())
 
         try:
-            success = await self._generate_audio_edge(clean_text, voice, out_path)
-            if success and out_path.is_file():
-                return str(out_path.resolve())
+            success = await self._generate_audio_edge(clean_text, voice, cache_path)
+            if success and cache_path.is_file():
+                return str(cache_path.resolve())
         except Exception as exc:
             print(f"Failed to generate speech file asynchronously: {exc}")
 

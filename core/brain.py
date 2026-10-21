@@ -7,6 +7,7 @@ Adheres strictly to Project Jarvis architecture and module contracts.
 
 from __future__ import annotations
 
+import datetime
 import os
 import sys
 import time
@@ -19,10 +20,10 @@ from google.genai import errors, types
 
 
 DEFAULT_SYSTEM_PROMPT: str = (
-    "You are Jarvis, an ultra-efficient desktop assistant. "
+    "You are Jarvis, an ultra-fast AI desktop assistant. "
     "Reply in the same language as the user (English, Hindi, Marathi, or Hinglish). "
     "When the user speaks Hindi or Marathi, always reply in Devanagari script so text-to-speech can pronounce it properly. "
-    "Keep replies concise in 1-2 short sentences suitable for voice. "
+    "CRITICAL CONVERSATIONAL RULE: Keep your response under 15 words in a single crisp sentence suitable for immediate voice output. Never write paragraphs of conversational fluff. "
     "You are helpful, witty, technically precise, and proactive. "
     "Always ask for confirmation before executing any tool that deletes files, overwrites data, or sends messages. "
     "If a tool fails, say so honestly."
@@ -450,6 +451,37 @@ class JarvisBrain:
         if any(k in lower_input for k in ("go to attentive mode", "attentive mode", "always listen", "continuous mode", "listen continuously")):
             return "Attentive mode activated. Always listening."
 
+        # Fast Sub-Millisecond Contextual Shortcuts (Zero Cloud Latency)
+        stripped_lower = lower_input.strip("?.!")
+        time_triggers = (
+            "what time is it", "current time", "what is the time", "tell me the time",
+            "time please", "what date", "today's date", "which day is it",
+            "kiti vajle", "vel kay zali", "samay kya hai", "kitne baje"
+        )
+        if any(t in stripped_lower for t in time_triggers) or stripped_lower in ("time", "date"):
+            now = datetime.datetime.now()
+            t = now.strftime("%I:%M %p")
+            d = now.strftime("%A, %B %d, %Y")
+            return f"The current time is {t} on {d}."
+
+        if stripped_lower in ("system info", "system stats", "cpu usage", "ram usage", "battery", "telemetry", "hardware status", "status report"):
+            try:
+                from tools.system_tools import GetSystemStatsTool
+                stats = GetSystemStatsTool().run()
+                if stats.success and stats.data:
+                    d = stats.data
+                    cpu = d.get("cpu_percent", "N/A")
+                    ram = d.get("ram_used_pct", "N/A")
+                    batt = d.get("battery_pct", "Plugged in")
+                    return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt}%. All systems nominal."
+            except Exception:
+                pass
+
+        # Fast Weather Shortcut (avoid slow DuckDuckGo scraping for location-agnostic weather)
+        weather_triggers = ("what is the weather", "what's the weather", "how is the weather", "weather today", "current weather", "aaj mausam kaisa hai", "havaman kase ahe")
+        if any(w in stripped_lower for w in weather_triggers) and not any(city in stripped_lower for city in (" in ", " at ", " for ")):
+            return "Please specify your city or region, and I will check the live forecast for you." 
+
         # High-speed Combat Mode or Groq provider
         if (mode == "combat" or self.llm_provider == "groq") and self.groq_api_key:
             return self._chat_with_groq(cleaned_input, is_combat=(mode == "combat"))
@@ -506,9 +538,8 @@ class JarvisBrain:
 
             client = Groq(api_key=self.groq_api_key)
             combat_sys = (
-                "COMBAT PROTOCOL ENGAGED. You are in tactical high-speed combat mode. "
-                "Provide razor-sharp, immediate directives in 1-2 sentences maximum. "
-                "Execute any requested tools instantly. Zero polite filler or pleasantries.\n\n"
+                "COMBAT PROTOCOL ENGAGED. Tactical maximum speed mode. "
+                "CRITICAL: Keep your response under 10 words in a single crisp sentence. Directives only. Zero filler.\n\n"
             ) if is_combat else ""
             messages: List[Dict[str, Any]] = [
                 {"role": "system", "content": combat_sys + self.system_prompt}
@@ -574,6 +605,8 @@ class JarvisBrain:
                 follow_up = client.chat.completions.create(
                     model=self.groq_model,
                     messages=messages,
+                    max_tokens=64 if is_combat else 128,
+                    temperature=0.3 if is_combat else 0.5,
                 )
                 final_text = (follow_up.choices[0].message.content or "").strip()
             else:
@@ -584,9 +617,15 @@ class JarvisBrain:
             return final_text
 
         except Exception as exc:
-            error_msg = f"Groq fallback execution error: {str(exc)}"
-            print(f"[!] {error_msg}", file=sys.stderr)
-            return "Both primary neural core and backup engine encountered an execution error."
+            error_msg = f"Groq execution notice: {str(exc)}"
+            print(f"[*] {error_msg}. Failing over to Gemini...", file=sys.stderr)
+            if self.chat_session:
+                try:
+                    response = self.chat_session.send_message(user_message)
+                    return response.text.strip() if response.text else "Directive acknowledged."
+                except Exception as gemini_err:
+                    print(f"[!] Gemini failover error: {gemini_err}", file=sys.stderr)
+            return "I encountered an issue processing your directive. Please try again."
 
     def process_input(self, text: str) -> str:
         """Unified interface contract for Voice engine (Aryan) and UI (Rohit).

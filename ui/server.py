@@ -511,9 +511,8 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 if tool_steps:
                     await websocket.send_json({"type": "tool_steps", "steps": tool_steps})
 
-                # 5. Push response and reset HUD to idle
+                # 5. Push response (Frontend lifecycle manages speaking -> idle)
                 await websocket.send_json({"type": "response", "text": reply_text})
-                await websocket.send_json({"type": "status", "status": "idle"})
 
             elif action == "get_telemetry":
                 # Push live telemetry on request

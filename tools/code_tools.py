@@ -93,11 +93,12 @@ class RunCommandTool(BaseTool):
                     message=f"Execution directory does not exist: '{effective_cwd}'."
                 )
 
-            # Execute command
+            # Execute command non-interactively
             proc = subprocess.run(
                 clean_command,
                 shell=True,
                 capture_output=True,
+                stdin=subprocess.DEVNULL,
                 text=True,
                 cwd=effective_cwd,
                 timeout=timeout,
@@ -426,6 +427,7 @@ class RunPythonTool(BaseTool):
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
+                stdin=subprocess.DEVNULL,
                 text=True,
                 cwd=effective_cwd,
                 timeout=timeout,
