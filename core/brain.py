@@ -591,15 +591,29 @@ class JarvisBrain:
                     used_model = m
                     break
                 except Exception as m_err:
-                    if "429" in str(m_err) or "rate" in str(m_err).lower():
+                    err_text = str(m_err).lower()
+                    if "429" in err_text or "rate" in err_text:
                         continue
+                    if "tool" in err_text or "400" in err_text:
+                        # Fallback to pure conversational prompt without tools if tool calling fails
+                        try:
+                            completion = client.chat.completions.create(
+                                model=m,
+                                messages=messages,
+                                temperature=0.4 if is_combat else 0.7,
+                                max_tokens=256 if is_combat else 1024,
+                            )
+                            used_model = m
+                            break
+                        except Exception:
+                            continue
                     raise
 
             if completion is None:
                 raise RuntimeError("All Groq models currently experiencing rate limits.")
 
             msg = completion.choices[0].message
-            if msg.tool_calls:
+            if getattr(msg, "tool_calls", None):
                 messages.append(msg)
                 from tools.registry import execute_tool
                 for tool_call in msg.tool_calls:
@@ -619,13 +633,16 @@ class JarvisBrain:
                         "content": tool_res.to_llm_string(),
                     })
 
-                follow_up = client.chat.completions.create(
-                    model=used_model,
-                    messages=messages,
-                    max_tokens=64 if is_combat else 128,
-                    temperature=0.3 if is_combat else 0.5,
-                )
-                final_text = (follow_up.choices[0].message.content or "").strip()
+                try:
+                    follow_up = client.chat.completions.create(
+                        model=used_model,
+                        messages=messages,
+                        max_tokens=64 if is_combat else 128,
+                        temperature=0.3 if is_combat else 0.5,
+                    )
+                    final_text = (follow_up.choices[0].message.content or "").strip()
+                except Exception:
+                    final_text = "Directive executed successfully."
             else:
                 final_text = (msg.content or "").strip()
 
@@ -635,7 +652,22 @@ class JarvisBrain:
 
         except Exception as exc:
             error_msg = f"Groq execution notice: {str(exc)}"
-            print(f"[*] {error_msg}. Failing over to Gemini...", file=sys.stderr)
+            print(f"[*] {error_msg}. Retrying pure conversational completion on Groq...", file=sys.stderr)
+            try:
+                direct = client.chat.completions.create(
+                    model=self.groq_model,
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": user_message}
+                    ],
+                    max_tokens=128
+                )
+                final_direct = (direct.choices[0].message.content or "").strip()
+                if final_direct:
+                    return final_direct
+            except Exception:
+                pass
+
             if self.chat_session:
                 try:
                     response = self.chat_session.send_message(user_message)
