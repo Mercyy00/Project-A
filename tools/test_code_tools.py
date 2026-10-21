@@ -157,7 +157,7 @@ def test_search_web_tool():
     assert isinstance(res, ToolResult)
     # Even if offline or network times out, it returns a structured ToolResult
     if res.success:
-        assert isinstance(res.data, str)
+        assert isinstance(res.data, (str, dict))
         assert len(res.data) > 0
     else:
         assert "Search failed" in res.message

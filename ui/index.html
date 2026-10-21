@@ -2107,13 +2107,40 @@
     // 2. TEXT-TO-SPEECH (TTS SYNTHESIZER)
     // -------------------------------------------------------------
     let ttsEnabled = true;
+    let currentAudio = null;
     const btnToggleSpeech = document.getElementById('btn-toggle-speech');
+    const btnCloseSpeaking = document.getElementById('btn-close-speaking');
+
+    function stopAllSpeech() {
+      if (currentAudio) {
+        try {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+        } catch (e) {}
+        currentAudio = null;
+      }
+      if (window.speechSynthesis) {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+      }
+      if (neuralCore && neuralCore.state === 'speaking') {
+        neuralCore.setState('idle');
+      }
+      setHUDAction('Idle', 'Waiting for your command...');
+    }
+
+    if (btnCloseSpeaking) {
+      btnCloseSpeaking.addEventListener('click', () => {
+        stopAllSpeech();
+        const overlaySpeaking = document.getElementById('overlay-speaking');
+        if (overlaySpeaking) overlaySpeaking.classList.remove('active');
+      });
+    }
 
     if (btnToggleSpeech) {
       btnToggleSpeech.addEventListener('click', () => {
         ttsEnabled = !ttsEnabled;
         if (!ttsEnabled) {
-          if (window.speechSynthesis) window.speechSynthesis.cancel();
+          stopAllSpeech();
           btnToggleSpeech.style.opacity = '0.45';
           btnToggleSpeech.title = "Voice Output (TTS) Muted";
         } else {
@@ -2123,28 +2150,22 @@
       });
     }
 
-    function speakJarvisResponse(rawText) {
-      if (!ttsEnabled || !window.speechSynthesis) return;
+    function speakBrowserFallback(cleanText) {
+      if (!ttsEnabled || !window.speechSynthesis) {
+        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
+        setHUDAction('Idle', 'Waiting for your command...');
+        return;
+      }
 
       window.speechSynthesis.cancel();
-
-      const cleanText = rawText
-        .replace(/```[\s\S]*?```/g, 'Code block output attached.')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/[*_#~]/g, '')
-        .replace(/https?:\/\/\S+/g, 'link')
-        .trim();
-
-      if (!cleanText) return;
-
       const isDevanagari = /[\u0900-\u097F]/.test(cleanText);
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.05;
+      utterance.rate = 1.0;
       utterance.pitch = 1.0;
       if (isDevanagari) utterance.lang = 'hi-IN';
 
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => isDevanagari ? (v.lang.includes('hi') || v.lang.includes('mr') || v.lang.includes('IN')) : (v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('George'))));
+      const preferred = voices.find(v => isDevanagari ? (v.lang.includes('hi') || v.lang.includes('mr') || v.lang.includes('IN')) : (v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David'))));
       if (preferred) utterance.voice = preferred;
 
       utterance.onstart = () => {
@@ -2163,6 +2184,60 @@
       };
 
       window.speechSynthesis.speak(utterance);
+    }
+
+    function speakJarvisResponse(rawText) {
+      if (!ttsEnabled) return;
+
+      stopAllSpeech();
+
+      const cleanText = rawText
+        .replace(/```[\s\S]*?```/g, 'Code block output attached.')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/[*_#~>\[\]]/g, '')
+        .replace(/https?:\/\/\S+/g, 'link')
+        .trim();
+
+      if (!cleanText) return;
+
+      // Update subtitle preview if speaking overlay is open
+      const previewEl = document.getElementById('speaking-text-preview');
+      if (previewEl) {
+        previewEl.textContent = cleanText.length > 80 ? cleanText.substring(0, 77) + '...' : cleanText;
+      }
+
+      // Stream high-fidelity Microsoft Edge Neural TTS audio from backend
+      try {
+        const audioUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+        const audio = new Audio(audioUrl);
+        audio.volume = 1.0;
+        currentAudio = audio;
+
+        audio.onplay = () => {
+          if (neuralCore) neuralCore.setState('speaking');
+          setHUDAction('Speaking', 'Neural voice stream active (Edge-TTS)...');
+        };
+
+        audio.onended = () => {
+          if (currentAudio === audio) currentAudio = null;
+          if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
+          setHUDAction('Idle', 'Waiting for your command...');
+        };
+
+        audio.onerror = () => {
+          console.warn('[TTS] Neural audio endpoint unavailable, using browser speech fallback.');
+          if (currentAudio === audio) currentAudio = null;
+          speakBrowserFallback(cleanText);
+        };
+
+        audio.play().catch(playErr => {
+          console.warn('[TTS] Audio autoplay blocked or failed, falling back:', playErr);
+          speakBrowserFallback(cleanText);
+        });
+      } catch (err) {
+        console.warn('[TTS] Failed to initialize Audio object:', err);
+        speakBrowserFallback(cleanText);
+      }
     }
 
     if (window.speechSynthesis) {

@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -213,6 +214,49 @@ async def get_tools() -> List[Dict[str, Any]]:
             "icon": "terminal",
         },
     ]
+
+
+@app.get("/api/tts")
+async def get_neural_tts(
+    text: str = Query(..., min_length=1, description="Text to synthesize to speech"),
+    lang: Optional[str] = Query(None, description="Language code: en, hi, or mr"),
+) -> FileResponse:
+    """Generate and stream high-fidelity Microsoft Edge Neural TTS audio (.mp3).
+
+    Provides crystal-clear, loud, natural neural speech in English (GuyNeural),
+    Hindi (MadhurNeural), or Marathi (ManoharNeural) directly to the Web HUD.
+    """
+    try:
+        from voice.tts import get_speaker
+
+        # Clean markdown formatting, code fences, URLs, and symbols
+        clean_text = re.sub(r"```[\s\S]*?```", "Code block output attached.", text)
+        clean_text = re.sub(r"https?://\S+", "link", clean_text)
+        clean_text = re.sub(r"[*_#`~>\[\]]", "", clean_text).strip()
+        if not clean_text:
+            raise HTTPException(status_code=400, detail="Empty text after sanitization")
+
+        speaker = get_speaker()
+        audio_path = await speaker.speak_to_file_async(clean_text, lang=lang)
+        if audio_path and os.path.isfile(audio_path):
+            return FileResponse(
+                audio_path,
+                media_type="audio/mpeg",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Content-Disposition": "inline; filename=speech.mp3",
+                },
+            )
+
+        raise HTTPException(status_code=500, detail="Neural audio generation failed")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"TTS synthesis error: {str(exc)}",
+        ) from exc
+
 
 
 # ---------------------------------------------------------------------------

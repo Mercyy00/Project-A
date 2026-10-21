@@ -698,23 +698,23 @@ class OpenWebsiteTool(BaseTool):
 
 
 class SearchWebTool(BaseTool):
-    """Tool that searches the web for real-time information and documentation using DuckDuckGo."""
+    """Tool that searches the web for real-time information and documentation."""
     name: str = "search_web"
     description: str = "Searches the web for real-time information and documentation."
 
     def run(
         self,
         query: str,
+        site: str = "google",
         max_results: int = 5,
-        site: Optional[str] = None,
         **kwargs: Any
     ) -> ToolResult:
-        """Searches DuckDuckGo for live snippets and URLs.
+        """Searches Google or YouTube, opens browser, and retrieves live search snippets.
 
         Args:
             query: The search term, topic, or technical question to search for.
+            site: Target platform, either 'google' or 'youtube' (default: 'google').
             max_results: Maximum number of search results to retrieve (default: 5).
-            site: Optional search target platform filter or alias.
             **kwargs: Extra keyword arguments.
 
         Returns:
@@ -729,35 +729,61 @@ class SearchWebTool(BaseTool):
                 )
 
             clean_query = query.strip()
-            effective_query = clean_query
-            if site and isinstance(site, str) and site.strip().lower() == "youtube":
-                effective_query = f"site:youtube.com {clean_query}"
+            site_clean = (site or "google").strip().lower()
+            if site_clean not in ("google", "youtube"):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Unsupported search site '{site}'. Supported options: 'google', 'youtube'."
+                )
 
+            encoded_query = urllib.parse.quote_plus(clean_query)
+            if site_clean == "youtube":
+                target_url = f"https://www.youtube.com/results?search_query={encoded_query}"
+            else:
+                target_url = f"https://www.google.com/search?q={encoded_query}"
+
+            # Open browser safely
+            try:
+                import webbrowser
+                webbrowser.open(target_url)
+            except Exception as browser_err:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Failed to execute search: {str(browser_err)}"
+                )
+
+            # Retrieve real search snippets via DuckDuckGo
+            results: List[Dict[str, Any]] = []
+            summary = ""
             try:
                 try:
                     from ddgs import DDGS
                 except ImportError:
                     from duckduckgo_search import DDGS
+                effective_query = f"site:youtube.com {clean_query}" if site_clean == "youtube" else clean_query
                 results = list(DDGS().text(effective_query, max_results=max_results))
-            except ImportError:
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="Search failed: ddgs or duckduckgo_search library is not installed."
-                )
+                if results:
+                    summary = "\n\n".join([f"**{r.get('title', '')}**\n{r.get('body', '')}\n{r.get('href', '')}" for r in results])
+            except Exception:
+                pass
 
-            if not results:
-                return ToolResult(
-                    success=True,
-                    data="",
-                    message=f"No results found for '{clean_query}'."
-                )
+            data_payload = {
+                "url": target_url,
+                "site": site_clean,
+                "summary": summary,
+                "results": results,
+            }
 
-            summary = "\n\n".join([f"**{r.get('title', '')}**\n{r.get('body', '')}\n{r.get('href', '')}" for r in results])
+            msg = f"Found {len(results)} search results." if results else f"Opened search for '{clean_query}' on {site_clean}."
+            if summary:
+                msg = f"{msg}\n\n{summary}"
+
             return ToolResult(
                 success=True,
-                data=summary,
-                message=f"Found {len(results)} search results."
+                data=data_payload,
+                message=msg
             )
         except Exception as exc:
             return ToolResult(
@@ -781,6 +807,12 @@ class SearchWebTool(BaseTool):
                     "query": {
                         "type": "string",
                         "description": "The search query or keywords to search for."
+                    },
+                    "site": {
+                        "type": "string",
+                        "description": "Search platform ('google' or 'youtube').",
+                        "enum": ["google", "youtube"],
+                        "default": "google"
                     },
                     "max_results": {
                         "type": "integer",
