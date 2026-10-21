@@ -420,7 +420,7 @@ class JarvisBrain:
             else:
                 raise
 
-    def chat(self, user_message: str) -> str:
+    def chat(self, user_message: str, mode: str = "normal") -> str:
         """Process a user message and return the assistant response.
 
         Maintains full multi-turn conversational history and executes any
@@ -428,6 +428,7 @@ class JarvisBrain:
 
         Args:
             user_message: Spoken or typed user input string.
+            mode: Operating mode ('normal', 'silent', 'attentive', 'combat').
 
         Returns:
             The assistant's natural language response.
@@ -438,8 +439,20 @@ class JarvisBrain:
 
         self.last_tool_steps = []
 
-        if self.llm_provider == "groq" and self.groq_api_key:
-            return self._chat_with_groq(cleaned_input)
+        # Handle verbal mode switching
+        lower_input = cleaned_input.lower()
+        if any(k in lower_input for k in ("engage combat mode", "combat mode", "switch to combat mode", "enter combat mode")):
+            return "Combat protocol engaged. All neural nodes running at maximum clock. Directives will be executed with extreme speed and precision."
+        if any(k in lower_input for k in ("exit combat mode", "disengage combat", "disable combat mode")):
+            return "Combat protocol disengaged. Returning to standard standby."
+        if any(k in lower_input for k in ("go to silent mode", "switch to silent mode", "silent mode", "standby mode")):
+            return "Silent mode engaged. Awaiting wake word directive."
+        if any(k in lower_input for k in ("go to attentive mode", "attentive mode", "always listen", "continuous mode", "listen continuously")):
+            return "Attentive mode activated. Always listening."
+
+        # High-speed Combat Mode or Groq provider
+        if (mode == "combat" or self.llm_provider == "groq") and self.groq_api_key:
+            return self._chat_with_groq(cleaned_input, is_combat=(mode == "combat"))
 
         try:
             response = self.chat_session.send_message(cleaned_input)
@@ -475,13 +488,14 @@ class JarvisBrain:
             print(f"[!] {error_msg}", file=sys.stderr)
             return "I encountered an internal error processing your request."
 
-    def _chat_with_groq(self, user_message: str) -> str:
+    def _chat_with_groq(self, user_message: str, is_combat: bool = False) -> str:
         """Execute chat directive using Groq Cloud API as high-speed fallback or primary engine.
 
         Maintains conversation history buffer and executes tools autonomously.
 
         Args:
             user_message: Cleaned user prompt string.
+            is_combat: If True, uses tactical high-speed instructions with strict brevity.
 
         Returns:
             Assistant response string.
@@ -491,8 +505,13 @@ class JarvisBrain:
             from groq import Groq
 
             client = Groq(api_key=self.groq_api_key)
+            combat_sys = (
+                "COMBAT PROTOCOL ENGAGED. You are in tactical high-speed combat mode. "
+                "Provide razor-sharp, immediate directives in 1-2 sentences maximum. "
+                "Execute any requested tools instantly. Zero polite filler or pleasantries.\n\n"
+            ) if is_combat else ""
             messages: List[Dict[str, Any]] = [
-                {"role": "system", "content": self.system_prompt}
+                {"role": "system", "content": combat_sys + self.system_prompt}
             ]
             for turn in self.history[-6:]:
                 role = "assistant" if turn.get("role") == "model" else "user"
@@ -526,8 +545,8 @@ class JarvisBrain:
             completion = client.chat.completions.create(
                 model=self.groq_model,
                 messages=messages,
-                temperature=0.7,
-                max_tokens=1024,
+                temperature=0.4 if is_combat else 0.7,
+                max_tokens=256 if is_combat else 1024,
                 **extra_params,
             )
 

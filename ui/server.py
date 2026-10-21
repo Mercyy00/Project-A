@@ -483,6 +483,7 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
             if action == "chat":
                 user_text = payload.get("text", "").strip()
+                mode = payload.get("mode", "normal")
                 if not user_text:
                     continue
 
@@ -502,7 +503,7 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 else:
                     # 3. Delegate directly to Core Brain Engine via handle_text
                     from core.service import handle_text
-                    result = await handle_text(user_text, source="ui")
+                    result = await handle_text(user_text, source="ui", mode=mode)
                     reply_text = result.get("text", "")
                     tool_steps = result.get("tool_steps", [])
 

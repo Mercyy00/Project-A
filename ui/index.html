@@ -985,6 +985,57 @@
       filter: drop-shadow(0 0 14px rgba(0, 210, 255, 0.75));
     }
 
+    .mode-selector-group {
+      display: inline-flex;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 9999px;
+      padding: 3px;
+      gap: 4px;
+      margin-right: 12px;
+      backdrop-filter: blur(8px);
+    }
+
+    .mode-pill-btn {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      padding: 4px 11px;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    .mode-pill-btn:hover {
+      color: #e2e8f0;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .mode-pill-btn.active#btn-mode-silent {
+      background: rgba(148, 163, 184, 0.25);
+      color: #f1f5f9;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      box-shadow: 0 0 10px rgba(148, 163, 184, 0.3);
+    }
+
+    .mode-pill-btn.active#btn-mode-attentive {
+      background: rgba(34, 197, 94, 0.22);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.45);
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.35);
+    }
+
+    .mode-pill-btn.active#btn-mode-combat {
+      background: rgba(239, 68, 68, 0.28);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.55);
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.5);
+    }
+
     .core-status-badge {
       position: absolute;
       bottom: 10px;
@@ -1321,6 +1372,11 @@
           <div class="page-desc" id="page-desc-text">Next-Gen 3D Neural Starburst Core &bull; Autonomous Desktop Assistant</div>
         </div>
         <div class="header-indicators">
+          <div class="mode-selector-group" id="mode-selector-group">
+            <button type="button" class="mode-pill-btn" id="btn-mode-silent" title="Silent Mode (Responds ONLY to wake word)">🛡️ Silent</button>
+            <button type="button" class="mode-pill-btn active" id="btn-mode-attentive" title="Attentive Mode (Always listening continuously)">🎙️ Attentive</button>
+            <button type="button" class="mode-pill-btn" id="btn-mode-combat" title="Combat Mode (Ultra-fast, razor-sharp Groq LPU)">⚡ Combat</button>
+          </div>
           <div class="badge-online">
             <span class="dot"></span>
             <span>Online</span>
@@ -1839,18 +1895,30 @@
         this.state = newState;
         const statusBadge = document.getElementById('core-status-badge');
         const stateText = document.getElementById('core-state-text');
+        const isCombat = (typeof currentMode !== 'undefined' && currentMode === 'combat');
         if (statusBadge) {
-          statusBadge.textContent = `CORE: ${newState.toUpperCase()}`;
-          if (newState === 'thinking') statusBadge.style.color = '#38bdf8';
-          else if (newState === 'listening') statusBadge.style.color = '#4ade80';
-          else if (newState === 'speaking') statusBadge.style.color = '#00d2ff';
-          else statusBadge.style.color = '#38bdf8';
+          if (isCombat) {
+            statusBadge.textContent = 'CORE: COMBAT PROTOCOL';
+            statusBadge.style.color = '#ef4444';
+          } else {
+            statusBadge.textContent = `CORE: ${newState.toUpperCase()}`;
+            if (newState === 'thinking') statusBadge.style.color = '#f59e0b';
+            else if (newState === 'listening') statusBadge.style.color = '#22c55e';
+            else if (newState === 'speaking') statusBadge.style.color = '#38bdf8';
+            else statusBadge.style.color = '#00d2ff';
+          }
         }
         if (stateText) {
-          if (newState === 'thinking') stateText.textContent = 'NEURAL PROCESSING ACTIVE';
-          else if (newState === 'listening') stateText.textContent = 'ACOUSTIC SENSORS ACTIVE';
-          else if (newState === 'speaking') stateText.textContent = 'SPEECH SYNTHESIS ACTIVE';
-          else stateText.textContent = 'QUANTUM STARBURST CORE';
+          if (isCombat) {
+            stateText.textContent = 'TACTICAL HIGH-SPEED PROTOCOL ACTIVE';
+            stateText.style.color = '#f87171';
+          } else {
+            stateText.style.color = '';
+            if (newState === 'thinking') stateText.textContent = 'NEURAL COMPUTING & SYNTHESIS';
+            else if (newState === 'listening') stateText.textContent = 'ACOUSTIC RECEPTORS LISTENING';
+            else if (newState === 'speaking') stateText.textContent = 'SPEECH SYNTHESIS TRANSMITTING';
+            else stateText.textContent = 'QUANTUM STARBURST CORE';
+          }
         }
       }
 
@@ -1864,7 +1932,14 @@
         let speedZ = 0.001;
         let coreGlowSize = 28;
 
-        if (this.state === 'thinking') {
+        const isCombat = (typeof currentMode !== 'undefined' && currentMode === 'combat');
+
+        if (isCombat) {
+          speedY = 0.06;
+          speedX = 0.022;
+          speedZ = 0.025;
+          coreGlowSize = 46;
+        } else if (this.state === 'thinking') {
           speedY = 0.045;
           speedX = 0.015;
           speedZ = 0.02;
@@ -1906,7 +1981,9 @@
           let z3 = z2;
 
           let dynamicLen = r.baseLen;
-          if (this.state === 'thinking') {
+          if (isCombat) {
+            dynamicLen = r.baseLen * (1.35 + 0.45 * Math.sin(this.time * 15 + r.phase));
+          } else if (this.state === 'thinking') {
             dynamicLen = r.baseLen * (1.2 + 0.35 * Math.sin(this.time * 12 + r.phase));
           } else if (this.state === 'listening') {
             dynamicLen = r.baseLen * (1.0 + 0.3 * Math.sin(this.time * 7 + r.phase));
@@ -1953,16 +2030,24 @@
           ctx.lineTo(pr.pxOut, pr.pyOut);
 
           const grad = ctx.createLinearGradient(pr.pxIn, pr.pyIn, pr.pxOut, pr.pyOut);
-          if (this.state === 'thinking') {
+          if (isCombat) {
             grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.95})`);
-            grad.addColorStop(0.3, `rgba(56, 189, 248, ${depthAlpha * 0.9})`);
-            grad.addColorStop(1, `rgba(0, 210, 255, 0)`);
+            grad.addColorStop(0.3, `rgba(239, 68, 68, ${depthAlpha * 0.9})`);
+            grad.addColorStop(1, `rgba(185, 28, 28, 0)`);
+          } else if (this.state === 'thinking') {
+            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.95})`);
+            grad.addColorStop(0.3, `rgba(245, 158, 11, ${depthAlpha * 0.9})`);
+            grad.addColorStop(1, `rgba(217, 119, 6, 0)`);
           } else if (this.state === 'listening') {
             grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.9})`);
-            grad.addColorStop(0.35, `rgba(74, 222, 128, ${depthAlpha * 0.85})`);
-            grad.addColorStop(1, `rgba(0, 210, 255, 0)`);
-          } else {
+            grad.addColorStop(0.35, `rgba(34, 197, 94, ${depthAlpha * 0.9})`);
+            grad.addColorStop(1, `rgba(21, 128, 61, 0)`);
+          } else if (this.state === 'speaking') {
             grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.9})`);
+            grad.addColorStop(0.3, `rgba(56, 189, 248, ${depthAlpha * 0.9})`);
+            grad.addColorStop(1, `rgba(2, 132, 199, 0)`);
+          } else {
+            grad.addColorStop(0, `rgba(255, 255, 255, ${depthAlpha * 0.85})`);
             grad.addColorStop(0.3, `rgba(0, 210, 255, ${depthAlpha * 0.8})`);
             grad.addColorStop(1, `rgba(2, 132, 199, 0)`);
           }
@@ -1981,21 +2066,31 @@
         }
 
         const coreGrad = ctx.createRadialGradient(this.cx, this.cy, 2, this.cx, this.cy, coreGlowSize);
-        if (this.state === 'thinking') {
+        if (isCombat) {
           coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-          coreGrad.addColorStop(0.2, 'rgba(56, 189, 248, 0.95)');
-          coreGrad.addColorStop(0.6, 'rgba(0, 210, 255, 0.4)');
-          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
+          coreGrad.addColorStop(0.2, 'rgba(239, 68, 68, 0.95)');
+          coreGrad.addColorStop(0.6, 'rgba(185, 28, 28, 0.4)');
+          coreGrad.addColorStop(1, 'rgba(153, 27, 27, 0)');
+        } else if (this.state === 'thinking') {
+          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          coreGrad.addColorStop(0.2, 'rgba(245, 158, 11, 0.95)');
+          coreGrad.addColorStop(0.6, 'rgba(217, 119, 6, 0.4)');
+          coreGrad.addColorStop(1, 'rgba(180, 83, 9, 0)');
         } else if (this.state === 'listening') {
           coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-          coreGrad.addColorStop(0.25, 'rgba(74, 222, 128, 0.9)');
-          coreGrad.addColorStop(0.65, 'rgba(0, 210, 255, 0.35)');
-          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
+          coreGrad.addColorStop(0.25, 'rgba(34, 197, 94, 0.95)');
+          coreGrad.addColorStop(0.65, 'rgba(21, 128, 61, 0.35)');
+          coreGrad.addColorStop(1, 'rgba(22, 101, 52, 0)');
+        } else if (this.state === 'speaking') {
+          coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          coreGrad.addColorStop(0.25, 'rgba(56, 189, 248, 0.95)');
+          coreGrad.addColorStop(0.65, 'rgba(14, 165, 233, 0.35)');
+          coreGrad.addColorStop(1, 'rgba(2, 132, 199, 0)');
         } else {
           coreGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
           coreGrad.addColorStop(0.25, 'rgba(0, 210, 255, 0.9)');
           coreGrad.addColorStop(0.6, 'rgba(2, 132, 199, 0.35)');
-          coreGrad.addColorStop(1, 'rgba(0, 210, 255, 0)');
+          coreGrad.addColorStop(1, 'rgba(2, 132, 199, 0)');
         }
 
         ctx.beginPath();
@@ -2008,7 +2103,7 @@
         ctx.rotate(this.time * 0.5);
         ctx.beginPath();
         ctx.ellipse(0, 0, 36, 18, Math.PI / 4, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0, 210, 255, 0.35)';
+        ctx.strokeStyle = isCombat ? 'rgba(239, 68, 68, 0.5)' : (this.state === 'thinking' ? 'rgba(245, 158, 11, 0.5)' : (this.state === 'listening' ? 'rgba(34, 197, 94, 0.5)' : 'rgba(0, 210, 255, 0.35)'));
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 6]);
         ctx.stroke();
@@ -2174,8 +2269,13 @@
       };
 
       utterance.onend = () => {
-        if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
-        setHUDAction('Idle', 'Waiting for your command...');
+        if (neuralCore && neuralCore.state === 'speaking') {
+          neuralCore.setState(isListening ? 'listening' : 'idle');
+        }
+        setHUDAction(
+          isListening ? (currentMode === 'combat' ? 'Combat Listening' : 'Listening') : 'Idle',
+          isListening ? 'Acoustic receptors capturing...' : 'Waiting for your command...'
+        );
       };
 
       utterance.onerror = () => {
@@ -2220,8 +2320,13 @@
 
         audio.onended = () => {
           if (currentAudio === audio) currentAudio = null;
-          if (neuralCore && neuralCore.state === 'speaking') neuralCore.setState('idle');
-          setHUDAction('Idle', 'Waiting for your command...');
+          if (neuralCore && neuralCore.state === 'speaking') {
+            neuralCore.setState(isListening ? 'listening' : 'idle');
+          }
+          setHUDAction(
+            isListening ? (currentMode === 'combat' ? 'Combat Listening' : 'Listening') : 'Idle',
+            isListening ? 'Acoustic receptors capturing...' : 'Waiting for your command...'
+          );
         };
 
         audio.onerror = () => {
@@ -2247,11 +2352,38 @@
     }
 
     // -------------------------------------------------------------
-    // 3. SPEECH RECOGNITION (WEB SPEECH API)
+    // 3. OPERATING MODES & CONTINUOUS SPEECH RECOGNITION
     // -------------------------------------------------------------
+    let currentMode = 'attentive'; // 'silent', 'attentive', 'combat'
+
+    function setOperatingMode(newMode) {
+      currentMode = newMode;
+      document.querySelectorAll('.mode-pill-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById(`btn-mode-${newMode}`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      if (neuralCore) neuralCore.setState(neuralCore.state || 'idle');
+
+      if (newMode === 'silent') {
+        setHUDAction('Silent Standby', 'Wake word "Hey Jarvis" active...');
+        if (!isListening) startListening();
+      } else if (newMode === 'attentive') {
+        setHUDAction('Attentive Mode', 'Continuous listening active...');
+        if (!isListening) startListening();
+      } else if (newMode === 'combat') {
+        setHUDAction('Combat Mode', 'Tactical high-speed Groq LPU active...');
+        if (!isListening) startListening();
+      }
+    }
+
+    document.getElementById('btn-mode-silent')?.addEventListener('click', () => setOperatingMode('silent'));
+    document.getElementById('btn-mode-attentive')?.addEventListener('click', () => setOperatingMode('attentive'));
+    document.getElementById('btn-mode-combat')?.addEventListener('click', () => setOperatingMode('combat'));
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     let isListening = false;
+    let restartTimer = null;
 
     const voiceActiveBar = document.getElementById('voice-active-bar');
     const voiceTranscriptPreview = document.getElementById('voice-transcript-preview');
@@ -2264,7 +2396,7 @@
         return null;
       }
       const rec = new SpeechRecognition();
-      rec.continuous = false;
+      rec.continuous = true;
       rec.interimResults = true;
       rec.lang = 'en-US';
 
@@ -2273,9 +2405,13 @@
         if (btnToggleMic) btnToggleMic.classList.add('active-mic');
         if (btnMicInline) btnMicInline.classList.add('active-mic');
         if (voiceActiveBar) voiceActiveBar.classList.add('active');
-        if (voiceTranscriptPreview) voiceTranscriptPreview.textContent = 'Listening... Speak now';
-        setHUDAction('Listening', 'Acoustic voice frequencies capturing...');
-        if (neuralCore) neuralCore.setState('listening');
+        if (voiceTranscriptPreview) {
+          voiceTranscriptPreview.textContent = currentMode === 'silent' ? 'Silent Standby: say "Hey Jarvis"...' : 'Listening... Speak now';
+        }
+        setHUDAction(currentMode === 'silent' ? 'Silent Standby' : (currentMode === 'combat' ? 'Combat Listening' : 'Listening'), 'Acoustic voice frequencies capturing...');
+        if (neuralCore && neuralCore.state !== 'speaking' && neuralCore.state !== 'thinking') {
+          neuralCore.setState('listening');
+        }
       };
 
       rec.onresult = (event) => {
@@ -2292,32 +2428,81 @@
 
         if (interimText && voiceTranscriptPreview) {
           voiceTranscriptPreview.textContent = `"${interimText}..."`;
-          userInput.value = interimText;
         }
 
         if (finalText) {
-          userInput.value = finalText.trim();
-          stopListening();
-          sendMessage(finalText.trim());
+          const spoken = finalText.trim();
+          const lower = spoken.toLowerCase();
+          userInput.value = '';
+          if (voiceTranscriptPreview) voiceTranscriptPreview.textContent = '';
+
+          // 1. Verbal mode switching detection
+          if (lower.includes('silent mode') || lower.includes('go to silent') || lower === 'standby') {
+            setOperatingMode('silent');
+            speakJarvisResponse("Silent mode engaged, sir. Awaiting your wake word.");
+            return;
+          }
+          if (lower.includes('attentive mode') || lower.includes('go to attentive') || lower.includes('always listen')) {
+            setOperatingMode('attentive');
+            speakJarvisResponse("Attentive mode activated. Always listening.");
+            return;
+          }
+          if (lower.includes('combat mode') || lower.includes('engage combat')) {
+            setOperatingMode('combat');
+            speakJarvisResponse("Combat protocol engaged. All neural nodes running at maximum clock.");
+            return;
+          }
+          if (lower.includes('exit combat') || lower.includes('disengage combat') || lower.includes('disable combat')) {
+            setOperatingMode('attentive');
+            speakJarvisResponse("Combat protocol disengaged. Returning to attentive mode.");
+            return;
+          }
+
+          // 2. Silent Mode: ONLY trigger when wake word is spoken
+          if (currentMode === 'silent') {
+            const wakeWords = ['hey jarvis', 'ok jarvis', 'jarvis', 'हे जार्विस', 'जार्विस'];
+            const matched = wakeWords.find(w => lower.includes(w));
+            if (!matched) {
+              return; // Ignore background chatter in silent mode
+            }
+            let directive = spoken;
+            const idx = lower.indexOf(matched);
+            directive = spoken.substring(idx + matched.length).replace(/^[,:;. -]+/, '').trim();
+            if (!directive) {
+              speakJarvisResponse("Yes sir? I am listening.");
+              return;
+            }
+            sendMessage(directive);
+            return;
+          }
+
+          // 3. Attentive or Combat mode: process directly
+          sendMessage(spoken);
         }
       };
 
       rec.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error);
-        if (voiceTranscriptPreview) {
-          if (event.error === 'not-allowed') {
-            voiceTranscriptPreview.textContent = 'Mic blocked. Please allow microphone in browser bar.';
-          } else if (event.error === 'no-speech') {
-            voiceTranscriptPreview.textContent = 'No voice detected. Click mic to retry.';
-          } else {
-            voiceTranscriptPreview.textContent = `Voice status: ${event.error}`;
-          }
+        if (event.error === 'no-speech') {
+          return;
         }
-        setTimeout(stopListening, 2200);
+        console.warn('Speech recognition error:', event.error);
+        if (event.error === 'not-allowed') {
+          if (voiceTranscriptPreview) voiceTranscriptPreview.textContent = 'Mic blocked. Please allow microphone in browser bar.';
+          stopListening();
+        }
       };
 
       rec.onend = () => {
-        stopListening();
+        if (isListening) {
+          clearTimeout(restartTimer);
+          restartTimer = setTimeout(() => {
+            if (isListening) {
+              try { rec.start(); } catch(e) {}
+            }
+          }, 350);
+        } else {
+          stopListening();
+        }
       };
 
       return rec;
@@ -2409,17 +2594,18 @@
 
     function sendMessage(text) {
       if (!text) return;
+      userInput.value = '';
       appendUserMessage(text);
       showThinkingIndicator();
       if (neuralCore) neuralCore.setState('thinking');
-      setHUDAction('Thinking', 'Synthesizing with Core Neural Model...');
+      setHUDAction('Thinking', (typeof currentMode !== 'undefined' && currentMode === 'combat') ? 'Combat execution (Groq LPU)...' : 'Synthesizing with Core Neural Model...');
 
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action: 'chat', text }));
+        ws.send(JSON.stringify({ action: 'chat', text, mode: currentMode }));
       } else {
         setTimeout(() => {
           hideThinkingIndicator();
-          const fallbackReply = `Acknowledged, Rohit: "${text}". All subsystems nominal.`;
+          const fallbackReply = `Acknowledged: "${text}". All subsystems nominal.`;
           appendJarvisMessage(fallbackReply);
           speakJarvisResponse(fallbackReply);
         }, 800);

@@ -135,6 +135,23 @@ def is_path_safe(path: str) -> bool:
                 if norm_resolved == norm_designated or norm_resolved.startswith(norm_designated + os.sep) or (os.altsep and norm_resolved.startswith(norm_designated + os.altsep)):
                     return True
 
+        # 5. Allow user Desktop, Documents, and Downloads directories
+        user_home = Path.home()
+        safe_user_roots = [
+            user_home / "Desktop",
+            user_home / "OneDrive" / "Desktop",
+            user_home / "Documents",
+            user_home / "Downloads",
+        ]
+        for safe_root in safe_user_roots:
+            try:
+                if safe_root.exists():
+                    norm_safe = os.path.normcase(os.path.realpath(str(safe_root)))
+                    if norm_resolved == norm_safe or norm_resolved.startswith(norm_safe + os.sep) or (os.altsep and norm_resolved.startswith(norm_safe + os.altsep)):
+                        return True
+            except Exception:
+                continue
+
         # Everything else outside is blocked
         return False
 
