@@ -470,10 +470,13 @@ class JarvisBrain:
                 stats = GetSystemStatsTool().run()
                 if stats.success and stats.data:
                     d = stats.data
-                    cpu = d.get("cpu_percent", "N/A")
-                    ram = d.get("ram_used_pct", "N/A")
-                    batt = d.get("battery_pct", "Plugged in")
-                    return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt}%. All systems nominal."
+                    cpu = d.get("cpu_percent") if d.get("cpu_percent") is not None else d.get("cpu_usage_percent", 0)
+                    ram = d.get("ram_used_pct") if d.get("ram_used_pct") is not None else d.get("ram_usage_percent", 0)
+                    battery_str = d.get("battery")
+                    if battery_str:
+                        return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {battery_str}. All systems nominal."
+                    batt_pct = d.get("battery_pct", 100)
+                    return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt_pct}%. All systems nominal."
             except Exception:
                 pass
 

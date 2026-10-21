@@ -702,10 +702,10 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       const json = await res.json();
       if (json.success && json.data) {
         const d = json.data;
-        if (d.cpu_percent !== undefined) {
-          const cpuVal = Math.round(d.cpu_percent);
+        const cpuRaw = d.cpu_percent !== undefined ? d.cpu_percent : d.cpu_usage_percent;
+        if (cpuRaw !== undefined) {
+          const cpuVal = Math.round(cpuRaw);
           $('#cpu').textContent = cpuVal;
-          // Animate CPU bars based on real load
           const bars = cpuBarsEl.children;
           for (let i = 0; i < bars.length; i++) {
             const h = Math.max(10, Math.min(100, cpuVal + (Math.random() * 20 - 10)));
@@ -721,6 +721,10 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
           $('#batt').textContent = d.battery_pct;
           const plugged = d.battery_plugged ? 'PLUGGED IN' : 'ON BATTERY';
           $('#battStatus').textContent = `● STABLE / ${plugged}`;
+        } else if (typeof d.battery === 'string') {
+          const m = d.battery.match(/(\d+)%/);
+          if (m) $('#batt').textContent = m[1];
+          $('#battStatus').textContent = `● ${d.battery.toUpperCase()}`;
         }
       }
     } catch (e) {

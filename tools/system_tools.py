@@ -38,10 +38,14 @@ class GetSystemStatsTool(BaseTool):
 
             stats = {
                 "cpu_usage_percent": cpu_percent,
+                "cpu_percent": cpu_percent,
                 "ram_usage_percent": ram.percent,
+                "ram_used_pct": ram.percent,
                 "ram_used_gb": round(ram.used / (1024 ** 3), 2),
                 "ram_total_gb": round(ram.total / (1024 ** 3), 2),
-                "battery": battery_info
+                "battery": battery_info,
+                "battery_pct": battery.percent if battery else 100,
+                "battery_plugged": battery.power_plugged if battery else True,
             }
             return ToolResult(
                 success=True,
