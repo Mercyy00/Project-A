@@ -1,15 +1,19 @@
 """Screen capture and vision utilities for Project Jarvis (Aryan).
 
 Captures desktop screen using mss, optimizes size for AI models,
-provides Gemini multimodal screen understanding, and respects privacy switches.
+provides Gemini multimodal screen understanding, error explanation, UI element location,
+and respects privacy switches.
 """
 from __future__ import annotations
 
 from datetime import datetime
+import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional, Sequence, Tuple, Union
+import re
+import sys
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 from dotenv import load_dotenv
 from google import genai
@@ -20,6 +24,15 @@ from PIL import Image
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Set Process DPI Awareness on Windows at import time
+if os.name == "nt":
+    try:
+        import ctypes
+        # 2 = PROCESS_PER_MONITOR_DPI_AWARE_V2
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception as _dpi_exc:
+        logger.debug("Could not set process DPI awareness: %s", _dpi_exc)
 
 TEMP_VISION_DIR = Path("temp_vision")
 TEMP_VISION_DIR.mkdir(parents=True, exist_ok=True)
@@ -39,21 +52,92 @@ def _ensure_desktop_access() -> None:
             logger.debug("Failed to set thread desktop access: %s", exc)
 
 
+def clean_temp_vision(keep_newest: int = 10) -> None:
+    """Retain only the newest screenshot files in temp_vision/, deleting older ones.
+
+    Args:
+        keep_newest: Maximum number of newest screenshot files to retain (default: 10).
+    """
+    try:
+        if not TEMP_VISION_DIR.exists():
+            return
+        files = [
+            f
+            for f in TEMP_VISION_DIR.iterdir()
+            if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png")
+        ]
+        # Sort ascending by modification time (oldest first)
+        files.sort(key=lambda f: f.stat().st_mtime)
+        if len(files) > keep_newest:
+            to_remove = files[: len(files) - keep_newest]
+            for old_file in to_remove:
+                try:
+                    old_file.unlink(missing_ok=True)
+                except Exception as del_err:
+                    logger.debug("Failed to remove old screenshot %s: %s", old_file, del_err)
+    except Exception as exc:
+        logger.debug("Error during temp_vision cleanup: %s", exc)
+
+
+def parse_region_hint(
+    region_hint: str,
+    monitor: Dict[str, int],
+) -> Tuple[int, int, int, int]:
+    """Calculate pixel bounding box (left, top, width, height) from a descriptive region hint.
+
+    Supported hints: 'top half', 'bottom half', 'left half', 'right half'.
+
+    Args:
+        region_hint: Human-readable region string.
+        monitor: Monitor dictionary containing 'left', 'top', 'width', 'height'.
+
+    Returns:
+        Tuple of (left, top, width, height) coordinates.
+
+    Raises:
+        ValueError: If region_hint is not recognized.
+    """
+    normalized = region_hint.strip().lower().replace("_", " ").replace("-", " ")
+    left = monitor["left"]
+    top = monitor["top"]
+    width = monitor["width"]
+    height = monitor["height"]
+
+    if normalized == "top half":
+        return (left, top, width, height // 2)
+    elif normalized == "bottom half":
+        half_h = height // 2
+        return (left, top + half_h, width, height - half_h)
+    elif normalized == "left half":
+        return (left, top, width // 2, height)
+    elif normalized == "right half":
+        half_w = width // 2
+        return (left + half_w, top, width - half_w, height)
+    else:
+        raise ValueError(
+            f"Unsupported region_hint '{region_hint}'. "
+            "Supported values: 'top half', 'bottom half', 'left half', 'right half'."
+        )
+
+
 def take_screenshot(
-    region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None
+    region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
+    region_hint: Optional[str] = None,
 ) -> str:
     """Capture a screenshot of the primary monitor or a specified region.
 
     Args:
         region: Optional (left, top, width, height) bounding box sequence.
                 If None, captures the full primary monitor.
+        region_hint: Optional descriptive string ('top half', 'bottom half',
+                     'left half', 'right half') that crops accordingly.
 
     Returns:
         String path to the saved JPEG screenshot inside temp_vision/.
 
     Raises:
         PermissionError: If VISION_PAUSED environment variable is set to '1'.
-        ValueError: If region coordinates are invalid.
+        ValueError: If region coordinates or region_hint are invalid.
         RuntimeError: If screen capture or image processing fails.
     """
     if os.getenv("VISION_PAUSED", "0") == "1":
@@ -64,8 +148,12 @@ def take_screenshot(
     _ensure_desktop_access()
 
     try:
-        mss_factory = getattr(mss, "MSS", mss.mss)
-        with mss_factory() as sct:
+        with mss.MSS() as sct:
+            primary_monitor = sct.monitors[1]
+
+            if region_hint and region is None:
+                region = parse_region_hint(region_hint, primary_monitor)
+
             if region:
                 if len(region) != 4:
                     raise ValueError(
@@ -78,7 +166,7 @@ def take_screenshot(
                     "height": int(region[3]),
                 }
             else:
-                monitor = sct.monitors[1]  # Primary monitor
+                monitor = primary_monitor
 
             sct_img = sct.grab(monitor)
             img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
@@ -96,6 +184,10 @@ def take_screenshot(
 
             # Save with 70% JPEG quality
             img.save(filepath, format="JPEG", quality=70, optimize=True)
+
+            # Keep only the 10 newest files in temp_vision/
+            clean_temp_vision(keep_newest=10)
+
             return str(filepath)
     except PermissionError:
         raise
@@ -109,11 +201,13 @@ def describe_screen(
     question: str,
     screenshot_path: Optional[str] = None,
     region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
+    region_hint: Optional[str] = None,
 ) -> str:
     """Analyze the computer screen using Google Gemini Multimodal Vision.
 
-    Sends the current screen (or region / provided screenshot) along with
-    the user's question to the Gemini API and returns the textual description.
+    WARNING: Screenshots captured by this function are transmitted to an online AI
+    service (Google Gemini) for analysis. Sensitive data (passwords, private chats,
+    financial details) should not be displayed on screen while vision is active.
 
     Args:
         question: Question or query asking about the screen contents.
@@ -121,6 +215,8 @@ def describe_screen(
                          If None, a new screenshot is taken automatically.
         region: Optional (left, top, width, height) bounding box to capture
                 if screenshot_path is not specified.
+        region_hint: Optional descriptive crop ('top half', 'bottom half',
+                     'left half', 'right half').
 
     Returns:
         The model's textual answer describing or answering questions about the screen.
@@ -150,7 +246,7 @@ def describe_screen(
 
     # Acquire screenshot path
     if screenshot_path is None:
-        target_path = take_screenshot(region=region)
+        target_path = take_screenshot(region=region, region_hint=region_hint)
     else:
         target_path = screenshot_path
 
@@ -159,7 +255,6 @@ def describe_screen(
 
     try:
         with Image.open(target_path) as img:
-            # Create Gemini Client and call models.generate_content
             client = genai.Client(api_key=api_key.strip())
             response = client.models.generate_content(
                 model=model_name,
@@ -174,3 +269,176 @@ def describe_screen(
         raise
     except Exception as exc:
         raise RuntimeError(f"Gemini Vision API call failed: {exc}") from exc
+
+
+def explain_screen_error(
+    screenshot_path: Optional[str] = None,
+    region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
+    region_hint: Optional[str] = None,
+) -> str:
+    """Inspect the screen for error messages, quote the error, explain its cause, and suggest a fix.
+
+    Takes a screenshot and asks Gemini:
+    'If there is an error message on the screen, quote it exactly, explain the cause in
+    two short sentences and suggest one fix. If there is no error, say so.'
+
+    Args:
+        screenshot_path: Optional path to an existing screenshot image.
+        region: Optional (left, top, width, height) bounding box sequence.
+        region_hint: Optional region hint ('top half', 'bottom half', etc.).
+
+    Returns:
+        Structured analysis of the error or confirmation that no error is present.
+
+    Raises:
+        PermissionError: If VISION_PAUSED=1 privacy mode is active.
+        ValueError: If GEMINI_API_KEY is missing.
+        RuntimeError: If screenshot or vision inference fails.
+    """
+    if os.getenv("VISION_PAUSED", "0") == "1":
+        raise PermissionError(
+            "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
+        )
+
+    prompt = (
+        "If there is an error message on the screen, quote it exactly, "
+        "explain the cause in two short sentences and suggest one fix. "
+        "If there is no error, say so."
+    )
+
+    return describe_screen(
+        question=prompt,
+        screenshot_path=screenshot_path,
+        region=region,
+        region_hint=region_hint,
+    )
+
+
+def locate_element(
+    description: str,
+    screenshot_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Locate a UI element on the desktop screen by visual description using Gemini.
+
+    Queries Gemini to return JSON with pixel coordinates relative to the resized image,
+    and scales them back to real screen coordinates.
+
+    Args:
+        description: Natural language description of the target UI element
+                     (e.g., 'File menu in Notepad', 'blue Submit button').
+        screenshot_path: Optional pre-existing screenshot path. If None, captures live screen.
+
+    Returns:
+        Dict formatted as {'found': bool, 'x': int, 'y': int}.
+
+    Raises:
+        PermissionError: If VISION_PAUSED=1 privacy mode is active.
+        ValueError: If description is empty or GEMINI_API_KEY is missing.
+        RuntimeError: If vision inference fails.
+    """
+    if os.getenv("VISION_PAUSED", "0") == "1":
+        raise PermissionError(
+            "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
+        )
+
+    if not description or not str(description).strip():
+        raise ValueError("Description must be a non-empty string.")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key.strip() in ("", "your_gemini_api_key_here"):
+        raise ValueError(
+            "GEMINI_API_KEY is missing or invalid. "
+            "Please configure GEMINI_API_KEY in your .env file."
+        )
+
+    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+
+    _ensure_desktop_access()
+
+    # Determine original screen coordinates and dimensions
+    orig_left = 0
+    orig_top = 0
+    orig_width = 1920
+    orig_height = 1080
+
+    try:
+        with mss.MSS() as sct:
+            mon = sct.monitors[1]
+            orig_left = mon["left"]
+            orig_top = mon["top"]
+            orig_width = mon["width"]
+            orig_height = mon["height"]
+    except Exception as exc:
+        logger.debug("Could not inspect monitor dimensions via mss: %s", exc)
+
+    if screenshot_path is None:
+        target_path = take_screenshot()
+    else:
+        target_path = screenshot_path
+
+    if not os.path.exists(target_path):
+        raise FileNotFoundError(f"Screenshot file not found: {target_path}")
+
+    try:
+        with Image.open(target_path) as img:
+            img_width, img_height = img.size
+
+            query = (
+                f"Analyze this screenshot ({img_width}x{img_height} px). "
+                f"Find the center of the UI element described as: '{description.strip()}'.\n\n"
+                "Return ONLY a valid JSON object in this exact schema:\n"
+                '{"found": true, "x": <integer_x>, "y": <integer_y>}\n\n'
+                f"where x and y are the integer pixel coordinates on this image "
+                f"(between 0 and {img_width - 1} horizontally, and 0 and {img_height - 1} vertically).\n"
+                "If the element cannot be found or is not clearly visible, return:\n"
+                '{"found": false, "x": 0, "y": 0}\n\n'
+                "Do not include any other markdown fences, explanation, or conversational text."
+            )
+
+            client = genai.Client(api_key=api_key.strip())
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[img, query],
+            )
+
+            raw_text = (response.text or "").strip()
+
+            # Clean markdown code blocks if returned
+            clean_text = raw_text
+            if clean_text.startswith("```"):
+                lines = clean_text.splitlines()
+                if lines and lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                clean_text = "\n".join(lines).strip()
+
+            # Extract JSON substring
+            match = re.search(r"\{.*?\}", clean_text, re.DOTALL)
+            if match:
+                payload = json.loads(match.group(0))
+            else:
+                payload = json.loads(clean_text)
+
+            found = bool(payload.get("found", False))
+            if not found:
+                return {"found": False, "x": 0, "y": 0}
+
+            model_x = int(payload.get("x", 0))
+            model_y = int(payload.get("y", 0))
+
+            # Scale coordinates back to real screen pixels using original screen size
+            scale_x = orig_width / float(img_width) if img_width > 0 else 1.0
+            scale_y = orig_height / float(img_height) if img_height > 0 else 1.0
+
+            real_x = int(orig_left + (model_x * scale_x))
+            real_y = int(orig_top + (model_y * scale_y))
+
+            return {"found": True, "x": real_x, "y": real_y}
+
+    except PermissionError:
+        raise
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Failed to locate UI element '{description}': {exc}") from exc
