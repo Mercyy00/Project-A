@@ -63,3 +63,10 @@ Thumbs.db
 *.pdf
 generate_pdf.py
 WEEK_1_EXECUTION_PLAN.md
+
+# Documents (Vidhita)
+workspace/
+temp_creator/
+run_day1_to_day3.bat
+push_to_github.bat
+
