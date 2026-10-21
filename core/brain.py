@@ -68,6 +68,7 @@ class JarvisBrain:
         model_name: Optional[str] = None,
         system_prompt: Optional[str] = None,
         enable_tools: bool = True,
+        load_memory: bool = False,
     ) -> None:
         """Initialize JarvisBrain with API client, chat session, and tool registry.
 
@@ -91,7 +92,39 @@ class JarvisBrain:
 
         self.client: genai.Client = genai.Client(api_key=api_key)
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
+        if load_memory:
+            self._load_memory_history()
         self._init_chat_session()
+
+    def _load_memory_history(self, limit: int = 6) -> None:
+        """Load recent interaction history from SQLite memory vault if available."""
+        try:
+            import asyncio
+            from memory.storage import MemoryManager
+            mem = MemoryManager()
+
+            async def _fetch():
+                return await mem.get_recent_history(limit=limit)
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        rows = pool.submit(asyncio.run, _fetch()).result(timeout=2)
+                else:
+                    rows = loop.run_until_complete(_fetch())
+            except Exception:
+                rows = asyncio.run(_fetch())
+
+            if rows:
+                for row in rows:
+                    role = "user" if row.get("role") == "user" else "model"
+                    content = row.get("content", "").strip()
+                    if content:
+                        self.history.append({"role": role, "content": content})
+        except Exception:
+            pass
 
     def _discover_tools(self) -> List[Callable[..., Any]]:
         """Discover and wrap available tools for Gemini automatic function calling.
@@ -485,13 +518,17 @@ class JarvisBrain:
                 except Exception as exc:
                     print(f"[WARN] Failed to load tool schemas for Groq: {exc}", file=sys.stderr)
 
+            extra_params: Dict[str, Any] = {}
+            if tools_param:
+                extra_params["tools"] = tools_param
+                extra_params["tool_choice"] = "auto"
+
             completion = client.chat.completions.create(
                 model=self.groq_model,
                 messages=messages,
-                tools=tools_param if tools_param else None,
-                tool_choice="auto" if tools_param else None,
                 temperature=0.7,
                 max_tokens=1024,
+                **extra_params,
             )
 
             msg = completion.choices[0].message

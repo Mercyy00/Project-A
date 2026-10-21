@@ -64,6 +64,15 @@ async def handle_text(text: str, source: str = "cli") -> Dict[str, Any]:
         response_text: str = await asyncio.to_thread(brain.chat, cleaned)
         tool_steps: List[str] = list(brain.last_tool_steps)
 
+        # Persist turn to SQLite long-term memory vault (Day 4 deliverable)
+        try:
+            from memory.storage import MemoryManager
+            mem = MemoryManager()
+            await mem.save_interaction("user", cleaned)
+            await mem.save_interaction("assistant", response_text)
+        except Exception as mem_err:
+            pass
+
         return {
             "text": response_text,
             "tool_steps": tool_steps,

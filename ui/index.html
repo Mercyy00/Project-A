@@ -2137,12 +2137,14 @@
 
       if (!cleanText) return;
 
+      const isDevanagari = /[\u0900-\u097F]/.test(cleanText);
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.rate = 1.05;
       utterance.pitch = 1.0;
+      if (isDevanagari) utterance.lang = 'hi-IN';
 
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('George')));
+      const preferred = voices.find(v => isDevanagari ? (v.lang.includes('hi') || v.lang.includes('mr') || v.lang.includes('IN')) : (v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('George'))));
       if (preferred) utterance.voice = preferred;
 
       utterance.onstart = () => {

@@ -67,7 +67,12 @@ app = FastAPI(
 # Enable CORS for local UI and WebSocket clients
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -437,31 +442,31 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 if not user_text:
                     continue
 
-                # Launch desktop app if requested by user
-                launched_app = try_launch_system_app(user_text)
-
-                # 1. Push 'thinking' status
+                # 1. Push 'thinking' status to HUD
                 await websocket.send_json({"type": "status", "status": "thinking"})
 
-                # 2. Persist user turn into chat_history table
-                try:
-                    await memory_manager.save_interaction(role="user", content=user_text)
-                except Exception as exc:
-                    print(f"[WARN] Failed to log user chat: {exc}")
-
-                # 3. Generate response
+                # 2. Check for quick app launcher helper or direct desktop shortcut
+                launched_app = try_launch_system_app(user_text)
                 if launched_app:
                     reply_text = f"Opening {launched_app} for you now."
+                    tool_steps = [f"open_app({launched_app})"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
                 else:
-                    reply_text = await _generate_response(user_text)
+                    # 3. Delegate directly to Core Brain Engine via handle_text
+                    from core.service import handle_text
+                    result = await handle_text(user_text, source="ui")
+                    reply_text = result.get("text", "")
+                    tool_steps = result.get("tool_steps", [])
 
-                # 4. Persist assistant turn
-                try:
-                    await memory_manager.save_interaction(role="assistant", content=reply_text)
-                except Exception as exc:
-                    print(f"[WARN] Failed to log assistant chat: {exc}")
+                # 4. Broadcast executed tool steps to HUD
+                if tool_steps:
+                    await websocket.send_json({"type": "tool_steps", "steps": tool_steps})
 
-                # 5. Push response and reset to idle
+                # 5. Push response and reset HUD to idle
                 await websocket.send_json({"type": "response", "text": reply_text})
                 await websocket.send_json({"type": "status", "status": "idle"})
 
