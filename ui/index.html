@@ -896,12 +896,13 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     const trimmed = text.trim();
     if (!trimmed) return;
     const now = Date.now();
-    // Guard against rapid duplicate submissions (e.g. repeated voice recognition events within 2.5s)
-    if (trimmed.toLowerCase() === lastSentMessage.toLowerCase() && (now - lastSentTime) < 2500) {
+    // Guard against rapid duplicate submissions
+    if (trimmed.toLowerCase() === lastSentMessage.toLowerCase() && (now - lastSentTime) < 2000) {
       return;
     }
     lastSentMessage = trimmed;
     lastSentTime = now;
+    chatInput.value = ''; // Always clear input bar when message is dispatched
 
     appendChatBubble('user', trimmed);
     log('USER COMMAND: ' + trimmed.substring(0, 28));
@@ -912,7 +913,7 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     } else {
       setTimeout(() => {
         removeThinkingBubble();
-        appendChatBubble('assistant', "Local server connection pending. Please ensure 'python -m uvicorn ui.server:app' is running.");
+        appendChatBubble('assistant', "Local server connection pending. Please ensure server is running.");
       }, 700);
     }
   }
@@ -979,14 +980,17 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
   const micBtn = $('#mic-btn');
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+  let currentVoiceText = '';
+
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
       voiceListening = true;
+      currentVoiceText = '';
       voiceBtn.textContent = '◉ LISTENING (SPEAK NOW)...';
       voiceBtn.classList.add('active');
       micBtn.classList.add('active');
@@ -995,31 +999,20 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       log('VOICE RECOGNITION ACTIVE');
     };
 
-    let lastVoiceTranscript = '';
-    let lastVoiceTime = 0;
-
     recognition.onresult = (e) => {
-      let finalTranscript = '';
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
+      let interim = '';
+      let final = '';
+      for (let i = 0; i < e.results.length; ++i) {
         if (e.results[i].isFinal) {
-          finalTranscript += e.results[i][0].transcript;
+          final += e.results[i][0].transcript;
+        } else {
+          interim += e.results[i][0].transcript;
         }
       }
-      if (!finalTranscript && e.results[0] && e.results[0][0]) {
-        finalTranscript = e.results[0][0].transcript;
-      }
-      finalTranscript = finalTranscript.trim();
-      const now = Date.now();
-      // Drop duplicate audio events within 2 seconds
-      if (finalTranscript && (finalTranscript.toLowerCase() !== lastVoiceTranscript.toLowerCase() || (now - lastVoiceTime) > 2000)) {
-        lastVoiceTranscript = finalTranscript;
-        lastVoiceTime = now;
-        log('VOICE HEARD: ' + finalTranscript);
-        chatInput.value = finalTranscript;
-        try {
-          recognition.stop();
-        } catch (err) {}
-        sendChatMessage(finalTranscript);
+      const recognized = (final || interim).trim();
+      if (recognized) {
+        currentVoiceText = recognized;
+        chatInput.value = recognized; // Real-time preview in input box only (no chat spam!)
       }
     };
 
@@ -1035,6 +1028,14 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       micBtn.classList.remove('active');
       waveEl.classList.remove('listening');
       updateStatus(modes[activeMode].status);
+
+      // SEND EXACTLY ONCE AFTER USER HAS FINISHED SPEAKING
+      const textToSend = currentVoiceText.trim();
+      currentVoiceText = '';
+      if (textToSend) {
+        log('VOICE COMPLETE: ' + textToSend);
+        sendChatMessage(textToSend);
+      }
     };
   }
 
@@ -1047,9 +1048,12 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       recognition.stop();
     } else {
       try {
+        currentVoiceText = '';
         recognition.start();
       } catch (e) {
-        recognition.stop();
+        try {
+          recognition.stop();
+        } catch (err) {}
       }
     }
   }
