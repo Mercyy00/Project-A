@@ -629,6 +629,8 @@ async def _generate_response(user_text: str) -> str:
 async def websocket_jarvis(websocket: WebSocket) -> None:
     """Real-time bi-directional WebSocket channel for HUD chat and telemetry."""
     await websocket.accept()
+    last_chat_msg = ""
+    last_chat_time = 0.0
     try:
         while True:
             raw_data = await websocket.receive_text()
@@ -643,6 +645,15 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 user_text = payload.get("text", "").strip()
                 if not user_text:
                     continue
+
+                import time
+
+                now_ts = time.time()
+                if user_text.lower() == last_chat_msg.lower() and (now_ts - last_chat_time) < 2.0:
+                    # Guard against rapid duplicate voice recognition bursts
+                    continue
+                last_chat_msg = user_text
+                last_chat_time = now_ts
 
                 # Detect if user introduced their name dynamically
                 detected_name = detect_user_intro(user_text)

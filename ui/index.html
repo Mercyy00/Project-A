@@ -889,9 +889,19 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     updateStatus(modes[activeMode].status);
   }
 
+  let lastSentMessage = '';
+  let lastSentTime = 0;
+
   function sendChatMessage(text) {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const now = Date.now();
+    // Guard against rapid duplicate submissions (e.g. repeated voice recognition events within 2.5s)
+    if (trimmed.toLowerCase() === lastSentMessage.toLowerCase() && (now - lastSentTime) < 2500) {
+      return;
+    }
+    lastSentMessage = trimmed;
+    lastSentTime = now;
 
     appendChatBubble('user', trimmed);
     log('USER COMMAND: ' + trimmed.substring(0, 28));
@@ -985,11 +995,32 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       log('VOICE RECOGNITION ACTIVE');
     };
 
+    let lastVoiceTranscript = '';
+    let lastVoiceTime = 0;
+
     recognition.onresult = (e) => {
-      const transcript = e.results[0][0].transcript;
-      log('VOICE HEARD: ' + transcript);
-      chatInput.value = transcript;
-      sendChatMessage(transcript);
+      let finalTranscript = '';
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        if (e.results[i].isFinal) {
+          finalTranscript += e.results[i][0].transcript;
+        }
+      }
+      if (!finalTranscript && e.results[0] && e.results[0][0]) {
+        finalTranscript = e.results[0][0].transcript;
+      }
+      finalTranscript = finalTranscript.trim();
+      const now = Date.now();
+      // Drop duplicate audio events within 2 seconds
+      if (finalTranscript && (finalTranscript.toLowerCase() !== lastVoiceTranscript.toLowerCase() || (now - lastVoiceTime) > 2000)) {
+        lastVoiceTranscript = finalTranscript;
+        lastVoiceTime = now;
+        log('VOICE HEARD: ' + finalTranscript);
+        chatInput.value = finalTranscript;
+        try {
+          recognition.stop();
+        } catch (err) {}
+        sendChatMessage(finalTranscript);
+      }
     };
 
     recognition.onerror = (e) => {
