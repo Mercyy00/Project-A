@@ -15,6 +15,17 @@ from tools.system_tools import (
     ListDirectoryTool,
     OpenWebsiteTool,
     SearchWebTool,
+    ClipboardReadTool,
+    ClipboardWriteTool,
+    SetVolumeTool,
+    SetBrightnessTool,
+    LockScreenTool,
+    BatteryTool,
+)
+from tools.window_tools import (
+    ListWindowsTool,
+    FocusWindowTool,
+    MinimizeWindowTool,
 )
 from tools.file_tools import ReadFileTool, WriteFileTool
 from tools.control_tools import (
@@ -83,6 +94,15 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "run_command": RunCommandTool(),
     "edit_file": EditFileTool(),
     "run_python": RunPythonTool(),
+    "list_windows": ListWindowsTool(),
+    "focus_window": FocusWindowTool(),
+    "minimize_window": MinimizeWindowTool(),
+    "clipboard_read": ClipboardReadTool(),
+    "clipboard_write": ClipboardWriteTool(),
+    "set_volume": SetVolumeTool(),
+    "set_brightness": SetBrightnessTool(),
+    "lock_screen": LockScreenTool(),
+    "battery": BatteryTool(),
 })
 
 # Registry aliases

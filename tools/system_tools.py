@@ -823,3 +823,400 @@ class SearchWebTool(BaseTool):
                 "required": ["query"]
             }
         }
+
+
+
+class ClipboardReadTool(BaseTool):
+    """Tool that retrieves the current text content from the system clipboard."""
+    name: str = "clipboard_read"
+    description: str = (
+        "Reads and returns the current text content stored in the system clipboard. "
+        "Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Reads text from the system clipboard.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: The clipboard text content.
+        """
+        try:
+            import pyperclip
+            text = pyperclip.paste()
+            return ToolResult(
+                success=True,
+                data={"text": text, "length": len(text) if text else 0},
+                message="Clipboard content read successfully." if text else "Clipboard is currently empty."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to read clipboard: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+
+
+class ClipboardWriteTool(BaseTool):
+    """Tool that copies text into the system clipboard."""
+    name: str = "clipboard_write"
+    description: str = (
+        "Copies the given text into the system clipboard so it can be pasted elsewhere."
+    )
+
+    def run(self, text: str, **kwargs: Any) -> ToolResult:
+        """Copies text to the system clipboard.
+
+        Args:
+            text: The text string to copy into the clipboard.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome confirming clipboard write.
+        """
+        try:
+            if text is None or not isinstance(text, str):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="text must be a string."
+                )
+
+            import pyperclip
+            pyperclip.copy(text)
+            return ToolResult(
+                success=True,
+                data={"length": len(text)},
+                message=f"Copied {len(text)} characters to clipboard."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to copy to clipboard: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text string to copy into the clipboard."
+                    }
+                },
+                "required": ["text"]
+            }
+        }
+
+
+class SetVolumeTool(BaseTool):
+    """Tool that adjusts the Windows master system audio volume."""
+    name: str = "set_volume"
+    description: str = (
+        "Sets the Windows master audio volume to a specified percentage between 0 and 100."
+    )
+
+    def run(self, level: int, **kwargs: Any) -> ToolResult:
+        """Sets the system volume.
+
+        Args:
+            level: Target volume percentage between 0 and 100.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with adjusted volume level.
+        """
+        try:
+            if level is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="level parameter is required."
+                )
+
+            try:
+                vol_int = int(level)
+            except (ValueError, TypeError):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Volume level must be an integer between 0 and 100, got '{level}'."
+                )
+
+            if vol_int < 0 or vol_int > 100:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Volume level {vol_int} is out of bounds. Must be between 0 and 100."
+                )
+
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            from comtypes import CLSCTX_ALL
+            from ctypes import cast, POINTER
+
+            device = None
+            try:
+                device = AudioUtilities.GetSpeakers()
+            except AttributeError:
+                device = AudioUtilities.get_speakers()
+
+            if not device:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="No default audio playback device found."
+                )
+
+            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+
+            scalar_val = float(vol_int) / 100.0
+            volume.SetMasterVolumeLevelScalar(scalar_val, None)
+
+            current_scalar = volume.GetMasterVolumeLevelScalar()
+            current_pct = round(current_scalar * 100)
+
+            return ToolResult(
+                success=True,
+                data={"volume_level": current_pct},
+                message=f"System volume set to {current_pct}%."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to set volume: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "Volume percentage from 0 (mute) to 100 (maximum).",
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                },
+                "required": ["level"]
+            }
+        }
+
+
+class SetBrightnessTool(BaseTool):
+    """Tool that adjusts the Windows screen display brightness."""
+    name: str = "set_brightness"
+    description: str = (
+        "Sets the display screen brightness to a percentage between 0 and 100."
+    )
+
+    def run(self, level: int, **kwargs: Any) -> ToolResult:
+        """Sets the screen brightness.
+
+        Args:
+            level: Target brightness percentage between 0 and 100.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with adjusted brightness level.
+        """
+        try:
+            if level is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="level parameter is required."
+                )
+
+            try:
+                bright_int = int(level)
+            except (ValueError, TypeError):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Brightness level must be an integer between 0 and 100, got '{level}'."
+                )
+
+            if bright_int < 0 or bright_int > 100:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Brightness level {bright_int} is out of bounds. Must be between 0 and 100."
+                )
+
+            import screen_brightness_control as sbc
+            sbc.set_brightness(bright_int)
+            curr = sbc.get_brightness()
+            current_val = curr[0] if isinstance(curr, list) and curr else bright_int
+
+            return ToolResult(
+                success=True,
+                data={"brightness_level": current_val},
+                message=f"Screen brightness set to {current_val}%."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to set screen brightness: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "Brightness percentage from 0 to 100.",
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                },
+                "required": ["level"]
+            }
+        }
+
+
+class LockScreenTool(BaseTool):
+    """Tool that locks the Windows workstation immediately."""
+    name: str = "lock_screen"
+    description: str = (
+        "Immediately locks the Windows workstation screen using Windows API. Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Locks the Windows workstation screen.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Result indicating lock operation status.
+        """
+        try:
+            import ctypes
+            res = ctypes.windll.user32.LockWorkStation()
+            if res != 0:
+                return ToolResult(
+                    success=True,
+                    data={"locked": True},
+                    message="Windows workstation screen locked successfully."
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    data={"locked": False},
+                    message="LockWorkStation call failed."
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to lock workstation screen: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+
+
+class BatteryTool(BaseTool):
+    """Tool that inspects laptop battery charge and power connection status."""
+    name: str = "battery"
+    description: str = (
+        "Retrieves battery charge percentage, charging/plugged-in status, and remaining time. "
+        "Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Inspects system battery telemetry.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Battery telemetry details.
+        """
+        try:
+            battery = psutil.sensors_battery()
+            if battery is None:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "percent": None,
+                        "power_plugged": True,
+                        "is_desktop": True,
+                        "secsleft": None
+                    },
+                    message="No battery detected. Running on AC wall power (Desktop PC)."
+                )
+
+            status_str = "Plugged in (Charging)" if battery.power_plugged else "On Battery"
+            secs = battery.secsleft if battery.secsleft != psutil.POWER_TIME_UNLIMITED else None
+            mins_left = round(secs / 60) if secs is not None and secs > 0 else None
+
+            data = {
+                "percent": battery.percent,
+                "power_plugged": battery.power_plugged,
+                "status": status_str,
+                "minutes_left": mins_left
+            }
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Battery level is {battery.percent}% ({status_str})."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to inspect battery status: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
