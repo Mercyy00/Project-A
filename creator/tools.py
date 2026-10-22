@@ -1,0 +1,524 @@
+"""Document generation tools for JARVIS ReAct Brain and Central Registry.
+
+Author: Vidhita (Document Engineer)
+Module: creator.tools
+
+Exposes CreatePdfTool, CreateDocxTool, and CreatePptxTool conforming strictly
+to BaseTool and ARCHITECTURE.md interfaces. Automatically registers all tools
+in TOOL_REGISTRY to prevent fallback to write_file (raw markdown corruption).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from typing import Any, Dict, List, Optional, Union
+
+from tools.base import BaseTool, ToolResult
+from creator.docx_maker import make_docx
+from creator.pdf_maker import make_pdf
+from creator.pptx_maker import make_pptx
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_sections(sections: Union[str, List[Dict[str, Any]], Dict[str, Any], None]) -> List[Dict[str, Any]]:
+    """Ensure sections input is safely parsed into a list of section dictionaries.
+
+    Handles LLM quirks where JSON-encoded strings or single dictionaries are passed.
+
+    Args:
+        sections: Raw sections parameter from LLM tool call.
+
+    Returns:
+        List[Dict[str, Any]]: Structured list of section dictionaries.
+    """
+    if sections is None:
+        return [{"heading": "Overview", "text": "Generated document."}]
+
+    if isinstance(sections, str):
+        cleaned = sections.strip()
+        # Attempt to parse JSON string
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict):
+                return [parsed]
+        except Exception:
+            # Fall back to narrative paragraph if not valid JSON
+            return [{"heading": "Overview", "text": cleaned}]
+
+    if isinstance(sections, dict):
+        return [sections]
+
+    if isinstance(sections, list):
+        normalized: List[Dict[str, Any]] = []
+        for idx, item in enumerate(sections):
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif isinstance(item, str):
+                normalized.append({"heading": f"Section {idx + 1}", "text": item})
+        return normalized if normalized else [{"heading": "Overview", "text": "No content provided."}]
+
+    return [{"heading": "Overview", "text": str(sections)}]
+
+
+class CreatePdfTool(BaseTool):
+    """Tool that generates publication-grade, themed PDF documents with ReportLab Platypus."""
+
+    name: str = "create_pdf"
+    description: str = (
+        "Creates a professionally styled, publication-ready binary PDF document with an executive "
+        "cover page, bento-grid metric callouts, section headings, paragraphs, bullet lists, and tables. "
+        "Arguments: title (str), sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
+        "theme (optional: 'clean_light', 'dark_pro', 'colourful'), auto_open (optional bool, default True)."
+    )
+
+    def run(
+        self,
+        title: str,
+        sections: Any,
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        auto_open: bool = True,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Executes PDF creation.
+
+        Args:
+            title: Title of the document.
+            sections: List of section objects or JSON string.
+            theme: Theme name ('clean_light', 'dark_pro', 'colourful').
+            out_dir: Output directory (defaults to 'workspace').
+            auto_open: Whether to automatically launch the document in Adobe Acrobat / default viewer.
+            **kwargs: Extra arguments.
+
+        Returns:
+            ToolResult containing the generated file path and execution summary.
+        """
+        try:
+            if not title or not str(title).strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Document title cannot be empty.",
+                )
+
+            norm_sections = _normalize_sections(sections)
+            pdf_path = make_pdf(
+                title=str(title).strip(),
+                sections=norm_sections,
+                theme=theme,
+                out_dir=out_dir,
+                auto_open=auto_open,
+            )
+
+            file_size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": pdf_path,
+                    "title": title,
+                    "theme": theme,
+                    "format": "pdf",
+                    "bytes": file_size,
+                    "auto_opened": auto_open,
+                },
+                message=f"PDF document '{title}' generated successfully ({file_size} bytes) at: {pdf_path}",
+            )
+        except Exception as exc:
+            logger.exception("CreatePdfTool execution failed: %s", exc)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to generate PDF document: {str(exc)}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns OpenAPI/Gemini schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "The title of the PDF document.",
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "List of document sections with heading, text, bullets, metrics, or table.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "heading": {
+                                    "type": "string",
+                                    "description": "Section title.",
+                                },
+                                "text": {
+                                    "type": "string",
+                                    "description": "Body paragraph narrative for this section.",
+                                },
+                                "bullets": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Bullet points for this section.",
+                                },
+                                "metrics": {
+                                    "type": "array",
+                                    "description": "Key metric cards for Bento Grid (e.g. [{'label': 'Uptime', 'value': '99.9%'}]).",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "value": {"type": "string"},
+                                        },
+                                        "required": ["label", "value"],
+                                    },
+                                },
+                                "table": {
+                                    "type": "array",
+                                    "description": "2D array of rows for a data table (first row is header).",
+                                    "items": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                            },
+                            "required": ["heading"],
+                        },
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to automatically open the generated document in the desktop viewer (default: True).",
+                    },
+                },
+                "required": ["title", "sections"],
+            },
+        }
+
+
+class CreateDocxTool(BaseTool):
+    """Tool that generates formatted Word (.docx) documents with python-docx."""
+
+    name: str = "create_docx"
+    description: str = (
+        "Creates a formatted Word (.docx) document with executive cover page, bento metric callout "
+        "cards, styled headings, paragraphs, bullet lists, and tables. "
+        "Arguments: title (str), sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
+        "theme (optional: 'clean_light', 'dark_pro', 'colourful'), auto_open (optional bool, default True)."
+    )
+
+    def run(
+        self,
+        title: str,
+        sections: Any,
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        auto_open: bool = True,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Executes Word document creation.
+
+        Args:
+            title: Title of the document.
+            sections: List of section objects or JSON string.
+            theme: Theme name ('clean_light', 'dark_pro', 'colourful').
+            out_dir: Output directory (defaults to 'workspace').
+            auto_open: Whether to automatically launch the document in Microsoft Word.
+            **kwargs: Extra arguments.
+
+        Returns:
+            ToolResult containing the generated file path and execution summary.
+        """
+        try:
+            if not title or not str(title).strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Document title cannot be empty.",
+                )
+
+            norm_sections = _normalize_sections(sections)
+            docx_path = make_docx(
+                title=str(title).strip(),
+                sections=norm_sections,
+                theme=theme,
+                out_dir=out_dir,
+                auto_open=auto_open,
+            )
+
+            file_size = os.path.getsize(docx_path) if os.path.exists(docx_path) else 0
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": docx_path,
+                    "title": title,
+                    "theme": theme,
+                    "format": "docx",
+                    "bytes": file_size,
+                    "auto_opened": auto_open,
+                },
+                message=f"Word document '{title}' generated successfully ({file_size} bytes) at: {docx_path}",
+            )
+        except Exception as exc:
+            logger.exception("CreateDocxTool execution failed: %s", exc)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to generate Word document: {str(exc)}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns OpenAPI/Gemini schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "The title of the Word document.",
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "List of document sections with heading, text, bullets, metrics, or table.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "heading": {
+                                    "type": "string",
+                                    "description": "Section title.",
+                                },
+                                "text": {
+                                    "type": "string",
+                                    "description": "Body paragraph narrative for this section.",
+                                },
+                                "bullets": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Bullet points for this section.",
+                                },
+                                "metrics": {
+                                    "type": "array",
+                                    "description": "Key metric cards for Bento Grid (e.g. [{'label': 'Uptime', 'value': '99.9%'}]).",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "value": {"type": "string"},
+                                        },
+                                        "required": ["label", "value"],
+                                    },
+                                },
+                                "table": {
+                                    "type": "array",
+                                    "description": "2D array of rows for a data table (first row is header).",
+                                    "items": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                            },
+                            "required": ["heading"],
+                        },
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to automatically open the generated document in Microsoft Word (default: True).",
+                    },
+                },
+                "required": ["title", "sections"],
+            },
+        }
+
+
+class CreatePptxTool(BaseTool):
+    """Tool that generates widescreen 16:9 presentation slide decks with python-pptx."""
+
+    name: str = "create_pptx"
+    description: str = (
+        "Creates a 16:9 widescreen PowerPoint presentation deck (.pptx) with title slide, section "
+        "slides (max 6 bullets per slide, split automatically), bento metric card slides, tables, and thank you slide. "
+        "Arguments: title (str), sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
+        "theme (optional: 'clean_light', 'dark_pro', 'colourful'), auto_open (optional bool, default True)."
+    )
+
+    def run(
+        self,
+        title: str,
+        sections: Any,
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        auto_open: bool = True,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Executes presentation deck creation.
+
+        Args:
+            title: Presentation title.
+            sections: List of section objects or JSON string.
+            theme: Theme name ('clean_light', 'dark_pro', 'colourful').
+            out_dir: Output directory (defaults to 'workspace').
+            auto_open: Whether to automatically launch the document in PowerPoint.
+            **kwargs: Extra arguments.
+
+        Returns:
+            ToolResult containing the generated file path and execution summary.
+        """
+        try:
+            if not title or not str(title).strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Presentation title cannot be empty.",
+                )
+
+            norm_sections = _normalize_sections(sections)
+            pptx_path = make_pptx(
+                title=str(title).strip(),
+                sections=norm_sections,
+                theme=theme,
+                out_dir=out_dir,
+                auto_open=auto_open,
+            )
+
+            file_size = os.path.getsize(pptx_path) if os.path.exists(pptx_path) else 0
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": pptx_path,
+                    "title": title,
+                    "theme": theme,
+                    "format": "pptx",
+                    "bytes": file_size,
+                    "auto_opened": auto_open,
+                },
+                message=f"PowerPoint deck '{title}' generated successfully ({file_size} bytes) at: {pptx_path}",
+            )
+        except Exception as exc:
+            logger.exception("CreatePptxTool execution failed: %s", exc)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to generate PowerPoint deck: {str(exc)}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns OpenAPI/Gemini schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "The title of the PowerPoint presentation deck.",
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "List of slide sections with heading, text, bullets, metrics, or table.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "heading": {
+                                    "type": "string",
+                                    "description": "Slide section title.",
+                                },
+                                "text": {
+                                    "type": "string",
+                                    "description": "Introductory narrative on the slide.",
+                                },
+                                "bullets": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Slide bullet points (max 6 per slide; longer lists split automatically).",
+                                },
+                                "metrics": {
+                                    "type": "array",
+                                    "description": "Key metric cards for Bento Grid slide (e.g. [{'label': 'Speed', 'value': '< 300ms'}]).",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "value": {"type": "string"},
+                                        },
+                                        "required": ["label", "value"],
+                                    },
+                                },
+                                "table": {
+                                    "type": "array",
+                                    "description": "2D table to render on a dedicated data slide.",
+                                    "items": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                            },
+                            "required": ["heading"],
+                        },
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to automatically open the generated deck in PowerPoint (default: True).",
+                    },
+                },
+                "required": ["title", "sections"],
+            },
+        }
+
+
+# Convenience function wrappers
+def create_pdf(title: str, sections: Any, theme: str = "clean_light", auto_open: bool = True, **kwargs: Any) -> ToolResult:
+    """Convenience callable for CreatePdfTool."""
+    return CreatePdfTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
+
+
+def create_docx(title: str, sections: Any, theme: str = "clean_light", auto_open: bool = True, **kwargs: Any) -> ToolResult:
+    """Convenience callable for CreateDocxTool."""
+    return CreateDocxTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
+
+
+def create_pptx(title: str, sections: Any, theme: str = "clean_light", auto_open: bool = True, **kwargs: Any) -> ToolResult:
+    """Convenience callable for CreatePptxTool."""
+    return CreatePptxTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
+
+
+# Canonical exported tools list for Abhijit's registry auto-loader (Catch-Up Plan Section 4 & 7)
+TOOLS: List[BaseTool] = [
+    CreatePdfTool(),
+    CreateDocxTool(),
+    CreatePptxTool(),
+]
+
+# Auto-register all tools immediately into central registry
+try:
+    from tools.registry import register_tool
+
+    for tool_instance in TOOLS:
+        register_tool(tool_instance)
+except Exception as _reg_exc:
+    logger.debug("Registry auto-registration deferred: %s", _reg_exc)
