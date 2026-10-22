@@ -6,6 +6,7 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 
+from core.brain import JarvisBrain
 from core.service import get_brain, handle_text, reset_brain
 
 
@@ -16,24 +17,15 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         """Reset brain before each test."""
         reset_brain()
 
-    @patch("core.brain.genai.Client")
-    @patch("core.brain.load_api_key", return_value="fake-api-key")
+    @patch.object(JarvisBrain, "chat")
     async def test_handle_text_english_and_hindi(
-        self, mock_key: MagicMock, mock_client_cls: MagicMock
+        self, mock_chat: MagicMock
     ) -> None:
         """Verify handle_text processes English and Hindi inputs returning dict with 'text' and 'tool_steps'."""
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-        mock_chat = MagicMock()
-        mock_client.chats.create.return_value = mock_chat
-
-        # Mock responses
-        res_en = MagicMock()
-        res_en.text = "All systems are operational, sir."
-        res_hi = MagicMock()
-        res_hi.text = "नमस्ते, मैं आपकी क्या सहायता कर सकता हूँ?"
-
-        mock_chat.send_message.side_effect = [res_en, res_hi]
+        mock_chat.side_effect = [
+            "All systems are operational, sir.",
+            "नमस्ते, मैं आपकी क्या सहायता कर सकता हूँ?",
+        ]
 
         # 1. English directive
         result_en = await handle_text("Jarvis, report system status", source="cli")
