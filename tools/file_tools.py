@@ -4,6 +4,7 @@ Author: Abhijit (System & Automation Engineer)
 """
 
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional
 from tools.base import BaseTool, ToolResult
 from tools.safety import is_path_safe
@@ -28,8 +29,9 @@ class ReadFileTool(BaseTool):
     """Tool that safely reads text content from a file inside allowed directories."""
     name: str = "read_file"
     description: str = (
-        "Reads the contents of a text file. For security, only paths within workspace/ "
-        "or directories starting with temp_ are permitted. Access to system directories is blocked."
+        "Reads the contents of a text file. Permitted locations include workspace/, "
+        "user's Desktop ('Desktop/filename.ext'), Documents, Downloads, and temp_ directories. "
+        "Access to sensitive system roots is blocked."
     )
 
     def run(
@@ -63,15 +65,21 @@ class ReadFileTool(BaseTool):
 
             clean_path = target_path.strip()
 
+            # Normalize user home and Desktop references
+            expanded_path = os.path.expanduser(clean_path)
+            clean_lower = clean_path.replace("\\", "/").lower()
+            if clean_lower.startswith("desktop/") or clean_lower == "desktop":
+                expanded_path = str(Path.home() / clean_path)
+
             # Enforce path security isolation first
-            if not is_path_safe(clean_path):
+            if not is_path_safe(expanded_path):
                 return ToolResult(
                     success=False,
                     data=None,
                     message=f"Permission Denied: Access to '{clean_path}' is not allowed."
                 )
 
-            resolved_path = os.path.realpath(clean_path)
+            resolved_path = os.path.realpath(expanded_path)
             if not os.path.exists(resolved_path):
                 return ToolResult(
                     success=False,
@@ -141,8 +149,8 @@ class WriteFileTool(BaseTool):
     """Tool that safely writes text content to a file inside allowed directories."""
     name: str = "write_file"
     description: str = (
-        "Writes text content to a file. For security, only paths within workspace/ "
-        "or directories starting with temp_ are permitted. Access to system directories is blocked. "
+        "Writes text content to a file. Permitted locations include workspace/, "
+        "user's Desktop ('Desktop/filename.ext'), Documents, Downloads, and temp_ directories. "
         "Existing files will not be overwritten unless overwrite=True is explicitly specified."
     )
 
@@ -193,15 +201,21 @@ class WriteFileTool(BaseTool):
                     message="content must be a string."
                 )
 
+            # Normalize user home and Desktop references
+            expanded_path = os.path.expanduser(clean_path)
+            clean_lower = clean_path.replace("\\", "/").lower()
+            if clean_lower.startswith("desktop/") or clean_lower == "desktop":
+                expanded_path = str(Path.home() / clean_path)
+
             # Enforce path security isolation first
-            if not is_path_safe(clean_path):
+            if not is_path_safe(expanded_path):
                 return ToolResult(
                     success=False,
                     data=None,
                     message=f"Permission Denied: Access to '{clean_path}' is not allowed."
                 )
 
-            resolved_path = os.path.realpath(clean_path)
+            resolved_path = os.path.realpath(expanded_path)
 
             # Check if file exists and prevent overwrite unless explicitly requested
             if os.path.exists(resolved_path) and not overwrite:

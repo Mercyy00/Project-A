@@ -38,10 +38,14 @@ class GetSystemStatsTool(BaseTool):
 
             stats = {
                 "cpu_usage_percent": cpu_percent,
+                "cpu_percent": cpu_percent,
                 "ram_usage_percent": ram.percent,
+                "ram_used_pct": ram.percent,
                 "ram_used_gb": round(ram.used / (1024 ** 3), 2),
                 "ram_total_gb": round(ram.total / (1024 ** 3), 2),
-                "battery": battery_info
+                "battery": battery_info,
+                "battery_pct": battery.percent if battery else 100,
+                "battery_plugged": battery.power_plugged if battery else True,
             }
             return ToolResult(
                 success=True,
@@ -84,6 +88,7 @@ class OpenAppTool(BaseTool):
     # Primary Windows executable path mapping for supported shortcuts
     APP_MAPPING: Dict[str, str] = {
         "calc": r"C:\Windows\System32\calc.exe",
+        "calculator": r"C:\Windows\System32\calc.exe",
         "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         "cmd": r"C:\Windows\System32\cmd.exe",
         "code": os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
@@ -105,6 +110,10 @@ class OpenAppTool(BaseTool):
     # Alternate candidates for different Windows setups
     APP_CANDIDATES: Dict[str, List[str]] = {
         "calc": [
+            r"C:\Windows\System32\calc.exe",
+            os.path.expandvars(r"%SystemRoot%\System32\calc.exe"),
+        ],
+        "calculator": [
             r"C:\Windows\System32\calc.exe",
             os.path.expandvars(r"%SystemRoot%\System32\calc.exe"),
         ],
@@ -191,6 +200,64 @@ class OpenAppTool(BaseTool):
         ],
     }
 
+    # Extended natural language alias map for common app names
+    APP_ALIASES: Dict[str, str] = {
+        "calculator": "calc",
+        "calculator app": "calc",
+        "calc": "calc",
+        "vscode": "code",
+        "vs code": "code",
+        "visual studio code": "code",
+        "google chrome": "chrome",
+        "browser": "chrome",
+        "command prompt": "cmd",
+        "command": "cmd",
+        "ms word": "word",
+        "word": "word",
+        "microsoft word": "word",
+        "ms excel": "excel",
+        "excel": "excel",
+        "microsoft excel": "excel",
+        "ms paint": "paint",
+        "drawing": "paint",
+        "task manager": "taskmgr",
+        "taskmanager": "taskmgr",
+        "windows terminal": "terminal",
+        "file explorer": "explorer",
+        "files": "explorer",
+        "control panel": "settings",
+        "camera": "camera",
+    }
+
+    # Windows UWP protocol schemes for modern store apps
+    APP_PROTOCOLS: Dict[str, str] = {
+        "calc": "calculator:",
+        "calculator": "calculator:",
+        "settings": "ms-settings:",
+        "camera": "microsoft.windows.camera:",
+        "spotify": "spotify:",
+        "whatsapp": "whatsapp:",
+    }
+
+    @staticmethod
+    def _find_start_menu_shortcut(name: str) -> Optional[str]:
+        """Scans Windows Start Menu directories for matching .lnk application shortcuts."""
+        if os.name != "nt":
+            return None
+        dirs = [
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+            os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs"),
+        ]
+        target = name.lower()
+        for d in dirs:
+            if not os.path.exists(d):
+                continue
+            for root, _, files in os.walk(d):
+                for f in files:
+                    if f.lower().endswith(".lnk") and target in f.lower():
+                        return os.path.join(root, f)
+        return None
+
     # Common executable names mapped for PATH and Registry lookups
     APP_EXECUTABLES: Dict[str, List[str]] = {
         "calc": ["calc.exe"],
@@ -269,7 +336,7 @@ class OpenAppTool(BaseTool):
         """Launches the requested application in a non-blocking process.
 
         Args:
-            app_name: The shortcut name (e.g., 'chrome', 'cmd', 'explorer', 'notepad').
+            app_name: The shortcut or application name (e.g., 'calculator', 'chrome', 'cmd', 'notepad').
             **kwargs: Extra keyword arguments.
 
         Returns:
@@ -283,22 +350,58 @@ class OpenAppTool(BaseTool):
                     message="app_name must be a non-empty string."
                 )
 
-            key = app_name.strip().lower()
-            if key not in self.APP_MAPPING:
-                available = ", ".join(sorted(self.APP_MAPPING.keys()))
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message=f"Unknown application shortcut '{app_name}'. Supported shortcuts: {available}."
-                )
+            raw_key = app_name.strip().lower()
+            key = self.APP_ALIASES.get(raw_key, raw_key)
 
+            # 1. Try Windows UWP protocol if registered (e.g. calculator:, ms-settings:)
+            protocol = self.APP_PROTOCOLS.get(raw_key) or self.APP_PROTOCOLS.get(key)
+            if protocol and os.name == "nt":
+                try:
+                    os.startfile(protocol)
+                    return ToolResult(
+                        success=True,
+                        data={"app_name": raw_key, "protocol": protocol},
+                        message=f"Application '{app_name}' launched successfully via Windows protocol '{protocol}'."
+                    )
+                except Exception:
+                    pass
+
+            # 2. Resolve executable path
             executable_path = self._resolve_executable_path(key)
+
+            # 3. If not in predefined mapping, scan Windows Start Menu for installed .lnk shortcuts
+            if not executable_path and os.name == "nt":
+                executable_path = self._find_start_menu_shortcut(raw_key) or self._find_start_menu_shortcut(key)
+
             if not executable_path:
+                if key not in self.APP_MAPPING:
+                    available = ", ".join(sorted(self.APP_MAPPING.keys()))
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message=f"Unknown application shortcut '{app_name}'. Supported shortcuts: {available}."
+                    )
                 return ToolResult(
                     success=False,
                     data=None,
                     message=f"Executable path for '{app_name}' could not be resolved."
                 )
+
+            # 4. If Start Menu shortcut (.lnk), launch via Windows Shell
+            if executable_path.lower().endswith(".lnk") and os.name == "nt":
+                try:
+                    os.startfile(executable_path)
+                    return ToolResult(
+                        success=True,
+                        data={"app_name": raw_key, "shortcut_path": executable_path},
+                        message=f"Application '{app_name}' launched successfully from Start Menu."
+                    )
+                except Exception as exc:
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message=f"Failed to launch Start Menu shortcut for '{app_name}': {exc}"
+                    )
 
             if not os.path.exists(executable_path) and not shutil.which(executable_path):
                 return ToolResult(
@@ -599,28 +702,27 @@ class OpenWebsiteTool(BaseTool):
 
 
 class SearchWebTool(BaseTool):
-    """Tool that searches the web or YouTube using the default browser."""
+    """Tool that searches the web for real-time information and documentation."""
     name: str = "search_web"
-    description: str = (
-        "Searches the web or YouTube for a query using the default web browser. "
-        "Accepts a query string and an optional site target ('google' default, or 'youtube')."
-    )
+    description: str = "Searches the web for real-time information and documentation."
 
-    SEARCH_ENGINES: Dict[str, str] = {
-        "google": "https://www.google.com/search?q={query}",
-        "youtube": "https://www.youtube.com/results?search_query={query}",
-    }
-
-    def run(self, query: str, site: str = "google", **kwargs: Any) -> ToolResult:
-        """Performs a web or YouTube search and opens results in the browser.
+    def run(
+        self,
+        query: str,
+        site: str = "google",
+        max_results: int = 5,
+        **kwargs: Any
+    ) -> ToolResult:
+        """Searches Google or YouTube, opens browser, and retrieves live search snippets.
 
         Args:
-            query: The search term or keywords to search for.
-            site: Platform to search ('google' default, or 'youtube'). Defaults to 'google'.
+            query: The search term, topic, or technical question to search for.
+            site: Target platform, either 'google' or 'youtube' (default: 'google').
+            max_results: Maximum number of search results to retrieve (default: 5).
             **kwargs: Extra keyword arguments.
 
         Returns:
-            ToolResult: Execution outcome with search URL details.
+            ToolResult: Execution outcome with formatted search summary or error details.
         """
         try:
             if not query or not isinstance(query, str) or not query.strip():
@@ -630,41 +732,68 @@ class SearchWebTool(BaseTool):
                     message="query must be a non-empty string."
                 )
 
-            if not site or not isinstance(site, str) or not site.strip():
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="site must be a non-empty string ('google' or 'youtube')."
-                )
-
-            site_key = site.strip().lower()
-            if site_key not in self.SEARCH_ENGINES:
-                supported = ", ".join(sorted(self.SEARCH_ENGINES.keys()))
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message=f"Unsupported search site '{site}'. Supported sites: {supported}."
-                )
-
             clean_query = query.strip()
-            encoded_query = urllib.parse.quote_plus(clean_query)
-            search_url = self.SEARCH_ENGINES[site_key].format(query=encoded_query)
+            site_clean = (site or "google").strip().lower()
+            if site_clean not in ("google", "youtube"):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Unsupported search site '{site}'. Supported options: 'google', 'youtube'."
+                )
 
-            webbrowser.open(search_url)
+            encoded_query = urllib.parse.quote_plus(clean_query)
+            if site_clean == "youtube":
+                target_url = f"https://www.youtube.com/results?search_query={encoded_query}"
+            else:
+                target_url = f"https://www.google.com/search?q={encoded_query}"
+
+            # Open browser safely
+            try:
+                import webbrowser
+                webbrowser.open(target_url)
+            except Exception as browser_err:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Failed to execute search: {str(browser_err)}"
+                )
+
+            # Retrieve real search snippets via DuckDuckGo
+            results: List[Dict[str, Any]] = []
+            summary = ""
+            try:
+                try:
+                    from ddgs import DDGS
+                except ImportError:
+                    from duckduckgo_search import DDGS
+                effective_query = f"site:youtube.com {clean_query}" if site_clean == "youtube" else clean_query
+                results = list(DDGS().text(effective_query, max_results=max_results))
+                if results:
+                    summary = "\n\n".join([f"**{r.get('title', '')}**\n{r.get('body', '')}\n{r.get('href', '')}" for r in results])
+            except Exception:
+                pass
+
+            data_payload = {
+                "url": target_url,
+                "site": site_clean,
+                "summary": summary,
+                "results": results,
+            }
+
+            msg = f"Found {len(results)} search results." if results else f"Opened search for '{clean_query}' on {site_clean}."
+            if summary:
+                msg = f"{msg}\n\n{summary}"
+
             return ToolResult(
                 success=True,
-                data={
-                    "query": clean_query,
-                    "site": site_key,
-                    "url": search_url
-                },
-                message=f"Search for '{clean_query}' on {site_key} opened successfully."
+                data=data_payload,
+                message=msg
             )
-        except Exception as e:
+        except Exception as exc:
             return ToolResult(
                 success=False,
                 data=None,
-                message=f"Failed to execute search for '{query}': {str(e)}"
+                message=f"Search failed: {str(exc)}"
             )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -685,12 +814,413 @@ class SearchWebTool(BaseTool):
                     },
                     "site": {
                         "type": "string",
-                        "description": "The search platform to use ('google' or 'youtube'). Defaults to 'google'.",
+                        "description": "Search platform ('google' or 'youtube').",
                         "enum": ["google", "youtube"],
                         "default": "google"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of search results to retrieve (default: 5).",
+                        "default": 5
                     }
                 },
                 "required": ["query"]
             }
         }
 
+
+
+class ClipboardReadTool(BaseTool):
+    """Tool that retrieves the current text content from the system clipboard."""
+    name: str = "clipboard_read"
+    description: str = (
+        "Reads and returns the current text content stored in the system clipboard. "
+        "Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Reads text from the system clipboard.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: The clipboard text content.
+        """
+        try:
+            import pyperclip
+            text = pyperclip.paste()
+            return ToolResult(
+                success=True,
+                data={"text": text, "length": len(text) if text else 0},
+                message="Clipboard content read successfully." if text else "Clipboard is currently empty."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to read clipboard: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+
+
+class ClipboardWriteTool(BaseTool):
+    """Tool that copies text into the system clipboard."""
+    name: str = "clipboard_write"
+    description: str = (
+        "Copies the given text into the system clipboard so it can be pasted elsewhere."
+    )
+
+    def run(self, text: str, **kwargs: Any) -> ToolResult:
+        """Copies text to the system clipboard.
+
+        Args:
+            text: The text string to copy into the clipboard.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome confirming clipboard write.
+        """
+        try:
+            if text is None or not isinstance(text, str):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="text must be a string."
+                )
+
+            import pyperclip
+            pyperclip.copy(text)
+            return ToolResult(
+                success=True,
+                data={"length": len(text)},
+                message=f"Copied {len(text)} characters to clipboard."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to copy to clipboard: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text string to copy into the clipboard."
+                    }
+                },
+                "required": ["text"]
+            }
+        }
+
+
+class SetVolumeTool(BaseTool):
+    """Tool that adjusts the Windows master system audio volume."""
+    name: str = "set_volume"
+    description: str = (
+        "Sets the Windows master audio volume to a specified percentage between 0 and 100."
+    )
+
+    def run(self, level: int, **kwargs: Any) -> ToolResult:
+        """Sets the system volume.
+
+        Args:
+            level: Target volume percentage between 0 and 100.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with adjusted volume level.
+        """
+        try:
+            if level is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="level parameter is required."
+                )
+
+            try:
+                vol_int = int(level)
+            except (ValueError, TypeError):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Volume level must be an integer between 0 and 100, got '{level}'."
+                )
+
+            if vol_int < 0 or vol_int > 100:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Volume level {vol_int} is out of bounds. Must be between 0 and 100."
+                )
+
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            from comtypes import CLSCTX_ALL
+            from ctypes import cast, POINTER
+
+            device = None
+            try:
+                device = AudioUtilities.GetSpeakers()
+            except AttributeError:
+                device = AudioUtilities.get_speakers()
+
+            if not device:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="No default audio playback device found."
+                )
+
+            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+
+            scalar_val = float(vol_int) / 100.0
+            volume.SetMasterVolumeLevelScalar(scalar_val, None)
+
+            current_scalar = volume.GetMasterVolumeLevelScalar()
+            current_pct = round(current_scalar * 100)
+
+            return ToolResult(
+                success=True,
+                data={"volume_level": current_pct},
+                message=f"System volume set to {current_pct}%."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to set volume: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "Volume percentage from 0 (mute) to 100 (maximum).",
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                },
+                "required": ["level"]
+            }
+        }
+
+
+class SetBrightnessTool(BaseTool):
+    """Tool that adjusts the Windows screen display brightness."""
+    name: str = "set_brightness"
+    description: str = (
+        "Sets the display screen brightness to a percentage between 0 and 100."
+    )
+
+    def run(self, level: int, **kwargs: Any) -> ToolResult:
+        """Sets the screen brightness.
+
+        Args:
+            level: Target brightness percentage between 0 and 100.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with adjusted brightness level.
+        """
+        try:
+            if level is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="level parameter is required."
+                )
+
+            try:
+                bright_int = int(level)
+            except (ValueError, TypeError):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Brightness level must be an integer between 0 and 100, got '{level}'."
+                )
+
+            if bright_int < 0 or bright_int > 100:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Brightness level {bright_int} is out of bounds. Must be between 0 and 100."
+                )
+
+            import screen_brightness_control as sbc
+            sbc.set_brightness(bright_int)
+            curr = sbc.get_brightness()
+            current_val = curr[0] if isinstance(curr, list) and curr else bright_int
+
+            return ToolResult(
+                success=True,
+                data={"brightness_level": current_val},
+                message=f"Screen brightness set to {current_val}%."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to set screen brightness: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "Brightness percentage from 0 to 100.",
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                },
+                "required": ["level"]
+            }
+        }
+
+
+class LockScreenTool(BaseTool):
+    """Tool that locks the Windows workstation immediately."""
+    name: str = "lock_screen"
+    description: str = (
+        "Immediately locks the Windows workstation screen using Windows API. Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Locks the Windows workstation screen.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Result indicating lock operation status.
+        """
+        try:
+            import ctypes
+            res = ctypes.windll.user32.LockWorkStation()
+            if res != 0:
+                return ToolResult(
+                    success=True,
+                    data={"locked": True},
+                    message="Windows workstation screen locked successfully."
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    data={"locked": False},
+                    message="LockWorkStation call failed."
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to lock workstation screen: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+
+
+class BatteryTool(BaseTool):
+    """Tool that inspects laptop battery charge and power connection status."""
+    name: str = "battery"
+    description: str = (
+        "Retrieves battery charge percentage, charging/plugged-in status, and remaining time. "
+        "Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Inspects system battery telemetry.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Battery telemetry details.
+        """
+        try:
+            battery = psutil.sensors_battery()
+            if battery is None:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "percent": None,
+                        "power_plugged": True,
+                        "is_desktop": True,
+                        "secsleft": None
+                    },
+                    message="No battery detected. Running on AC wall power (Desktop PC)."
+                )
+
+            status_str = "Plugged in (Charging)" if battery.power_plugged else "On Battery"
+            secs = battery.secsleft if battery.secsleft != psutil.POWER_TIME_UNLIMITED else None
+            mins_left = round(secs / 60) if secs is not None and secs > 0 else None
+
+            data = {
+                "percent": battery.percent,
+                "power_plugged": battery.power_plugged,
+                "status": status_str,
+                "minutes_left": mins_left
+            }
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Battery level is {battery.percent}% ({status_str})."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to inspect battery status: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }

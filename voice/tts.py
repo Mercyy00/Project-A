@@ -339,3 +339,4 @@ def speak_to_file(text: str, lang: str | None = None) -> str:
 async def speak_to_file_async(text: str, lang: str | None = None) -> str:
     """Module-level convenience function to synthesize to audio file asynchronously."""
     return await get_speaker().speak_to_file_async(text, lang)
+

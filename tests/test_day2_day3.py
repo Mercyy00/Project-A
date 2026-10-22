@@ -115,8 +115,12 @@ def test_websocket_channel() -> None:
             assert msg1["type"] == "status"
             assert msg1["status"] == "thinking"
 
-            # Receive response
+            # Receive response (may be preceded by tool_steps if tools executed)
             msg2 = ws.receive_json()
+            if msg2.get("type") == "tool_steps":
+                assert "steps" in msg2
+                msg2 = ws.receive_json()
+
             assert msg2["type"] == "response"
             assert "text" in msg2
             assert len(msg2["text"]) > 0
