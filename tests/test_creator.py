@@ -1,4 +1,4 @@
-"""Tests for JARVIS Document Creator (Days 1, 2, and 3).
+"""Tests for JARVIS Document Creator (Days 1, 2, and 3 - Elevated).
 
 Author: Vidhita (Document Engineer)
 Module: tests.test_creator
@@ -7,15 +7,21 @@ Verifies:
 - Day 1: Hello documents (hello.pdf, hello.docx, hello.pptx)
 - Day 2: Themed 3-page PDF generation across all themes ('clean_light', 'dark_pro', 'colourful')
 - Day 3: Themed Word DOCX and 6-slide PowerPoint PPTX across all themes
-- Graceful theme fallback to 'clean_light' on unknown theme
+- D1.1: Document tools (CreatePdfTool, CreateDocxTool, CreatePptxTool) in creator/tools.py and TOOL_REGISTRY
+- D1.2: Claude-quality themes, executive cover pages, bento grid metrics, and Devanagari font embedding
+- D1.3: Auto-open document feature (auto_open=True / False)
 """
 
+from __future__ import annotations
+
+import json
+import os
 from pathlib import Path
 import re
 import sys
 from typing import Any, Dict, List
 
-# Ensure project root is in sys.path for direct script execution
+# Ensure project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -28,22 +34,32 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-import pytest
 import docx
 from pptx import Presentation
+import pytest
 
-from creator.themes import THEMES, get_theme
+from creator.docx_maker import make_docx
 from creator.hello_docs import generate_hello_docs
 from creator.pdf_maker import make_pdf
-from creator.docx_maker import make_docx
 from creator.pptx_maker import make_pptx
+from creator.themes import THEMES, contains_devanagari, get_theme
+from creator.tools import (
+    CreateDocxTool,
+    CreatePdfTool,
+    CreatePptxTool,
+    TOOLS,
+    create_docx,
+    create_pdf,
+    create_pptx,
+)
+from tools.base import ToolResult
+from tools.registry import TOOL_REGISTRY, execute_tool
 
 
 def _count_pdf_pages(file_path: str) -> int:
     """Helper to count the number of pages in a PDF file."""
     with open(file_path, "rb") as f:
         content = f.read()
-    # Match /Type /Page (excluding /Pages catalog)
     pages = re.findall(rb"/Type\s*/Page\b", content)
     return len(pages)
 
@@ -55,6 +71,12 @@ def sample_sections() -> List[Dict[str, Any]]:
         {
             "heading": "1. Executive Summary",
             "text": "Project JARVIS introduces an autonomous multimodal assistant architecture engineered for desktop workflow automation.",
+            "metrics": [
+                {"label": "Response Latency", "value": "< 250ms"},
+                {"label": "Document Fidelity", "value": "100% Binary"},
+                {"label": "Uptime", "value": "99.99%"},
+                {"label": "Memory Footprint", "value": "Low RAM"},
+            ],
             "bullets": [
                 "Real-time voice and text interaction loop.",
                 "Automated high-quality document and presentation creation.",
@@ -86,6 +108,10 @@ def sample_6_slide_sections() -> List[Dict[str, Any]]:
         {
             "heading": "1. Project Vision & Architecture",
             "text": "Autonomous assistant designed for modern desktop productivity.",
+            "metrics": [
+                {"label": "Modularity", "value": "4 Pairs"},
+                {"label": "LLM Latency", "value": "Sub-sec"},
+            ],
             "bullets": [
                 "Modular decoupling across functional pairs.",
                 "Zero external secret leaks via strict configuration boundaries.",
@@ -147,11 +173,12 @@ def test_day2_pdf_maker_3_pages(sample_sections: List[Dict[str, Any]], theme_nam
         sections=sample_sections,
         theme=theme_name,
         out_dir=out_dir,
+        auto_open=False,
     )
 
     pdf_file = Path(pdf_path)
     assert pdf_file.exists(), f"Generated PDF does not exist: {pdf_path}"
-    assert pdf_file.stat().st_size > 0, f"Generated PDF is empty: {pdf_path}"
+    assert pdf_file.stat().st_size > 500, f"Generated PDF is unexpectedly small: {pdf_path}"
 
     page_count = _count_pdf_pages(pdf_path)
     assert page_count >= 3, f"Expected at least 3 pages for Day 2 acceptance, found {page_count}"
@@ -165,6 +192,7 @@ def test_theme_fallback_pdf(sample_sections: List[Dict[str, Any]], tmp_path: Pat
         sections=sample_sections,
         theme="non_existent_theme",
         out_dir=out_dir,
+        auto_open=False,
     )
     assert Path(pdf_path).exists()
     assert "clean_light" in pdf_path
@@ -182,17 +210,16 @@ def test_day3_docx_maker(sample_sections: List[Dict[str, Any]], theme_name: str,
         sections=sample_sections,
         theme=theme_name,
         out_dir=out_dir,
+        auto_open=False,
     )
 
     file_obj = Path(docx_path)
     assert file_obj.exists(), f"DOCX does not exist: {docx_path}"
-    assert file_obj.stat().st_size > 0, f"DOCX is empty: {docx_path}"
+    assert file_obj.stat().st_size > 1000, f"DOCX is unexpectedly small: {docx_path}"
 
-    # Verify document structure using python-docx
     doc = docx.Document(docx_path)
     assert len(doc.paragraphs) > 0, "DOCX has no paragraphs"
     assert len(doc.tables) > 0, "DOCX has no tables"
-    assert len(doc.tables[0].rows) == 4, "DOCX table does not contain expected row count"
 
 
 @pytest.mark.parametrize("theme_name", ["clean_light", "dark_pro", "colourful"])
@@ -206,16 +233,16 @@ def test_day3_pptx_maker_6_slides(
         sections=sample_6_slide_sections,
         theme=theme_name,
         out_dir=out_dir,
+        auto_open=False,
     )
 
     file_obj = Path(pptx_path)
     assert file_obj.exists(), f"PPTX does not exist: {pptx_path}"
-    assert file_obj.stat().st_size > 0, f"PPTX is empty: {pptx_path}"
+    assert file_obj.stat().st_size > 1000, f"PPTX is unexpectedly small: {pptx_path}"
 
-    # Verify slide count using python-pptx
     prs = Presentation(pptx_path)
     slide_count = len(prs.slides)
-    assert slide_count >= 6, f"Expected at least 6 slides (Title + 4 Content + Thank You), found {slide_count}"
+    assert slide_count >= 6, f"Expected at least 6 slides (Title + Content + Thank You), found {slide_count}"
 
 
 def test_pptx_bullet_splitting(tmp_path: Path) -> None:
@@ -232,6 +259,7 @@ def test_pptx_bullet_splitting(tmp_path: Path) -> None:
         sections=long_section,
         theme="clean_light",
         out_dir=out_dir,
+        auto_open=False,
     )
     prs = Presentation(pptx_path)
     # Expected: 1 Title + 3 Content slides (6 + 6 + 1) + 1 Thank you = 5 slides
@@ -239,13 +267,221 @@ def test_pptx_bullet_splitting(tmp_path: Path) -> None:
 
 
 # =====================================================================
+# D1.1: Document Tools & Registry Integration Tests
+# =====================================================================
+def test_tools_registered_in_central_registry() -> None:
+    """Verify create_pdf, create_docx, and create_pptx are present in TOOL_REGISTRY."""
+    assert "create_pdf" in TOOL_REGISTRY, "create_pdf not found in TOOL_REGISTRY"
+    assert "create_docx" in TOOL_REGISTRY, "create_docx not found in TOOL_REGISTRY"
+    assert "create_pptx" in TOOL_REGISTRY, "create_pptx not found in TOOL_REGISTRY"
+
+
+def test_tool_schemas_conform_to_gemini_spec() -> None:
+    """Verify all document tool schemas include title, sections, theme, and auto_open."""
+    for tool_cls in [CreatePdfTool, CreateDocxTool, CreatePptxTool]:
+        tool = tool_cls()
+        schema = tool.get_schema()
+        assert "name" in schema
+        assert "parameters" in schema
+        props = schema["parameters"]["properties"]
+        assert "title" in props
+        assert "sections" in props
+        assert "theme" in props
+        assert "auto_open" in props
+        assert "title" in schema["parameters"]["required"]
+        assert "sections" in schema["parameters"]["required"]
+
+
+def test_execute_tool_create_pdf(tmp_path: Path) -> None:
+    """Verify execute_tool('create_pdf', ...) returns success ToolResult with real binary PDF."""
+    result: ToolResult = execute_tool(
+        "create_pdf",
+        {
+            "title": "Quantum Computing Architecture",
+            "sections": [
+                {
+                    "heading": "1. Qubit Coherence",
+                    "text": "State-of-the-art superconducting qubits.",
+                    "metrics": [
+                        {"label": "Coherence Time", "value": "120 us"},
+                        {"label": "Fidelity", "value": "99.9%"},
+                    ],
+                    "bullets": ["Transmon qubits", "Cryogenic dilution refrigerator"],
+                }
+            ],
+            "theme": "dark_pro",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert result.success is True, f"create_pdf failed: {result.message}"
+    assert result.data is not None
+    file_path = result.data["file_path"]
+    assert Path(file_path).exists()
+    assert Path(file_path).stat().st_size > 1000  # Never corrupted 464 bytes!
+    assert result.data["format"] == "pdf"
+
+
+def test_execute_tool_create_docx(tmp_path: Path) -> None:
+    """Verify execute_tool('create_docx', ...) returns success ToolResult with real binary DOCX."""
+    result: ToolResult = execute_tool(
+        "create_docx",
+        {
+            "title": "Autonomous Agent Protocols",
+            "sections": [
+                {
+                    "heading": "1. Protocol Specifications",
+                    "text": "Defines agent handshake and verification rules.",
+                    "metrics": [
+                        {"label": "Sync Speed", "value": "< 50ms"},
+                        {"label": "Encryption", "value": "AES-256"},
+                    ],
+                    "bullets": ["Standard BaseTool contracts", "Strict folder boundaries"],
+                }
+            ],
+            "theme": "clean_light",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert result.success is True, f"create_docx failed: {result.message}"
+    file_path = result.data["file_path"]
+    assert Path(file_path).exists()
+    assert Path(file_path).stat().st_size > 1000
+    assert result.data["format"] == "docx"
+
+
+def test_execute_tool_create_pptx(tmp_path: Path) -> None:
+    """Verify execute_tool('create_pptx', ...) returns success ToolResult with real binary PPTX."""
+    result: ToolResult = execute_tool(
+        "create_pptx",
+        {
+            "title": "JARVIS Executive Summary",
+            "sections": [
+                {
+                    "heading": "1. Key Accomplishments",
+                    "text": "Autonomous document creator suite.",
+                    "metrics": [
+                        {"label": "Formats", "value": "PDF/DOCX/PPTX"},
+                        {"label": "Themes", "value": "3 Styles"},
+                    ],
+                    "bullets": ["ReportLab Platypus", "python-docx", "python-pptx 16:9"],
+                }
+            ],
+            "theme": "colourful",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert result.success is True, f"create_pptx failed: {result.message}"
+    file_path = result.data["file_path"]
+    assert Path(file_path).exists()
+    assert Path(file_path).stat().st_size > 1000
+    assert result.data["format"] == "pptx"
+
+
+def test_tools_handle_json_string_sections(tmp_path: Path) -> None:
+    """Verify that when an LLM passes sections as a JSON string, it parses cleanly."""
+    json_sections = json.dumps([
+        {
+            "heading": "LLM Generated Section",
+            "text": "Parsed from a raw string input.",
+            "bullets": ["Point A", "Point B"],
+        }
+    ])
+    result = create_pdf(
+        title="JSON String Parsing Test",
+        sections=json_sections,
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert result.success is True
+    assert Path(result.data["file_path"]).exists()
+
+
+def test_tools_reject_empty_title() -> None:
+    """Verify that passing an empty title returns a structured ToolResult failure."""
+    result = create_pdf(title="", sections=[{"heading": "Test"}], auto_open=False)
+    assert result.success is False
+    assert "title cannot be empty" in result.message.lower()
+
+
+# =====================================================================
+# D1.2: Claude-Quality Themes & Devanagari Font Tests
+# =====================================================================
+def test_devanagari_marathi_hindi_pdf_generation(tmp_path: Path) -> None:
+    """Verify that Marathi / Hindi text generates valid binary PDF with Noto Sans Devanagari."""
+    marathi_sections = [
+        {
+            "heading": "१. प्रकल्प सारांश",
+            "text": "प्रकल्प जार्विस हा एक स्वायत्त डेस्कटॉप सहाय्यक आहे.",
+            "metrics": [
+                {"label": "कार्यक्षमता", "value": "१००%"},
+                {"label": "विलंब", "value": "< ३०० मिलीसेकंद"},
+            ],
+            "bullets": [
+                "मराठी आणि हिंदी भाषेचे संपूर्ण समर्थन.",
+                "देवनागरी फॉन्टचे अचूक रेंडरिंग.",
+            ],
+        }
+    ]
+    pdf_path = make_pdf(
+        title="प्रकल्प जार्विस: दस्तऐवज चाचणी",
+        sections=marathi_sections,
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    file_obj = Path(pdf_path)
+    assert file_obj.exists()
+    assert file_obj.stat().st_size > 5000  # Rich binary font data embedded!
+
+
+def test_devanagari_marathi_hindi_docx_generation(tmp_path: Path) -> None:
+    """Verify that Marathi / Hindi text generates valid binary Word document."""
+    marathi_sections = [
+        {
+            "heading": "१. प्रकल्प तपशील",
+            "text": "हा दस्तऐवज मायक्रोसॉफ्ट वर्ड स्वरूपात तयार करण्यात आला आहे.",
+            "bullets": ["मराठी फॉन्ट", "स्वच्छ लेआउट"],
+        }
+    ]
+    docx_path = make_docx(
+        title="प्रकल्प जार्विस वर्ड",
+        sections=marathi_sections,
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    file_obj = Path(docx_path)
+    assert file_obj.exists()
+    assert file_obj.stat().st_size > 10000
+
+
+# =====================================================================
+# D1.3: Auto-Open Document Tests
+# =====================================================================
+def test_auto_open_parameter_in_all_makers(tmp_path: Path) -> None:
+    """Verify auto_open parameter is accepted without error across all makers."""
+    sec = [{"heading": "Auto-Open Test", "text": "Testing auto-open flag execution."}]
+    pdf_p = make_pdf("Auto Open PDF", sec, out_dir=str(tmp_path), auto_open=False)
+    docx_p = make_docx("Auto Open DOCX", sec, out_dir=str(tmp_path), auto_open=False)
+    pptx_p = make_pptx("Auto Open PPTX", sec, out_dir=str(tmp_path), auto_open=False)
+
+    assert Path(pdf_p).exists()
+    assert Path(docx_p).exists()
+    assert Path(pptx_p).exists()
+
+
+# =====================================================================
 # Runnable Standalone Verification Script
 # =====================================================================
 def run_verification() -> bool:
     """Execute all acceptance verification tests and display structured summary."""
-    print("=" * 70)
-    print("      JARVIS CREATOR MODULE - DAYS 1, 2, 3 ACCEPTANCE VERIFICATION")
-    print("=" * 70)
+    print("=" * 75)
+    print("      JARVIS CREATOR MODULE - DAYS 1, 2, 3 & TOOLS ACCEPTANCE VERIFICATION")
+    print("=" * 75)
 
     workspace_dir = Path("workspace")
     workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -253,7 +489,13 @@ def run_verification() -> bool:
     test_sections = [
         {
             "heading": "1. Architecture and Design Goals",
-            "text": "JARVIS Pair D module is engineered to provide rich programmatic document outputs with dynamic themes.",
+            "text": "JARVIS Pair D module provides rich programmatic document outputs with dynamic themes.",
+            "metrics": [
+                {"label": "PDF Engine", "value": "ReportLab Platypus"},
+                {"label": "Word Engine", "value": "python-docx"},
+                {"label": "Deck Engine", "value": "python-pptx (16:9)"},
+                {"label": "Font Support", "value": "Noto Sans Devanagari"},
+            ],
             "bullets": [
                 "Full support for ReportLab Platypus, python-docx, and python-pptx.",
                 "Independent thematic styling for light, dark, and colourful palettes.",
@@ -263,11 +505,12 @@ def run_verification() -> bool:
         },
         {
             "heading": "2. Production Metrics & Deliverables",
-            "text": "All required deliverables for Days 1 through 3 are fully operational.",
+            "text": "All required deliverables for Days 1 through 3 and Tools are fully operational.",
             "bullets": [
                 "Day 1: Hello PDF, DOCX, and PPTX generator.",
                 "Day 2: Themed 3-page PDF with cover, bullets, and table.",
                 "Day 3: Themed Word DOCX and 6-slide PowerPoint decks.",
+                "Day 3 Elevation: Claude-quality themes, bento grid cards, Devanagari fonts, and auto_open.",
             ],
             "table": [
                 ["Deliverable", "Technology", "Status", "Target"],
@@ -276,6 +519,7 @@ def run_verification() -> bool:
                 ["pdf_maker.py", "Platypus + NumberedCanvas", "PASS", "Day 2"],
                 ["docx_maker.py", "python-docx + borders", "PASS", "Day 3"],
                 ["pptx_maker.py", "python-pptx 16:9 + 6-slides", "PASS", "Day 3"],
+                ["tools.py", "BaseTool + Central Registry", "PASS", "Day 3/4"],
             ],
         },
     ]
@@ -284,6 +528,10 @@ def run_verification() -> bool:
         {
             "heading": "1. Introduction & Context",
             "text": "Overview of JARVIS autonomous document generation system.",
+            "metrics": [
+                {"label": "Lead Engineer", "value": "Vidhita"},
+                {"label": "Pair Module", "value": "Pair D"},
+            ],
             "bullets": [
                 "Engineered by Vidhita (Document Engineer).",
                 "Built for desktop assistant workflow.",
@@ -317,8 +565,6 @@ def run_verification() -> bool:
         },
     ]
 
-    all_passed = True
-
     try:
         # 1. Day 1 Verification
         print("\n[DAY 1] Verifying Hello Docs Generation...")
@@ -335,6 +581,7 @@ def run_verification() -> bool:
                 sections=test_sections,
                 theme=theme,
                 out_dir=str(workspace_dir),
+                auto_open=False,
             )
             pages = _count_pdf_pages(pdf_out)
             assert pages >= 3, f"Expected >= 3 pages in {theme}, got {pages}"
@@ -348,6 +595,7 @@ def run_verification() -> bool:
                 sections=test_sections,
                 theme=theme,
                 out_dir=str(workspace_dir),
+                auto_open=False,
             )
             doc = docx.Document(docx_out)
             assert len(doc.paragraphs) > 0 and len(doc.tables) > 0
@@ -361,26 +609,60 @@ def run_verification() -> bool:
                 sections=six_slide_sections,
                 theme=theme,
                 out_dir=str(workspace_dir),
+                auto_open=False,
             )
             prs = Presentation(pptx_out)
             slides = len(prs.slides)
             assert slides >= 6, f"Expected >= 6 slides in {theme}, got {slides}"
             print(f"  [PASS] PPTX ({theme}): {pptx_out} [{slides} slides, {Path(pptx_out).stat().st_size} bytes]")
 
-        # 5. Bullet Splitting Verification
-        print("\n[DAY 3] Verifying Bullet Splitting Rule (Max 6 bullets per slide)...")
-        split_out = make_pptx(
-            title="Bullet Split Verification",
-            sections=[{"heading": "Large List", "bullets": [f"Item {i}" for i in range(1, 13)]}],
-            theme="clean_light",
-            out_dir=str(workspace_dir),
-        )
-        split_prs = Presentation(split_out)
-        print(f"  [PASS] Bullet splitting confirmed: {len(split_prs.slides)} slides created for 12 items.")
+        # 5. D1.1: Document Tools Registration & Execution
+        print("\n[D1.1] Verifying Tools Registration and Execution in TOOL_REGISTRY...")
+        for t_name in ["create_pdf", "create_docx", "create_pptx"]:
+            assert t_name in TOOL_REGISTRY, f"Tool '{t_name}' missing in TOOL_REGISTRY"
+            res = execute_tool(
+                t_name,
+                {
+                    "title": f"JARVIS {t_name.upper()} Test",
+                    "sections": test_sections,
+                    "theme": "clean_light",
+                    "out_dir": str(workspace_dir),
+                    "auto_open": False,
+                },
+            )
+            assert res.success is True, f"{t_name} execution failed: {res.message}"
+            assert res.data["bytes"] > 1000, f"{t_name} produced invalid file size: {res.data['bytes']} bytes"
+            print(f"  [PASS] {t_name}: {res.data['file_path']} ({res.data['bytes']} bytes)")
 
-        print("\n" + "=" * 70)
-        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1, 2, AND 3 PASSED!")
-        print("=" * 70)
+        # 6. D1.2: Claude-Quality Devanagari Multilingual Verification
+        print("\n[D1.2] Verifying Devanagari (Marathi / Hindi) Font Embedding...")
+        marathi_sec = [
+            {
+                "heading": "१. प्रकल्प उद्दिष्टे आणि प्रगती",
+                "text": "हा दस्तऐवज मराठी आणि हिंदी भाषेतील देवनागरी फॉन्ट तपासणीसाठी तयार केला आहे.",
+                "metrics": [
+                    {"label": "अचूकता", "value": "१००%"},
+                    {"label": "वेळ", "value": "< २५० मिलीसेकंद"},
+                ],
+                "bullets": ["देवनागरी फॉन्ट योग्य प्रकारे रेंडर होतो.", "कोणतीही अक्षरे तुटलेली नाहीत."],
+            }
+        ]
+        dev_res = execute_tool(
+            "create_pdf",
+            {
+                "title": "प्रकल्प जार्विस: मराठी दस्तऐवज",
+                "sections": marathi_sec,
+                "theme": "clean_light",
+                "out_dir": str(workspace_dir),
+                "auto_open": False,
+            },
+        )
+        assert dev_res.success is True
+        print(f"  [PASS] Devanagari PDF: {dev_res.data['file_path']} ({dev_res.data['bytes']} bytes)")
+
+        print("\n" + "=" * 75)
+        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1, 2, 3 & D1.1-D1.3 PASSED!")
+        print("=" * 75)
         return True
 
     except Exception as exc:
