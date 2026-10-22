@@ -2,6 +2,7 @@
 
 Captures desktop screen using mss, optimizes size for AI models,
 provides Gemini multimodal screen understanding, error explanation, UI element location,
+autonomous look-decide-act loop, code explanation/debugging, speed optimizations,
 and respects privacy switches.
 """
 from __future__ import annotations
@@ -13,7 +14,8 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from dotenv import load_dotenv
 from google import genai
@@ -36,6 +38,10 @@ if os.name == "nt":
 
 TEMP_VISION_DIR = Path("temp_vision")
 TEMP_VISION_DIR.mkdir(parents=True, exist_ok=True)
+
+# Day 7: Speed optimization - screenshot cache for follow-up queries (< 2 seconds old)
+_LAST_SCREENSHOT_PATH: Optional[str] = None
+_LAST_SCREENSHOT_TIME: float = 0.0
 
 
 def _ensure_desktop_access() -> None:
@@ -123,14 +129,17 @@ def parse_region_hint(
 def take_screenshot(
     region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
     region_hint: Optional[str] = None,
+    active_window: bool = False,
 ) -> str:
-    """Capture a screenshot of the primary monitor or a specified region.
+    """Capture a screenshot of the primary monitor, active window, or a specified region.
 
     Args:
         region: Optional (left, top, width, height) bounding box sequence.
                 If None, captures the full primary monitor.
         region_hint: Optional descriptive string ('top half', 'bottom half',
                      'left half', 'right half') that crops accordingly.
+        active_window: If True and region is None, crops to active foreground window
+                       using pygetwindow (with fallback to full screen).
 
     Returns:
         String path to the saved JPEG screenshot inside temp_vision/.
@@ -140,12 +149,24 @@ def take_screenshot(
         ValueError: If region coordinates or region_hint are invalid.
         RuntimeError: If screen capture or image processing fails.
     """
+    global _LAST_SCREENSHOT_PATH, _LAST_SCREENSHOT_TIME
+
     if os.getenv("VISION_PAUSED", "0") == "1":
         raise PermissionError(
             "Screen capture is currently paused by user privacy mode (VISION_PAUSED=1)."
         )
 
     _ensure_desktop_access()
+
+    # Day 7: Active window cropping with fallback to full display
+    if active_window and region is None and region_hint is None:
+        try:
+            import pygetwindow as gw
+            win = gw.getActiveWindow()
+            if win and win.width > 0 and win.height > 0:
+                region = (win.left, win.top, win.width, win.height)
+        except Exception as win_err:
+            logger.debug("Could not crop to active window, falling back to full screen: %s", win_err)
 
     try:
         with mss.MSS() as sct:
@@ -197,6 +218,10 @@ def take_screenshot(
             # Save with 70% JPEG quality
             img.save(filepath, format="JPEG", quality=70, optimize=True)
 
+            # Update cache
+            _LAST_SCREENSHOT_PATH = str(filepath)
+            _LAST_SCREENSHOT_TIME = time.time()
+
             # Keep only the 10 newest files in temp_vision/
             clean_temp_vision(keep_newest=10)
 
@@ -214,6 +239,8 @@ def describe_screen(
     screenshot_path: Optional[str] = None,
     region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
     region_hint: Optional[str] = None,
+    active_window: bool = False,
+    is_followup: bool = False,
 ) -> str:
     """Analyze the computer screen using Google Gemini Multimodal Vision.
 
@@ -229,6 +256,8 @@ def describe_screen(
                 if screenshot_path is not specified.
         region_hint: Optional descriptive crop ('top half', 'bottom half',
                      'left half', 'right half').
+        active_window: If True, crops to the active foreground window.
+        is_followup: If True, reuses the previous screenshot if captured within 2 seconds.
 
     Returns:
         The model's textual answer describing or answering questions about the screen.
@@ -238,6 +267,8 @@ def describe_screen(
         ValueError: If question is empty or GEMINI_API_KEY is missing/invalid.
         RuntimeError: If Gemini API call or screenshot loading fails.
     """
+    global _LAST_SCREENSHOT_PATH, _LAST_SCREENSHOT_TIME
+
     if os.getenv("VISION_PAUSED", "0") == "1":
         raise PermissionError(
             "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
@@ -256,21 +287,51 @@ def describe_screen(
 
     model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
 
-    # Acquire screenshot path
+    t_start = time.perf_counter()
+
+    # Day 7: Speed optimization - reuse screenshot if < 2s old and follow-up
     if screenshot_path is None:
-        target_path = take_screenshot(region=region, region_hint=region_hint)
+        if (
+            is_followup
+            and _LAST_SCREENSHOT_PATH
+            and os.path.exists(_LAST_SCREENSHOT_PATH)
+            and (time.time() - _LAST_SCREENSHOT_TIME < 2.0)
+        ):
+            target_path = _LAST_SCREENSHOT_PATH
+            capture_ms = 0
+        else:
+            target_path = take_screenshot(
+                region=region,
+                region_hint=region_hint,
+                active_window=active_window,
+            )
+            capture_ms = int((time.perf_counter() - t_start) * 1000)
     else:
         target_path = screenshot_path
+        capture_ms = 0
 
     if not os.path.exists(target_path):
         raise FileNotFoundError(f"Screenshot image file not found at: {target_path}")
 
     try:
+        t_prep_start = time.perf_counter()
         with Image.open(target_path) as img:
+            prep_ms = int((time.perf_counter() - t_prep_start) * 1000)
+
+            t_api_start = time.perf_counter()
             client = genai.Client(api_key=api_key.strip())
             response = client.models.generate_content(
                 model=model_name,
                 contents=[img, question.strip()],
+            )
+            gemini_ms = int((time.perf_counter() - t_api_start) * 1000)
+
+            # Day 7 requirement: Log timing in milliseconds
+            logger.info(
+                "Vision timing: capture=%d ms, prep=%d ms, gemini=%d ms",
+                capture_ms,
+                prep_ms,
+                gemini_ms,
             )
 
             answer = response.text or ""
@@ -287,6 +348,7 @@ def explain_screen_error(
     screenshot_path: Optional[str] = None,
     region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
     region_hint: Optional[str] = None,
+    active_window: bool = False,
 ) -> str:
     """Inspect the screen for error messages, quote the error, explain its cause, and suggest a fix.
 
@@ -298,6 +360,7 @@ def explain_screen_error(
         screenshot_path: Optional path to an existing screenshot image.
         region: Optional (left, top, width, height) bounding box sequence.
         region_hint: Optional region hint ('top half', 'bottom half', etc.).
+        active_window: If True, crops capture to active window.
 
     Returns:
         Structured analysis of the error or confirmation that no error is present.
@@ -323,6 +386,7 @@ def explain_screen_error(
         screenshot_path=screenshot_path,
         region=region,
         region_hint=region_hint,
+        active_window=active_window,
     )
 
 
@@ -454,3 +518,212 @@ def locate_element(
         raise
     except Exception as exc:
         raise RuntimeError(f"Failed to locate UI element '{description}': {exc}") from exc
+
+
+def do_on_screen(goal: str, max_steps: int = 5) -> str:
+    """Execute an autonomous look-decide-act loop on screen to achieve a goal.
+
+    Repeats up to max_steps times:
+    1. Checks the emergency kill-switch (tools.guard.is_stopped()).
+    2. Takes a screenshot.
+    3. Prompts Gemini for the single next action as JSON:
+       {'action': 'click'|'type'|'hotkey'|'scroll'|'done', ...}
+    4. Executes the action through tools.registry.execute_tool using registered tool names:
+       'click', 'type_text', 'press_keys', 'scroll'.
+    5. Waits 1 second.
+    6. Stops when Gemini returns 'done' or when the kill-switch is triggered.
+
+    Args:
+        goal: Description of the goal to achieve on screen (e.g., 'open the File menu in Notepad').
+        max_steps: Maximum number of action iterations (default: 5).
+
+    Returns:
+        Summary of the steps taken and final status.
+
+    Raises:
+        PermissionError: If VISION_PAUSED=1 privacy mode is active.
+        ValueError: If goal is empty or GEMINI_API_KEY is missing.
+    """
+    if os.getenv("VISION_PAUSED", "0") == "1":
+        raise PermissionError(
+            "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
+        )
+
+    if not goal or not str(goal).strip():
+        raise ValueError("Goal must be a non-empty string.")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key.strip() in ("", "your_gemini_api_key_here"):
+        raise ValueError(
+            "GEMINI_API_KEY is missing or invalid. Please configure GEMINI_API_KEY in .env."
+        )
+
+    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+
+    # Access tool registry safely
+    try:
+        import tools.registry as registry
+    except Exception as reg_err:
+        raise RuntimeError(f"Failed to access tool registry: {reg_err}") from reg_err
+
+    steps_taken: List[str] = []
+
+    for step in range(1, max_steps + 1):
+        # 1. Emergency stop check
+        try:
+            from tools.guard import is_stopped
+            if is_stopped():
+                steps_taken.append(
+                    f"Step {step}: Emergency stop triggered by kill-switch (tools.guard.is_stopped() is True)."
+                )
+                break
+        except (ImportError, AttributeError):
+            pass
+
+        # 2. Capture current state
+        shot_path = take_screenshot()
+
+        # 3. Determine screen bounds for coordinate scaling
+        orig_width, orig_height = 1920, 1080
+        orig_left, orig_top = 0, 0
+        try:
+            with mss.MSS() as sct:
+                m = sct.monitors[1]
+                orig_left, orig_top = m["left"], m["top"]
+                orig_width, orig_height = m["width"], m["height"]
+        except Exception:
+            pass
+
+        # 4. Prompt Gemini for next action
+        try:
+            with Image.open(shot_path) as img:
+                img_w, img_h = img.size
+                prompt = (
+                    f"You are an autonomous desktop automation agent. The user's goal is: '{goal.strip()}'.\n"
+                    f"Previous actions taken:\n" + ("\n".join(steps_taken) if steps_taken else "None") + "\n\n"
+                    f"Analyze this screenshot ({img_w}x{img_h} px). Choose the SINGLE next action.\n"
+                    "Return ONLY a valid JSON object with one of the following structures:\n"
+                    "- Click: {\"action\": \"click\", \"x\": <int_x>, \"y\": <int_y>, \"button\": \"left\", \"thought\": \"<brief>\"}\n"
+                    "- Type: {\"action\": \"type\", \"text\": \"<string>\", \"thought\": \"<brief>\"}\n"
+                    "- Hotkey: {\"action\": \"hotkey\", \"keys\": [\"ctrl\", \"s\"], \"thought\": \"<brief>\"}\n"
+                    "- Scroll: {\"action\": \"scroll\", \"amount\": <int>, \"thought\": \"<brief>\"}\n"
+                    "- Done: {\"action\": \"done\", \"thought\": \"<brief reason>\"}\n\n"
+                    "Output ONLY the JSON object with no markdown formatting."
+                )
+
+                client = genai.Client(api_key=api_key.strip())
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[img, prompt],
+                )
+                raw_text = (response.text or "").strip()
+
+                if raw_text.startswith("```"):
+                    lines = raw_text.splitlines()
+                    if lines and lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    raw_text = "\n".join(lines).strip()
+
+                match = re.search(r"\{.*?\}", raw_text, re.DOTALL)
+                decision = json.loads(match.group(0)) if match else json.loads(raw_text)
+
+        except Exception as api_err:
+            steps_taken.append(f"Step {step}: Error evaluating next action: {api_err}")
+            break
+
+        action = str(decision.get("action", "")).strip().lower()
+        thought = decision.get("thought", "")
+
+        if action == "done":
+            steps_taken.append(f"Step {step}: Goal completed. {thought}")
+            break
+
+        elif action == "click":
+            raw_x = int(decision.get("x", 0))
+            raw_y = int(decision.get("y", 0))
+            scale_x = orig_width / float(img_w) if img_w > 0 else 1.0
+            scale_y = orig_height / float(img_h) if img_h > 0 else 1.0
+            real_x = int(orig_left + (raw_x * scale_x))
+            real_y = int(orig_top + (raw_y * scale_y))
+            btn = str(decision.get("button", "left"))
+            res = registry.execute_tool("click", {"x": real_x, "y": real_y, "button": btn})
+            steps_taken.append(f"Step {step}: Click at ({real_x}, {real_y}) - {res.message}")
+
+        elif action == "type":
+            txt = str(decision.get("text", ""))
+            res = registry.execute_tool("type_text", {"text": txt})
+            steps_taken.append(f"Step {step}: Type '{txt}' - {res.message}")
+
+        elif action == "hotkey":
+            keys = decision.get("keys", [])
+            if isinstance(keys, str):
+                keys = [keys]
+            res = registry.execute_tool("press_keys", {"keys": keys})
+            steps_taken.append(f"Step {step}: Hotkey {keys} - {res.message}")
+
+        elif action == "scroll":
+            amt = int(decision.get("amount", -200))
+            res = registry.execute_tool("scroll", {"amount": amt})
+            steps_taken.append(f"Step {step}: Scroll {amt} - {res.message}")
+
+        else:
+            steps_taken.append(f"Step {step}: Unknown action '{action}'")
+
+        # 5. Wait 1 second between actions
+        time.sleep(1.0)
+
+    return "\n".join(steps_taken) if steps_taken else "No actions performed."
+
+
+def explain_code_on_screen(
+    task: str = "explain",
+    screenshot_path: Optional[str] = None,
+    active_window: bool = True,
+) -> str:
+    """Read visible code on screen and either explain it or diagnose and fix bugs.
+
+    Args:
+        task: Either 'explain' (default) to describe what the code does in simple English,
+              or 'fix' to detect errors, list bugs, and provide corrected code.
+        screenshot_path: Optional path to an existing screenshot image.
+        active_window: If True, crops capture to the active editor window.
+
+    Returns:
+        Explanation or bug analysis and corrected code.
+
+    Raises:
+        PermissionError: If VISION_PAUSED=1 privacy mode is active.
+        ValueError: If task is not 'explain' or 'fix', or if GEMINI_API_KEY is missing.
+    """
+    if os.getenv("VISION_PAUSED", "0") == "1":
+        raise PermissionError(
+            "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
+        )
+
+    task_normalized = task.strip().lower()
+    if task_normalized not in ("explain", "fix"):
+        raise ValueError(
+            f"Invalid task '{task}'. Supported tasks are 'explain' and 'fix'."
+        )
+
+    if task_normalized == "explain":
+        prompt = (
+            "Analyze the code visible in the editor or terminal in this screenshot. "
+            "Explain what the code does clearly and concisely in simple, beginner-friendly English. "
+            "Summarize its inputs, outputs, and purpose."
+        )
+    else:  # 'fix'
+        prompt = (
+            "Analyze the code visible in the editor or terminal in this screenshot. "
+            "Identify any syntax errors, type errors, logical bugs, or bad practices. "
+            "1. List all detected issues clearly.\n"
+            "2. Provide the corrected, production-ready code with concise comments explaining each fix."
+        )
+
+    return describe_screen(
+        question=prompt,
+        screenshot_path=screenshot_path,
+        active_window=active_window,
+    )
