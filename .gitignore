@@ -53,6 +53,9 @@ temp_*/
 *.jpg
 *.jpeg
 *.png
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg
+!docs/screenshots/*.jpeg
 
 
 # OS specific
@@ -64,9 +67,14 @@ Thumbs.db
 generate_pdf.py
 WEEK_1_EXECUTION_PLAN.md
 
-# Documents (Vidhita)
+# --- Trupti: Messaging ---
+messaging/contacts.json
+messaging/reminders.json
+
+# --- Vidhita: Documents ---
 workspace/
 temp_creator/
 run_day1_to_day3.bat
-push_to_github.bat
 
+# Local runner scripts
+push_to_github.bat

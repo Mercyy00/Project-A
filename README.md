@@ -1,280 +1,211 @@
-# 🤖 Project JARVIS - Autonomous Desktop AI Assistant
+<div align="center">
 
-[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com)
-[![Groq LPU](https://img.shields.io/badge/LLM-Groq%20Cloud%20LPU%20(Qwen--27B)-f55036.svg)](https://groq.com)
-[![Google Gemini](https://img.shields.io/badge/LLM-Google%20Gemini%20Flash-4285F4.svg?logo=google)](https://ai.google.dev/)
-[![STT](https://img.shields.io/badge/STT-faster--whisper%20(Base)-green.svg)](https://github.com/SYSTRAN/faster-whisper)
-[![TTS](https://img.shields.io/badge/TTS-Edge--TTS%20Neural-purple.svg)](https://github.com/rany2/edge-tts)
-[![Tests](https://img.shields.io/badge/tests-62%2B%20passed-brightgreen.svg)](https://docs.pytest.org/)
+# J.A.R.V.I.S.
 
-An autonomous, multimodal desktop AI assistant engineered to run locally on Windows. Jarvis executes OS automation tasks, maintains long-term memory, understands desktop screens, generates formatted documents, interfaces with messaging platforms, and interacts via high-speed multilingual voice and a futuristic Web HUD.
+### An autonomous desktop AI assistant that listens, sees, remembers and acts.
 
----
+Talk to it, type to it, or message it from your phone. JARVIS opens apps, reads your screen,<br>
+writes documents, keeps notes and answers in English, Hindi and Marathi.
 
-## 👥 The 8-Member Engineering Team & Module Map
+<br>
 
-Project Jarvis is built by an 8-engineer team organized into 4 specialized pairs following the **JARVIS 8-Member Catch-Up Plan (v2)**. All developers adhere strictly to the modular isolation rules defined in [`AGENTS.md`](file:///d:/engineers/Project%20-%20A/AGENTS.md) and [`ARCHITECTURE.md`](file:///d:/engineers/Project%20-%20A/ARCHITECTURE.md).
+[![Python](https://img.shields.io/badge/Python-3.11%20|%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-WebSocket%20HUD-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Groq](https://img.shields.io/badge/LLM-Groq%20LPU-F55036)](https://groq.com)
+[![Gemini](https://img.shields.io/badge/LLM-Google%20Gemini-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
+[![Whisper](https://img.shields.io/badge/STT-faster--whisper-2EA44F)](https://github.com/SYSTRAN/faster-whisper)
+[![Edge-TTS](https://img.shields.io/badge/TTS-Edge--TTS-8957E5)](https://github.com/rany2/edge-tts)
+[![Platform](https://img.shields.io/badge/Windows-10%20|%2011-0078D4?logo=windows&logoColor=white)](#quick-start)
 
-| Pair | Engineer | Role | Module & Files Owned | Feature Branch | Deliverables & Focus Area |
-| :---: | :--- | :--- | :--- | :--- | :--- |
-| **A** | **Jayesh (Jay)** | **Team Lead & Core Brain** | `core/`, `main_cli.py`, `main.py`, `docs/` | `feature/jay-core` | Dual-engine LLM orchestration (Groq Cloud LPU + Gemini), quota failover, ReAct tool execution loop, system prompt persona, PR review & merges |
-| **A** | **Rohit** | **Frontend & Memory Engineer** | `memory/`, `ui/` | `feature/rohit-ui-memory` | Sci-Fi Web HUD, FastAPI REST & WebSocket server (`/ws/jarvis`), SQLite long-term storage (WAL mode), notes CRUD & telemetry widgets |
-| **B** | **Madhuri** | **Voice STT Engineer** | `voice/stt.py`, `voice/lang.py`, `voice/test_stt.py`, `voice/audio_check.py`, `voice/__init__.py` | `feature/madhuri-voice-stt` | Multilingual Speech-to-Text (`faster-whisper` Base CPU int8), 1.5s silence auto-stop `listen()`, language detection (`en`, `hi`, `mr`), Whisper benchmarks |
-| **B** | **Akanksha** | **Voice TTS Engineer** | `voice/tts.py`, `voice/test_tts.py` | `feature/akanksha-voice-tts` | Neural speech synthesis (`edge-tts`: Guy, Madhur, Manohar), pygame audio playback, hotkey interrupt `stop()`, offline fallback (`pyttsx3`) |
-| **C** | **Abhijit** | **System & Automation Engineer** | `tools/` (`base.py`, `registry.py`, `system_tools.py`, `file_tools.py`, `safety.py`, `control_tools.py`, `code_tools.py`) | `feature/abhijit-tools` | Windows app launcher (`OpenAppTool`), Start Menu indexer, system telemetry (`psutil`), sandboxed file tools, GUI automation (`pyautogui`), code runner |
-| **C** | **Aryan** | **Vision Engineer** | `vision/` (`screen.py`, `tools.py`) | `feature/aryan-vision` | Desktop screen capture (`mss`), image compression, Gemini multimodal screen understanding (`describe_screen`), privacy mode (`VISION_PAUSED=1`) |
-| **D** | **Vidhita** | **Document Engineer** | `creator/` (`themes.py`, `pdf_maker.py`, `docx_maker.py`, `pptx_maker.py`, `tools.py`) | `feature/vidhita-creator` | Themed automated document generation (PDF via ReportLab, DOCX via python-docx, PPTX via python-pptx), Devanagari font rendering, charts |
-| **D** | **Trupti** | **Messaging Engineer** | `messaging/` (`telegram_bot.py`, `whatsapp.py`, `reminders.py`, `contacts.json`, `tools.py`) | `feature/trupti-messaging` | Telegram bot (`pyTelegramBotAPI`), owner security filter (`TELEGRAM_OWNER_ID`), WhatsApp messaging (`pywhatkit`), scheduled reminders, remote voice replies |
+<br>
 
----
+<img src="docs/screenshots/hud-classic.png" alt="JARVIS Web HUD in Classic mode" width="920">
 
-## 🧠 Core Architecture & System Flow
+</div>
 
+<br>
+
+## Contents
+
+[Features](#features) · [Screenshots](#screenshots) · [How it is built](#how-it-is-built) · [Quick start](#quick-start) · [Running JARVIS](#running-jarvis) · [Testing](#testing) · [Project structure](#project-structure) · [Team](#team)
+
+<br>
+
+## Features
+
+**Dual-engine brain.** Groq LPU runs `qwen/qwen3.8-27b` for fast reasoning and tool calling. If Groq hits a rate limit or quota (HTTP 429), JARVIS fails over to Google Gemini automatically, so a conversation never stalls. Replies adapt to the language you speak.
+
+**Voice in three languages.** Speech-to-text runs locally with `faster-whisper` and stops listening after 1.5 seconds of silence. It detects English, Hindi and Marathi, and answers with matching neural voices through Edge-TTS. When you are offline, `pyttsx3` takes over.
+
+**It can see your screen.** Ask "what's on my screen?" or "why is this error showing?" and JARVIS captures the display, compresses it and reads it with Gemini's multimodal model. One switch, `VISION_PAUSED=1`, turns all of that off.
+
+**It operates your PC.** Launch apps by name (UWP protocols, PATH, registry, Start Menu shortcuts), read live CPU, RAM and battery, control windows, clipboard, volume, brightness and lock screen, type, press shortcuts, click and scroll, and run code. File access is confined to a sandbox.
+
+**It remembers.** Notes and conversation history live in SQLite (WAL mode). Ask JARVIS to save something now and search for it next week.
+
+**It writes documents.** The document engine builds PDF, Word and PowerPoint files in three themes (Clean Light, Dark Pro, Colourful), with Devanagari fonts bundled for Hindi and Marathi.
+
+**It reaches your phone.** A Telegram bot lets you talk to JARVIS remotely. It only answers its owner.
+
+**Three modes, one HUD.** Classic, Stealth and Combat change the colour, the pace of the animation and the character of the replies. See them below.
+
+<br>
+
+## Screenshots
+
+The Web HUD is a single page served by FastAPI and wired to the brain over a WebSocket. Everything in it is live: CPU, memory and battery read from your machine, the log reports real connection events, and the console talks to the brain.
+
+<div align="center">
+
+<img src="docs/screenshots/hud-full.png" alt="Full JARVIS HUD with telemetry, reactor, directive console and quick-action chips" width="920">
+
+<sub><b>Full dashboard.</b> Telemetry on the left, the neural reactor and voice link in the centre, network and system log on the right, and the directive console with quick chips underneath.</sub>
+
+<br><br>
+
+<img src="docs/screenshots/hud-stealth.png" alt="JARVIS HUD in Stealth mode, violet" width="450"> <img src="docs/screenshots/hud-combat.png" alt="JARVIS HUD in Combat mode, crimson" width="450">
+
+<sub><b>Stealth</b> (violet, wake word, slow and quiet) and <b>Combat</b> (crimson, high speed, short replies).</sub>
+
+</div>
+
+<br>
+
+## How it is built
+
+```mermaid
+flowchart TD
+    subgraph IN["Ways to talk to it"]
+        HUD["Web HUD<br/>ui/"]
+        VOICE["Voice loop<br/>voice/"]
+        TG["Telegram<br/>messaging/"]
+        CLI["Terminal<br/>main_cli.py"]
+    end
+
+    BRAIN["Core brain · core/<br/>Groq LPU with automatic Gemini failover<br/>ReAct tool-calling loop"]
+    REG["Tool registry · tools/registry.py<br/>auto-loads every module's TOOLS"]
+
+    HUD --> BRAIN
+    VOICE --> BRAIN
+    TG --> BRAIN
+    CLI --> BRAIN
+    BRAIN --> REG
+
+    REG --> SYS["System and files<br/>tools/"]
+    REG --> VIS["Screen vision<br/>vision/"]
+    REG --> MEM["Memory<br/>memory/"]
+    REG --> DOC["Documents<br/>creator/"]
+    REG --> MSG["Messaging<br/>messaging/"]
 ```
-                                  +-----------------------------------------------+
-                                  |            User Interaction Layer             |
-                                  |    [Web HUD]     [Voice Loop]     [Telegram]  |
-                                  |     (Rohit)        (Madhuri)       (Trupti)   |
-                                  +-----------------------+-----------------------+
-                                                          |
-                                                          v
-                                  +-----------------------------------------------+
-                                  |            Core Brain Engine (Jay)            |
-                                  |      Dual-Engine: Groq LPU + Google Gemini    |
-                                  |         Automatic 429 / Quota Failover        |
-                                  +-----------------------+-----------------------+
-                                                          |
-                                                          v
-                                  +-----------------------------------------------+
-                                  |             Tool Registry Dispatch            |
-                                  |       Auto-loads BaseTool from all Modules    |
-                                  +---+----------+----------+----------+----------+
-                                      |          |          |          |          |
-                                      v          v          v          v          v
-                                 [OS / Apps]  [Vision]   [Memory]  [Documents] [Messaging]
-                                   Abhijit     Aryan      Rohit      Vidhita     Trupti
-```
 
-### 1. Dual-Engine LLM Core (`core/brain.py` — Jay)
-- **Primary Engine:** Groq Cloud LPU running `qwen/qwen3.8-27b` for sub-second, ultra-low-latency reasoning and autonomous tool calling.
-- **Failover Engine:** Google Gemini (`gemini-3.8-flash` / `gemini-2.5-flash`) via the `google-genai` SDK with automatic failover when rate limits, quota limits, or 429 status codes occur.
-- **Multi-Turn Memory:** Conversational context tracking with language-adaptive persona.
+A message from any front end goes to the core brain. The brain decides whether to answer or call a tool, runs the tool through the registry, reads the result and carries on until it has an answer. Each module exposes its tools by listing them in a `TOOLS` variable, and the registry discovers them on start-up, so adding a capability never means touching the brain.
 
-### 2. Multilingual Voice Pipeline (`voice/` — Madhuri & Akanksha)
-- **Speech-to-Text (STT):** `faster-whisper` (`base` model, `cpu` with `int8` quantization) with microphone capture and 1.5-second silence auto-stop.
-- **Language Detection:** Real-time automatic classification between **English (`en`)**, **Hindi (`hi`)**, and **Marathi (`mr`)**.
-- **Neural Text-to-Speech (TTS):** Edge-TTS high-fidelity neural voices with pygame playback:
-  - English: `en-US-GuyNeural`
-  - Hindi: `hi-IN-MadhurNeural`
-  - Marathi: `mr-IN-ManoharNeural`
-- **Spoken Loop:** Complete hands-free conversational loop in `main_voice.py` measuring round-trip response latency.
+| Layer | What it uses |
+| :-- | :-- |
+| Brain | Groq (`qwen/qwen3.8-27b`, with `openai/gpt-oss` fallbacks) and Google Gemini through `google-genai`, with automatic quota failover |
+| Server and HUD | FastAPI, WebSocket at `/ws/jarvis`, REST endpoints (`/health`, `/api/notes`, `/api/telemetry`, `/api/tools`, `/api/tts`, `/api/stt`), single-file HTML, CSS and JS front end |
+| Voice | `faster-whisper` (base, CPU, int8), Edge-TTS, `pygame` playback, `pyttsx3` fallback |
+| Vision | `mss` screen capture, JPEG downscaled to 1280px, Gemini multimodal analysis |
+| Automation | `psutil`, `pyautogui`, Windows app discovery, sandboxed file tools (`tools/safety.py`) |
+| Memory | SQLite in WAL mode through `aiosqlite` |
+| Documents | ReportLab, python-docx, python-pptx |
+| Messaging | `pyTelegramBotAPI` with an owner-only filter |
 
-### 3. Vision & Screen Understanding (`vision/` — Aryan)
-- High-speed screen capture via `mss` with automatic resolution scaling (1280px max width).
-- Multimodal visual reasoning with Google Gemini to analyze screen contents, troubleshoot UI errors, and inspect windows.
-- Hardware-level desktop handle resolution (`_ensure_desktop_access`) and privacy kill-switch (`VISION_PAUSED=1`).
+Design contracts live in [`ARCHITECTURE.md`](ARCHITECTURE.md) and the module ownership rules in [`AGENTS.md`](AGENTS.md).
 
-### 4. System Automation & Tooling (`tools/` — Abhijit)
-- **Application Launcher (`OpenAppTool`):** Resolves desktop applications across Windows UWP protocols (`calculator:`, `ms-settings:`), PATH binaries, registry `App Paths`, and recursive Start Menu shortcut (`.lnk`) scanning.
-- **System Telemetry (`GetSystemStatsTool`):** Live CPU load percentage, RAM usage (GB used / total), and battery status.
-- **File System Tools:** Sandboxed file read and write operations.
-- **GUI Control:** Mouse click, scroll, keyboard text typing, and shortcut execution (`pyautogui`).
+<br>
 
-### 5. Memory & Telemetry Vault (`memory/` — Rohit)
-- Persistent SQLite storage with Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) for high concurrency.
-- Storage for user notes, tasks, and historical chat interactions.
+## Quick start
 
-### 6. Document Creator (`creator/` — Vidhita)
-- Themed automated document generation (Dark Pro, Clean Light, Colourful) for professional PDFs, Word documents, and PowerPoint slide decks.
-- Noto Sans Devanagari font integration ensuring flawless rendering for Hindi and Marathi outputs.
+You need Windows 10 or 11, Python 3.11 or 3.12, and Git.
 
-### 7. Remote Messaging & Bot (`messaging/` — Trupti)
-- Telegram bot interface allowing remote interaction with Jarvis from a smartphone.
-- Scheduled reminders and WhatsApp messaging integration via `pywhatkit`.
-
----
-
-## 🚀 Quick Start Guide
-
-### 1. Prerequisites
-- **Operating System:** Windows 10 or Windows 11 (64-bit)
-- **Python:** Python 3.11 or 3.12 (with `python.exe` added to system `PATH`)
-- **Git:** Git for Windows
-
-### 2. Installation
 ```powershell
-# Clone the repository
 git clone https://github.com/Mercyy00/Project-A.git
 cd Project-A
 
-# Create and activate a virtual environment
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 
-# Install all project dependencies
 pip install -r requirements.txt
+copy .env.example .env
 ```
 
-### 3. Environment Configuration
-Copy the template configuration file to `.env`:
-```powershell
-cp .env.example .env
-```
-Open `.env` and configure your API keys and preferred models:
+Open `.env` and add at least one LLM key. Everything else has a sensible default.
+
 ```ini
-# LLM Providers (Jay)
-LLM_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key_here
 GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=qwen/qwen3.8-27b
-MODEL_NAME=gemini-3.8-flash
 
-# Voice Engine Defaults (Madhuri & Akanksha)
-WHISPER_MODEL=base
-WHISPER_DEVICE=cpu
-WHISPER_COMPUTE_TYPE=int8
-TTS_VOICE_EN=en-US-GuyNeural
-TTS_VOICE_HI=hi-IN-MadhurNeural
-TTS_VOICE_MR=mr-IN-ManoharNeural
-
-# Vision Configuration (Aryan)
-GEMINI_MODEL=gemini-3.8-flash
-VISION_PAUSED=0
-
-# Server Configuration (Rohit)
-SERVER_HOST=127.0.0.1
-SERVER_PORT=8000
-
-# Messaging (Trupti - Optional)
+# Optional
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 TELEGRAM_OWNER_ID=your_telegram_chat_id_here
+VISION_PAUSED=0
 ```
 
----
+Never commit `.env`. It is already in `.gitignore`.
 
-## 🎮 How to Run Jarvis
+<br>
 
-Jarvis provides three distinct operational interfaces:
+## Running JARVIS
 
-### Option A: Futuristic Web HUD (Recommended)
-Launch the FastAPI WebSocket backend and open the sci-fi browser dashboard:
+| Interface | Command | Notes |
+| :-- | :-- | :-- |
+| **Web HUD** (recommended) | `python -m uvicorn ui.server:app --host 127.0.0.1 --port 8000` | Then open <http://127.0.0.1:8000> |
+| **Voice loop** | `python main_voice.py` | Or double-click `run_jarvis_voice.bat` |
+| **Terminal** | `python main_cli.py` | Plain text conversation with the brain |
+
+<br>
+
+## Testing
+
 ```powershell
-python -m uvicorn ui.server:app --host 127.0.0.1 --port 8000
-```
-Then navigate to: **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
-
-### Option B: Interactive Spoken Voice Loop
-Talk to Jarvis in English, Hindi, or Marathi through your microphone:
-```powershell
-python main_voice.py
-```
-*(Or double-click `run_jarvis_voice.bat`)*
-
-### Option C: Interactive Terminal REPL
-Direct text conversation with the Jarvis Core Brain in PowerShell:
-```powershell
-python main_cli.py
-```
-
----
-
-## 🧪 Testing & Verification
-
-Run the comprehensive automated test suite (62+ unit and integration tests):
-```powershell
-# Run the entire test suite
-pytest
-
-# Run voice STT and TTS tests only
-pytest voice/test_stt.py voice/test_tts.py
-
-# Run core brain and tool tests
+pytest                                        # everything
+pytest voice/test_stt.py voice/test_tts.py    # voice only
 pytest tests/test_brain.py tests/test_tools.py tests/test_control_tools.py
 ```
 
-Convenience batch launchers are also available in the repository root:
-- `run_voice_tests.bat` — Run all voice unit tests.
-- `run_audio_check.bat` — Test microphone capture and audio playback.
-- `run_benchmark.bat` — Benchmark Whisper `tiny`, `base`, and `small` models.
+Helper launchers in the repo root: `run_voice_tests.bat`, `run_audio_check.bat` (microphone and speaker check) and `run_benchmark.bat` (Whisper model benchmark, results in [`docs/voice_results.md`](docs/voice_results.md)).
 
----
+<br>
 
-## 📁 Repository Structure
+## Project structure
 
-```
+```text
 Project-A/
-│
-├── .env.example              # Environment variables template
-├── requirements.txt          # Python dependencies
-├── ARCHITECTURE.md           # System contracts and architecture design
-├── AGENTS.md                 # Team modular isolation rules for AI agents
-├── main_cli.py               # Interactive CLI terminal runner
-├── main_voice.py             # Spoken conversational loop (listen -> brain -> speak)
-│
-├── run_jarvis_voice.bat      # 1-click launcher for spoken voice loop
-├── run_voice_tests.bat       # 1-click runner for voice test suite
-├── run_audio_check.bat       # Audio hardware diagnostic check
-├── run_benchmark.bat         # Whisper model benchmark runner
-│
-├── core/                     # [Pair A · Jay] LLM Brain & Reasoning Core
-│   ├── brain.py              # JarvisBrain engine (Gemini + Groq failover + tools)
-│   ├── service.py            # Async core brain service
-│   ├── test_llm.py           # LLM connection verification
-│   └── test_service.py       # Core service unit tests
-│
-├── voice/                    # [Pair B · Madhuri & Akanksha] Multilingual Voice Pipeline
-│   ├── stt.py                # Faster-Whisper speech-to-text with silence detection
-│   ├── tts.py                # Edge-TTS multilingual speech synthesizer
-│   ├── lang.py               # Language detection (English, Hindi, Marathi)
-│   ├── audio_check.py        # Hardware loopback and microphone test
-│   ├── benchmark_models.py   # Quantitative latency/accuracy benchmarks
-│   ├── test_stt.py           # STT unit tests (synthetic audio & vad)
-│   └── test_tts.py           # TTS unit tests
-│
-├── vision/                   # [Pair C · Aryan] Screen Understanding
-│   ├── screen.py             # Desktop screenshot capture & Gemini multimodal analysis
-│   └── tools.py              # TakeScreenshotTool and DescribeScreenTool
-│
-├── tools/                    # [Pair C · Abhijit] System Automation & OS Control
-│   ├── base.py               # Canonical BaseTool & ToolResult specifications
-│   ├── registry.py           # Central tool registry with auto-module loader
-│   ├── system_tools.py       # OpenAppTool, GetSystemStatsTool, SearchWebTool
-│   ├── file_tools.py         # ReadFileTool, WriteFileTool
-│   ├── control_tools.py      # ClickTool, TypeTextTool, PressKeysTool, ScrollTool
-│   └── safety.py             # Sandboxed path validator
-│
-├── memory/                   # [Pair A · Rohit] Long-Term Memory & SQLite Storage
-│   ├── db.py                 # SQLite database connection pool & schema (WAL mode)
-│   ├── storage.py            # MemoryManager for notes & conversation history
-│   └── tools.py              # SaveNoteTool and SearchNotesTool
-│
-├── ui/                       # [Pair A · Rohit] Web HUD & WebSocket Server
-│   ├── index.html            # Futuristic sci-fi visual dashboard
-│   └── server.py             # FastAPI REST & WebSocket server
-│
-├── creator/                  # [Pair D · Vidhita] Document Creator (PDF, Word, PPTX)
-│   ├── themes.py             # Styling themes (Dark Pro, Clean Light, Colourful)
-│   ├── pdf_maker.py          # ReportLab PDF generator
-│   └── tools.py              # CreatePdfTool, CreateDocxTool, CreatePptxTool
-│
-├── messaging/                # [Pair D · Trupti] Remote Messaging & Telegram Bot
-│   ├── telegram_bot.py       # PyTelegramBotAPI handler with owner filter
-│   ├── reminders.py          # Scheduled reminder dispatcher
-│   └── tools.py              # SendTelegramTool, SendWhatsAppTool
-│
-├── docs/                     # Documentation and benchmark reports
-│   └── voice_results.md      # Whisper benchmark performance metrics
-│
-└── tests/                    # Project test suite
-    ├── test_brain.py         # Multi-turn conversation and failover tests
-    ├── test_tools.py         # System tool execution tests
-    ├── test_memory.py        # SQLite persistence tests
-    ├── test_control_tools.py # GUI automation tests
-    └── voice_cases.csv       # Multilingual test dataset (31 prompts)
+├── core/        Brain: Groq + Gemini failover, tool loop, async service
+├── voice/       Speech-to-text, text-to-speech, language detection, benchmarks
+├── vision/      Screen capture and Gemini screen understanding
+├── tools/       Tool registry, app launcher, files, GUI control, windows, code runner
+├── memory/      SQLite storage for notes and chat history
+├── ui/          FastAPI server and the Web HUD (index.html)
+├── creator/     PDF, Word and PowerPoint generation with themes
+├── messaging/   Telegram bot with owner-only filter
+├── docs/        Benchmarks and README screenshots
+├── tests/       Test suite
+├── main.py · main_cli.py · main_voice.py
+└── ARCHITECTURE.md · AGENTS.md · requirements.txt · .env.example
 ```
 
----
+<br>
 
-## 📄 License & Team Contract
-This project is built for the **Project Jarvis AI Assistant Initiative**. All modules adhere to team consensus, modular boundaries, and safe execution standards.
+## Team
+
+JARVIS is built by eight engineers working in four pairs. Each pair owns its modules and works on its own feature branch.
+
+| Pair | Engineer | Owns |
+| :-- | :-- | :-- |
+| A · Core, memory and UI | Jayesh (team lead) | `core/`, `main.py`, `main_cli.py`, `docs/` |
+| | Rohit | `memory/`, `ui/` |
+| B · Voice | Madhuri | Speech-to-text, language detection |
+| | Akanksha | Text-to-speech |
+| C · Tools and vision | Abhijit | `tools/` |
+| | Aryan | `vision/` |
+| D · Documents and messaging | Vidhita | `creator/` |
+| | Trupti | `messaging/` |
+
+<br>
+
+<div align="center">
+<sub>Built for the Project JARVIS AI Assistant Initiative.</sub>
+</div>

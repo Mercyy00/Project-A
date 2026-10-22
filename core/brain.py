@@ -7,6 +7,7 @@ Adheres strictly to Project Jarvis architecture and module contracts.
 
 from __future__ import annotations
 
+import datetime
 import os
 import sys
 import time
@@ -19,13 +20,14 @@ from google.genai import errors, types
 
 
 DEFAULT_SYSTEM_PROMPT: str = (
-    "You are Jarvis, an ultra-efficient desktop assistant. "
-    "Reply in the same language as the user (English, Hindi, Marathi, or Hinglish). "
-    "When the user speaks Hindi or Marathi, always reply in Devanagari script so text-to-speech can pronounce it properly. "
-    "Keep replies concise in 1-2 short sentences suitable for voice. "
-    "You are helpful, witty, technically precise, and proactive. "
-    "Always ask for confirmation before executing any tool that deletes files, overwrites data, or sends messages. "
-    "If a tool fails, say so honestly."
+    "You are JARVIS, the ultra-fast, highly sophisticated AI desktop assistant inspired by Tony Stark's JARVIS. "
+    "Address the user respectfully as 'sir' with a razor-sharp, cool, and subtly witty British cadence. "
+    "CRITICAL CONVERSATIONAL RULE: Keep responses under 20 words in 1 or 2 punchy, spoken sentences suitable for instant voice synthesis. Never write conversational filler, long disclaimers, or paragraphs. "
+    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening an app, setting volume or brightness, locking screen, managing windows, running commands, reading/writing files, taking screenshots, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
+    "ZERO-PHANTOM RULE: NEVER claim, simulate, or hallucinate that you performed any action unless you actually invoked the corresponding tool and received a successful response. If a tool call fails, state the failure honestly and crisply. "
+    "STATE AWARENESS: You possess ZERO psychic knowledge of the computer state. You do not know what windows are active, what files exist, what is on the clipboard, or what the telemetry is until you call the respective inspection tool (list_windows, list_directory, clipboard_read, get_system_stats, battery). Never invent or guess desktop states. "
+    "MULTILINGUAL RULE: Respond in the user's language (English, Hindi, Marathi, or Hinglish). When speaking Hindi or Marathi, always output in native Devanagari script so the speech synthesizer pronounces it flawlessly. "
+    "SAFETY: Require explicit user confirmation before executing destructive commands (deletions, file overwrites, sending messages)."
 )
 
 
@@ -68,6 +70,7 @@ class JarvisBrain:
         model_name: Optional[str] = None,
         system_prompt: Optional[str] = None,
         enable_tools: bool = True,
+        load_memory: bool = False,
     ) -> None:
         """Initialize JarvisBrain with API client, chat session, and tool registry.
 
@@ -91,7 +94,39 @@ class JarvisBrain:
 
         self.client: genai.Client = genai.Client(api_key=api_key)
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
+        if load_memory:
+            self._load_memory_history()
         self._init_chat_session()
+
+    def _load_memory_history(self, limit: int = 6) -> None:
+        """Load recent interaction history from SQLite memory vault if available."""
+        try:
+            import asyncio
+            from memory.storage import MemoryManager
+            mem = MemoryManager()
+
+            async def _fetch():
+                return await mem.get_recent_history(limit=limit)
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        rows = pool.submit(asyncio.run, _fetch()).result(timeout=2)
+                else:
+                    rows = loop.run_until_complete(_fetch())
+            except Exception:
+                rows = asyncio.run(_fetch())
+
+            if rows:
+                for row in rows:
+                    role = "user" if row.get("role") == "user" else "model"
+                    content = row.get("content", "").strip()
+                    if content:
+                        self.history.append({"role": role, "content": content})
+        except Exception:
+            pass
 
     def _discover_tools(self) -> List[Callable[..., Any]]:
         """Discover and wrap available tools for Gemini automatic function calling.
@@ -244,6 +279,272 @@ class JarvisBrain:
 
         discovered.append(press_keys)
 
+        def click(x: Optional[int] = None, y: Optional[int] = None) -> str:
+            """Clicks mouse at coordinates (x, y) or at current cursor position if omitted."""
+            self.last_tool_steps.append(f"click({x}, {y})")
+            try:
+                from tools.registry import execute_tool
+                args = {}
+                if x is not None:
+                    args["x"] = x
+                if y is not None:
+                    args["y"] = y
+                return execute_tool("click", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to click: {exc}"
+
+        discovered.append(click)
+
+        def scroll(clicks: int = 3) -> str:
+            """Scrolls mouse wheel up (positive integer) or down (negative integer)."""
+            self.last_tool_steps.append(f"scroll({clicks})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("scroll", {"clicks": clicks}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to scroll: {exc}"
+
+        discovered.append(scroll)
+
+        def run_command(command: str, cwd: Optional[str] = None) -> str:
+            """Executes a shell command (such as npm, pip, python, node, git, build commands) inside safe project directory."""
+            self.last_tool_steps.append(f"run_command('{command}')")
+            try:
+                from tools.registry import execute_tool
+                args = {"command": command}
+                if cwd:
+                    args["cwd"] = cwd
+                return execute_tool("run_command", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to run command: {exc}"
+
+        discovered.append(run_command)
+
+        def edit_file(file_path: str, target_text: str, replacement_text: str) -> str:
+            """Edits a file by replacing target_text with replacement_text."""
+            self.last_tool_steps.append(f"edit_file('{file_path}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("edit_file", {
+                    "file_path": file_path,
+                    "target_text": target_text,
+                    "replacement_text": replacement_text,
+                }).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to edit file: {exc}"
+
+        discovered.append(edit_file)
+
+        def run_python(code: Optional[str] = None, file_path: Optional[str] = None) -> str:
+            """Executes inline Python code or runs a Python script file."""
+            self.last_tool_steps.append("run_python")
+            try:
+                from tools.registry import execute_tool
+                args = {}
+                if code:
+                    args["code"] = code
+                if file_path:
+                    args["file_path"] = file_path
+                return execute_tool("run_python", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to run python: {exc}"
+
+        discovered.append(run_python)
+
+        def take_screenshot() -> str:
+            """Captures a full screenshot of the active desktop screen."""
+            self.last_tool_steps.append("take_screenshot")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("take_screenshot").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to take screenshot: {exc}"
+
+        discovered.append(take_screenshot)
+
+        def describe_screen(question: str) -> str:
+            """Analyzes the computer screen and answers a question about what is currently visible."""
+            self.last_tool_steps.append(f"describe_screen('{question}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("describe_screen", {"question": question}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to describe screen: {exc}"
+
+        discovered.append(describe_screen)
+
+        def save_note(title: str, content: str) -> str:
+            """Saves an important note, reminder, or piece of information into persistent memory."""
+            self.last_tool_steps.append(f"save_note('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("save_note", {"title": title, "content": content}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to save note: {exc}"
+
+        discovered.append(save_note)
+
+        def search_notes(query: str) -> str:
+            """Searches previously saved notes and memory for a keyword or topic."""
+            self.last_tool_steps.append(f"search_notes('{query}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("search_notes", {"query": query}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to search notes: {exc}"
+
+        discovered.append(search_notes)
+
+        def set_volume(level: int) -> str:
+            """Sets the Windows master audio volume to a specified percentage between 0 and 100.
+
+            Args:
+                level: Volume percentage from 0 (mute) to 100 (maximum).
+            """
+            self.last_tool_steps.append(f"set_volume({level})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("set_volume", {"level": level}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to set volume: {exc}"
+
+        discovered.append(set_volume)
+
+        def set_brightness(level: int) -> str:
+            """Sets the display screen brightness to a percentage between 0 and 100.
+
+            Args:
+                level: Brightness percentage from 0 to 100.
+            """
+            self.last_tool_steps.append(f"set_brightness({level})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("set_brightness", {"level": level}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to set brightness: {exc}"
+
+        discovered.append(set_brightness)
+
+        def lock_screen() -> str:
+            """Immediately locks the Windows workstation screen."""
+            self.last_tool_steps.append("lock_screen")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("lock_screen").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to lock screen: {exc}"
+
+        discovered.append(lock_screen)
+
+        def battery() -> str:
+            """Retrieves battery charge percentage, charging status, and remaining power time."""
+            self.last_tool_steps.append("battery")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("battery").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to inspect battery: {exc}"
+
+        discovered.append(battery)
+
+        def list_windows(include_empty: bool = False) -> str:
+            """Lists all visible and active application windows on the desktop.
+
+            Args:
+                include_empty: Whether to include windows without titles.
+            """
+            self.last_tool_steps.append("list_windows")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("list_windows", {"include_empty": include_empty}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to list windows: {exc}"
+
+        discovered.append(list_windows)
+
+        def focus_window(title: str) -> str:
+            """Brings an open application window matching the title to the foreground.
+
+            Args:
+                title: Window title or substring to search for.
+            """
+            self.last_tool_steps.append(f"focus_window('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("focus_window", {"title": title}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to focus window: {exc}"
+
+        discovered.append(focus_window)
+
+        def minimize_window(title: str) -> str:
+            """Minimizes an open application window matching the given title substring.
+
+            Args:
+                title: Window title or substring to search for.
+            """
+            self.last_tool_steps.append(f"minimize_window('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("minimize_window", {"title": title}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to minimize window: {exc}"
+
+        discovered.append(minimize_window)
+
+        def clipboard_read() -> str:
+            """Reads and returns the current text content stored in the system clipboard."""
+            self.last_tool_steps.append("clipboard_read")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("clipboard_read").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to read clipboard: {exc}"
+
+        discovered.append(clipboard_read)
+
+        def clipboard_write(text: str) -> str:
+            """Copies the given text into the system clipboard.
+
+            Args:
+                text: Text string to copy to the clipboard.
+            """
+            self.last_tool_steps.append(f"clipboard_write('{text}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("clipboard_write", {"text": text}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to write clipboard: {exc}"
+
+        discovered.append(clipboard_write)
+
+        def explain_screen_error(question: Optional[str] = None) -> str:
+            """Analyzes the screen specifically for error messages, stack traces, or dialogs."""
+            self.last_tool_steps.append("explain_screen_error")
+            try:
+                from tools.registry import execute_tool
+                args = {"question": question} if question else {}
+                return execute_tool("explain_screen_error", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to explain screen error: {exc}"
+
+        discovered.append(explain_screen_error)
+
+        def click_element(description: str) -> str:
+            """Visually locates a UI element on screen by natural language description and clicks it.
+
+            Args:
+                description: Visual description of the target UI button, icon, or text to click.
+            """
+            self.last_tool_steps.append(f"click_element('{description}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("click_element", {"description": description}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to click element: {exc}"
+
+        discovered.append(click_element)
+
         return discovered
 
     def _init_chat_session(self) -> None:
@@ -271,7 +572,7 @@ class JarvisBrain:
             else:
                 raise
 
-    def chat(self, user_message: str) -> str:
+    def chat(self, user_message: str, mode: str = "normal") -> str:
         """Process a user message and return the assistant response.
 
         Maintains full multi-turn conversational history and executes any
@@ -279,6 +580,7 @@ class JarvisBrain:
 
         Args:
             user_message: Spoken or typed user input string.
+            mode: Operating mode ('normal', 'silent', 'attentive', 'combat').
 
         Returns:
             The assistant's natural language response.
@@ -289,8 +591,54 @@ class JarvisBrain:
 
         self.last_tool_steps = []
 
-        if self.llm_provider == "groq" and self.groq_api_key:
-            return self._chat_with_groq(cleaned_input)
+        # Handle verbal mode switching
+        lower_input = cleaned_input.lower()
+        if any(k in lower_input for k in ("engage combat mode", "combat mode", "switch to combat mode", "enter combat mode")):
+            return "Combat protocol engaged. All neural nodes running at maximum clock. Directives will be executed with extreme speed and precision."
+        if any(k in lower_input for k in ("exit combat mode", "disengage combat", "disable combat mode")):
+            return "Combat protocol disengaged. Returning to standard standby."
+        if any(k in lower_input for k in ("go to silent mode", "switch to silent mode", "silent mode", "standby mode")):
+            return "Silent mode engaged. Awaiting wake word directive."
+        if any(k in lower_input for k in ("go to attentive mode", "attentive mode", "always listen", "continuous mode", "listen continuously")):
+            return "Attentive mode activated. Always listening."
+
+        # Fast Sub-Millisecond Contextual Shortcuts (Zero Cloud Latency)
+        stripped_lower = lower_input.strip("?.!")
+        time_triggers = (
+            "what time is it", "current time", "what is the time", "tell me the time",
+            "time please", "what date", "today's date", "which day is it",
+            "kiti vajle", "vel kay zali", "samay kya hai", "kitne baje"
+        )
+        if any(t in stripped_lower for t in time_triggers) or stripped_lower in ("time", "date"):
+            now = datetime.datetime.now()
+            t = now.strftime("%I:%M %p")
+            d = now.strftime("%A, %B %d, %Y")
+            return f"The current time is {t} on {d}."
+
+        if stripped_lower in ("system info", "system stats", "cpu usage", "ram usage", "battery", "telemetry", "hardware status", "status report"):
+            try:
+                from tools.system_tools import GetSystemStatsTool
+                stats = GetSystemStatsTool().run()
+                if stats.success and stats.data:
+                    d = stats.data
+                    cpu = d.get("cpu_percent") if d.get("cpu_percent") is not None else d.get("cpu_usage_percent", 0)
+                    ram = d.get("ram_used_pct") if d.get("ram_used_pct") is not None else d.get("ram_usage_percent", 0)
+                    battery_str = d.get("battery")
+                    if battery_str:
+                        return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {battery_str}. All systems nominal."
+                    batt_pct = d.get("battery_pct", 100)
+                    return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt_pct}%. All systems nominal."
+            except Exception:
+                pass
+
+        # Fast Weather Shortcut (avoid slow DuckDuckGo scraping for location-agnostic weather)
+        weather_triggers = ("what is the weather", "what's the weather", "how is the weather", "weather today", "current weather", "aaj mausam kaisa hai", "havaman kase ahe")
+        if any(w in stripped_lower for w in weather_triggers) and not any(city in stripped_lower for city in (" in ", " at ", " for ")):
+            return "Please specify your city or region, and I will check the live forecast for you." 
+
+        # High-speed Combat Mode or Groq provider
+        if (mode == "combat" or self.llm_provider == "groq") and self.groq_api_key:
+            return self._chat_with_groq(cleaned_input, is_combat=(mode == "combat"))
 
         try:
             response = self.chat_session.send_message(cleaned_input)
@@ -326,13 +674,14 @@ class JarvisBrain:
             print(f"[!] {error_msg}", file=sys.stderr)
             return "I encountered an internal error processing your request."
 
-    def _chat_with_groq(self, user_message: str) -> str:
+    def _chat_with_groq(self, user_message: str, is_combat: bool = False) -> str:
         """Execute chat directive using Groq Cloud API as high-speed fallback or primary engine.
 
         Maintains conversation history buffer and executes tools autonomously.
 
         Args:
             user_message: Cleaned user prompt string.
+            is_combat: If True, uses tactical high-speed instructions with strict brevity.
 
         Returns:
             Assistant response string.
@@ -342,8 +691,12 @@ class JarvisBrain:
             from groq import Groq
 
             client = Groq(api_key=self.groq_api_key)
+            combat_sys = (
+                "COMBAT PROTOCOL ENGAGED. Tactical maximum speed mode. "
+                "CRITICAL: Keep your response under 10 words in a single crisp sentence. Directives only. Zero filler.\n\n"
+            ) if is_combat else ""
             messages: List[Dict[str, Any]] = [
-                {"role": "system", "content": self.system_prompt}
+                {"role": "system", "content": combat_sys + self.system_prompt}
             ]
             for turn in self.history[-6:]:
                 role = "assistant" if turn.get("role") == "model" else "user"
@@ -369,17 +722,40 @@ class JarvisBrain:
                 except Exception as exc:
                     print(f"[WARN] Failed to load tool schemas for Groq: {exc}", file=sys.stderr)
 
-            completion = client.chat.completions.create(
-                model=self.groq_model,
-                messages=messages,
-                tools=tools_param if tools_param else None,
-                tool_choice="auto" if tools_param else None,
-                temperature=0.7,
-                max_tokens=1024,
-            )
+            extra_params: Dict[str, Any] = {}
+            if tools_param:
+                extra_params["tools"] = tools_param
+                extra_params["tool_choice"] = "auto"
+
+            candidate_models = [self.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+            completion = None
+            used_model = self.groq_model
+            for m in candidate_models:
+                try:
+                    completion = client.chat.completions.create(
+                        model=m,
+                        messages=messages,
+                        temperature=0.2 if is_combat else 0.3,
+                        max_tokens=256 if is_combat else 1024,
+                        **extra_params,
+                    )
+                    used_model = m
+                    break
+                except Exception as m_err:
+                    err_text = str(m_err).lower()
+                    if "429" in err_text or "rate" in err_text:
+                        continue
+                    if "tool" in err_text or "400" in err_text:
+                        # Try next model without dropping tools
+                        print(f"[*] Tool execution schema error on {m}: {m_err}. Trying alternate model...", file=sys.stderr)
+                        continue
+                    raise
+
+            if completion is None:
+                raise RuntimeError("All Groq models currently experiencing rate limits.")
 
             msg = completion.choices[0].message
-            if msg.tool_calls:
+            if getattr(msg, "tool_calls", None):
                 messages.append(msg)
                 from tools.registry import execute_tool
                 for tool_call in msg.tool_calls:
@@ -399,11 +775,18 @@ class JarvisBrain:
                         "content": tool_res.to_llm_string(),
                     })
 
-                follow_up = client.chat.completions.create(
-                    model=self.groq_model,
-                    messages=messages,
-                )
-                final_text = (follow_up.choices[0].message.content or "").strip()
+                try:
+                    follow_up = client.chat.completions.create(
+                        model=used_model,
+                        messages=messages,
+                        max_tokens=48 if is_combat else 64,
+                        temperature=0.2,
+                    )
+                    raw_content = (follow_up.choices[0].message.content or "").strip()
+                    lines = [line.strip() for line in raw_content.splitlines() if line.strip()]
+                    final_text = lines[0] if lines else "Directive executed successfully, sir."
+                except Exception:
+                    final_text = "Directive executed successfully."
             else:
                 final_text = (msg.content or "").strip()
 
@@ -412,9 +795,14 @@ class JarvisBrain:
             return final_text
 
         except Exception as exc:
-            error_msg = f"Groq fallback execution error: {str(exc)}"
-            print(f"[!] {error_msg}", file=sys.stderr)
-            return "Both primary neural core and backup engine encountered an execution error."
+            print(f"[!] Groq execution exception: {exc}. Failing over to Gemini...", file=sys.stderr)
+            if hasattr(self, "chat_session") and self.chat_session:
+                try:
+                    response = self.chat_session.send_message(user_message)
+                    return response.text.strip() if response.text else "Directive acknowledged, sir."
+                except Exception as gemini_err:
+                    print(f"[!] Gemini failover also encountered an error: {gemini_err}", file=sys.stderr)
+            return f"I was unable to execute your directive, sir: {exc}"
 
     def process_input(self, text: str) -> str:
         """Unified interface contract for Voice engine (Aryan) and UI (Rohit).

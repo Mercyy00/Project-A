@@ -35,7 +35,7 @@ def reset_brain() -> None:
         _brain_instance.reset()
 
 
-async def handle_text(text: str, source: str = "cli") -> Dict[str, Any]:
+async def handle_text(text: str, source: str = "cli", mode: str = "normal") -> Dict[str, Any]:
     """Process incoming text directive asynchronously in a background thread.
 
     Conforms strictly to ARCHITECTURE.md and Catch-Up Plan interface contract.
@@ -43,6 +43,7 @@ async def handle_text(text: str, source: str = "cli") -> Dict[str, Any]:
     Args:
         text: User query, spoken transcription, or UI message.
         source: Source channel identifier ('cli', 'ws', 'telegram', 'voice').
+        mode: Operating mode ('normal', 'silent', 'attentive', 'combat').
 
     Returns:
         Dict[str, Any] containing:
@@ -60,9 +61,18 @@ async def handle_text(text: str, source: str = "cli") -> Dict[str, Any]:
 
     try:
         brain: JarvisBrain = get_brain()
-        # Execute synchronous Gemini chat in a worker thread to keep asyncio event loop responsive
-        response_text: str = await asyncio.to_thread(brain.chat, cleaned)
+        # Execute synchronous LLM chat in a worker thread to keep asyncio event loop responsive
+        response_text: str = await asyncio.to_thread(brain.chat, cleaned, mode)
         tool_steps: List[str] = list(brain.last_tool_steps)
+
+        # Persist turn to SQLite long-term memory vault (Day 4 deliverable)
+        try:
+            from memory.storage import MemoryManager
+            mem = MemoryManager()
+            await mem.save_interaction("user", cleaned)
+            await mem.save_interaction("assistant", response_text)
+        except Exception as mem_err:
+            pass
 
         return {
             "text": response_text,

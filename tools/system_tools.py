@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 import psutil
 
 from tools.base import BaseTool, ToolResult
+from tools.safety import is_path_safe
+from pathlib import Path
 
 
 class GetSystemStatsTool(BaseTool):
@@ -38,10 +40,14 @@ class GetSystemStatsTool(BaseTool):
 
             stats = {
                 "cpu_usage_percent": cpu_percent,
+                "cpu_percent": cpu_percent,
                 "ram_usage_percent": ram.percent,
+                "ram_used_pct": ram.percent,
                 "ram_used_gb": round(ram.used / (1024 ** 3), 2),
                 "ram_total_gb": round(ram.total / (1024 ** 3), 2),
-                "battery": battery_info
+                "battery": battery_info,
+                "battery_pct": battery.percent if battery else 100,
+                "battery_plugged": battery.power_plugged if battery else True,
             }
             return ToolResult(
                 success=True,
@@ -145,6 +151,8 @@ class OpenAppTool(BaseTool):
             os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\mspaint.exe"),
         ],
         "notepad": [
+            "notepad.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\notepad.exe"),
             r"C:\Windows\System32\notepad.exe",
             os.path.expandvars(r"%SystemRoot%\System32\notepad.exe"),
         ],
@@ -233,6 +241,16 @@ class OpenAppTool(BaseTool):
         "camera": "microsoft.windows.camera:",
         "spotify": "spotify:",
         "whatsapp": "whatsapp:",
+    }
+
+    # Windows 11 UWP App Execution Alias / AppsFolder mappings
+    APP_APPSFOLDER: Dict[str, str] = {
+        "notepad": r"shell:AppsFolder\Microsoft.WindowsNotepad_8wekyb3d8bbwe!App",
+        "calc": r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        "calculator": r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        "camera": r"shell:AppsFolder\Microsoft.WindowsCamera_8wekyb3d8bbwe!App",
+        "terminal": r"shell:AppsFolder\Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
+        "paint": r"shell:AppsFolder\Microsoft.MSPaint_8wekyb3d8bbwe!Microsoft.MSPaint",
     }
 
     @staticmethod
@@ -349,6 +367,50 @@ class OpenAppTool(BaseTool):
             raw_key = app_name.strip().lower()
             key = self.APP_ALIASES.get(raw_key, raw_key)
 
+            # Direct launch for notepad (handles classic notepad and Windows 11 UWP App Execution Alias)
+            if key == "notepad":
+                notepad_candidates = [
+                    "notepad.exe",
+                    shutil.which("notepad.exe") or "notepad.exe",
+                    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\notepad.exe"),
+                    r"C:\Windows\System32\notepad.exe",
+                    os.path.expandvars(r"%SystemRoot%\System32\notepad.exe"),
+                    r"C:\Windows\notepad.exe",
+                ]
+                for candidate in notepad_candidates:
+                    if candidate and (not os.path.isabs(candidate) or os.path.exists(candidate)):
+                        try:
+                            proc = subprocess.Popen(
+                                [candidate],
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL
+                            )
+                            return ToolResult(
+                                success=True,
+                                data={
+                                    "app_name": "notepad",
+                                    "executable": candidate,
+                                    "pid": proc.pid
+                                },
+                                message=f"Application 'notepad' launched successfully (PID: {proc.pid})."
+                            )
+                        except Exception:
+                            continue
+
+                # Windows 11 UWP App Execution Alias / AppsFolder fallback
+                uwp_notepad = self.APP_APPSFOLDER.get("notepad")
+                if uwp_notepad and os.name == "nt":
+                    try:
+                        proc = subprocess.Popen(["explorer.exe", uwp_notepad])
+                        return ToolResult(
+                            success=True,
+                            data={"app_name": "notepad", "uwp_alias": uwp_notepad, "pid": proc.pid},
+                            message="Application 'notepad' launched successfully via Windows 11 UWP App Execution Alias."
+                        )
+                    except Exception:
+                        pass
+
             # 1. Try Windows UWP protocol if registered (e.g. calculator:, ms-settings:)
             protocol = self.APP_PROTOCOLS.get(raw_key) or self.APP_PROTOCOLS.get(key)
             if protocol and os.name == "nt":
@@ -447,6 +509,113 @@ class OpenAppTool(BaseTool):
                     }
                 },
                 "required": ["app_name"]
+            }
+        }
+
+
+class OpenFileTool(BaseTool):
+    """Tool that opens a file, PDF, Word document, or presentation in its default Windows desktop application."""
+    name: str = "open_file"
+    description: str = (
+        "Opens a file, PDF, Word document, or presentation in its default Windows desktop application."
+    )
+
+    def run(
+        self,
+        file_path: str = "",
+        path: Optional[str] = None,
+        filepath: Optional[str] = None,
+        **kwargs: Any
+    ) -> ToolResult:
+        """Opens a file in its default Windows desktop application.
+
+        Args:
+            file_path: Relative or absolute path to the file to open (e.g. 'workspace/file.pdf').
+            path: Alias for file_path.
+            filepath: Alias for file_path.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome indicating whether the file was opened.
+        """
+        try:
+            target_path = file_path or path or filepath
+            if not target_path or not isinstance(target_path, str) or not target_path.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="file_path must be a non-empty string."
+                )
+
+            clean_path = target_path.strip()
+
+            # Normalize user home and Desktop references
+            expanded_path = os.path.expanduser(clean_path)
+            clean_lower = clean_path.replace("\\", "/").lower()
+            if clean_lower.startswith("desktop/") or clean_lower == "desktop":
+                expanded_path = str(Path.home() / clean_path)
+
+            # Enforce path security isolation first
+            if not is_path_safe(expanded_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Permission Denied: Access to '{clean_path}' is not allowed."
+                )
+
+            resolved_path = os.path.realpath(expanded_path)
+            if not os.path.exists(resolved_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"File not found: '{clean_path}'."
+                )
+
+            if not os.path.isfile(resolved_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Path is not a regular file: '{clean_path}'."
+                )
+
+            if os.name == "nt":
+                os.startfile(resolved_path)
+            else:
+                subprocess.Popen(["xdg-open", resolved_path])
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": clean_path,
+                    "resolved_path": resolved_path
+                },
+                message=f"File '{clean_path}' opened in default application."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to open file '{clean_path}': {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling.
+
+        Returns:
+            Dict[str, Any]: JSON schema specification.
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to open (e.g. 'workspace/file.pdf'). Must be inside workspace/ or allowed safe directories."
+                    }
+                },
+                "required": ["file_path"]
             }
         }
 
@@ -698,28 +867,27 @@ class OpenWebsiteTool(BaseTool):
 
 
 class SearchWebTool(BaseTool):
-    """Tool that searches the web or YouTube using the default browser."""
+    """Tool that searches the web for real-time information and documentation."""
     name: str = "search_web"
-    description: str = (
-        "Searches the web or YouTube for a query using the default web browser. "
-        "Accepts a query string and an optional site target ('google' default, or 'youtube')."
-    )
+    description: str = "Searches the web for real-time information and documentation."
 
-    SEARCH_ENGINES: Dict[str, str] = {
-        "google": "https://www.google.com/search?q={query}",
-        "youtube": "https://www.youtube.com/results?search_query={query}",
-    }
-
-    def run(self, query: str, site: str = "google", **kwargs: Any) -> ToolResult:
-        """Performs a web or YouTube search and opens results in the browser.
+    def run(
+        self,
+        query: str,
+        site: str = "google",
+        max_results: int = 5,
+        **kwargs: Any
+    ) -> ToolResult:
+        """Searches Google or YouTube, opens browser, and retrieves live search snippets.
 
         Args:
-            query: The search term or keywords to search for.
-            site: Platform to search ('google' default, or 'youtube'). Defaults to 'google'.
+            query: The search term, topic, or technical question to search for.
+            site: Target platform, either 'google' or 'youtube' (default: 'google').
+            max_results: Maximum number of search results to retrieve (default: 5).
             **kwargs: Extra keyword arguments.
 
         Returns:
-            ToolResult: Execution outcome with search URL details.
+            ToolResult: Execution outcome with formatted search summary or error details.
         """
         try:
             if not query or not isinstance(query, str) or not query.strip():
@@ -729,41 +897,68 @@ class SearchWebTool(BaseTool):
                     message="query must be a non-empty string."
                 )
 
-            if not site or not isinstance(site, str) or not site.strip():
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="site must be a non-empty string ('google' or 'youtube')."
-                )
-
-            site_key = site.strip().lower()
-            if site_key not in self.SEARCH_ENGINES:
-                supported = ", ".join(sorted(self.SEARCH_ENGINES.keys()))
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message=f"Unsupported search site '{site}'. Supported sites: {supported}."
-                )
-
             clean_query = query.strip()
-            encoded_query = urllib.parse.quote_plus(clean_query)
-            search_url = self.SEARCH_ENGINES[site_key].format(query=encoded_query)
+            site_clean = (site or "google").strip().lower()
+            if site_clean not in ("google", "youtube"):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Unsupported search site '{site}'. Supported options: 'google', 'youtube'."
+                )
 
-            webbrowser.open(search_url)
+            encoded_query = urllib.parse.quote_plus(clean_query)
+            if site_clean == "youtube":
+                target_url = f"https://www.youtube.com/results?search_query={encoded_query}"
+            else:
+                target_url = f"https://www.google.com/search?q={encoded_query}"
+
+            # Open browser safely
+            try:
+                import webbrowser
+                webbrowser.open(target_url)
+            except Exception as browser_err:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Failed to execute search: {str(browser_err)}"
+                )
+
+            # Retrieve real search snippets via DuckDuckGo
+            results: List[Dict[str, Any]] = []
+            summary = ""
+            try:
+                try:
+                    from ddgs import DDGS
+                except ImportError:
+                    from duckduckgo_search import DDGS
+                effective_query = f"site:youtube.com {clean_query}" if site_clean == "youtube" else clean_query
+                results = list(DDGS().text(effective_query, max_results=max_results))
+                if results:
+                    summary = "\n\n".join([f"**{r.get('title', '')}**\n{r.get('body', '')}\n{r.get('href', '')}" for r in results])
+            except Exception:
+                pass
+
+            data_payload = {
+                "url": target_url,
+                "site": site_clean,
+                "summary": summary,
+                "results": results,
+            }
+
+            msg = f"Found {len(results)} search results." if results else f"Opened search for '{clean_query}' on {site_clean}."
+            if summary:
+                msg = f"{msg}\n\n{summary}"
+
             return ToolResult(
                 success=True,
-                data={
-                    "query": clean_query,
-                    "site": site_key,
-                    "url": search_url
-                },
-                message=f"Search for '{clean_query}' on {site_key} opened successfully."
+                data=data_payload,
+                message=msg
             )
-        except Exception as e:
+        except Exception as exc:
             return ToolResult(
                 success=False,
                 data=None,
-                message=f"Failed to execute search for '{query}': {str(e)}"
+                message=f"Search failed: {str(exc)}"
             )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -784,12 +979,509 @@ class SearchWebTool(BaseTool):
                     },
                     "site": {
                         "type": "string",
-                        "description": "The search platform to use ('google' or 'youtube'). Defaults to 'google'.",
+                        "description": "Search platform ('google' or 'youtube').",
                         "enum": ["google", "youtube"],
                         "default": "google"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of search results to retrieve (default: 5).",
+                        "default": 5
                     }
                 },
                 "required": ["query"]
             }
         }
 
+
+
+class ClipboardReadTool(BaseTool):
+    """Tool that retrieves the current text content from the system clipboard."""
+    name: str = "clipboard_read"
+    description: str = (
+        "Reads and returns the current text content stored in the system clipboard. "
+        "Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Reads text from the system clipboard.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: The clipboard text content.
+        """
+        try:
+            import pyperclip
+            text = pyperclip.paste()
+            return ToolResult(
+                success=True,
+                data={"text": text, "length": len(text) if text else 0},
+                message="Clipboard content read successfully." if text else "Clipboard is currently empty."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to read clipboard: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+
+
+class ClipboardWriteTool(BaseTool):
+    """Tool that copies text into the system clipboard."""
+    name: str = "clipboard_write"
+    description: str = (
+        "Copies the given text into the system clipboard so it can be pasted elsewhere."
+    )
+
+    def run(self, text: Optional[str] = None, **kwargs: Any) -> ToolResult:
+        """Copies text to the system clipboard.
+
+        Args:
+            text: The text string to copy into the clipboard.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome confirming clipboard write.
+        """
+        try:
+            if text is None or not isinstance(text, str):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="text must be a string."
+                )
+
+            if not text.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="The clipboard text is empty. What text would you like me to copy to the clipboard?"
+                )
+
+            import pyperclip
+            pyperclip.copy(text)
+            return ToolResult(
+                success=True,
+                data={"length": len(text)},
+                message=f"Copied {len(text)} characters to clipboard."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to copy to clipboard: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text string to copy into the clipboard."
+                    }
+                },
+                "required": ["text"]
+            }
+        }
+
+
+class SetVolumeTool(BaseTool):
+    """Tool that adjusts the Windows master system audio volume."""
+    name: str = "set_volume"
+    description: str = (
+        "Sets the Windows master audio volume to a specified percentage between 0 and 100."
+    )
+
+    @staticmethod
+    def _set_volume_powershell(vol_int: int) -> Optional[int]:
+        """Sets Windows master audio volume via PowerShell CoreAudio endpoint fallback."""
+        try:
+            scalar_val = float(vol_int) / 100.0
+            ps_script = f"""
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IAudioEndpointVolume {{
+    int RegisterControlChangeNotify(IntPtr pNotify);
+    int UnregisterControlChangeNotify(IntPtr pNotify);
+    int GetChannelCount(out int pnChannelCount);
+    int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
+    int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
+    int GetMasterVolumeLevel(out float pfLevelDB);
+    int GetMasterVolumeLevelScalar(out float pfLevel);
+}}
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMDevice {{
+    int Activate(ref Guid id, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+}}
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMDeviceEnumerator {{
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr ppDevices);
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
+}}
+
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+public class MMDeviceEnumeratorComObject {{ }}
+
+public class AudioHelper {{
+    public static float SetAndGetVolume(float level) {{
+        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+        IMMDevice dev;
+        enumerator.GetDefaultAudioEndpoint(0, 1, out dev);
+        var iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+        object ep;
+        dev.Activate(ref iid, 23, IntPtr.Zero, out ep);
+        var vol = (IAudioEndpointVolume)ep;
+        var guid = Guid.Empty;
+        vol.SetMasterVolumeLevelScalar(level, ref guid);
+        float current;
+        vol.GetMasterVolumeLevelScalar(out current);
+        return current;
+    }}
+}}
+'@
+[AudioHelper]::SetAndGetVolume({scalar_val})
+"""
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                timeout=8
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                try:
+                    return round(float(res.stdout.strip()) * 100)
+                except ValueError:
+                    return vol_int
+        except Exception:
+            pass
+        return None
+
+    def run(self, level: int, **kwargs: Any) -> ToolResult:
+        """Sets the system volume.
+
+        Args:
+            level: Target volume percentage between 0 and 100.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with adjusted volume level.
+        """
+        try:
+            if level is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="level parameter is required."
+                )
+
+            try:
+                vol_int = int(level)
+            except (ValueError, TypeError):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Volume level must be an integer between 0 and 100, got '{level}'."
+                )
+
+            if vol_int < 0 or vol_int > 100:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Volume level {vol_int} is out of bounds. Must be between 0 and 100."
+                )
+
+            # 1. Primary audio control via pycaw
+            try:
+                from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+                from comtypes import CLSCTX_ALL
+                from ctypes import cast, POINTER
+
+                device = None
+                try:
+                    device = AudioUtilities.GetSpeakers()
+                except AttributeError:
+                    device = AudioUtilities.get_speakers()
+
+                if device:
+                    scalar_val = float(vol_int) / 100.0
+                    volume = None
+                    if hasattr(device, "EndpointVolume") and device.EndpointVolume:
+                        volume = device.EndpointVolume
+                    elif hasattr(device, "Activate"):
+                        interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                        volume = cast(interface, POINTER(IAudioEndpointVolume))
+                    elif hasattr(device, "_dev") and hasattr(device._dev, "Activate"):
+                        interface = device._dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                        volume = cast(interface, POINTER(IAudioEndpointVolume))
+
+                    if volume is not None:
+                        volume.SetMasterVolumeLevelScalar(scalar_val, None)
+                        current_scalar = volume.GetMasterVolumeLevelScalar()
+                        current_pct = round(current_scalar * 100)
+                        return ToolResult(
+                            success=True,
+                            data={"volume_level": current_pct},
+                            message=f"System volume set to {current_pct}%."
+                        )
+            except Exception:
+                # pycaw failed or unavailable, fallback to native PowerShell audio endpoint
+                pass
+
+            # 2. Resilient native PowerShell CoreAudio endpoint fallback
+            ps_pct = self._set_volume_powershell(vol_int)
+            if ps_pct is not None:
+                return ToolResult(
+                    success=True,
+                    data={"volume_level": ps_pct},
+                    message=f"System volume set to {ps_pct}%."
+                )
+
+            return ToolResult(
+                success=False,
+                data=None,
+                message="Failed to set volume: audio endpoint unavailable."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to set volume: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "Volume percentage from 0 (mute) to 100 (maximum).",
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                },
+                "required": ["level"]
+            }
+        }
+
+
+class SetBrightnessTool(BaseTool):
+    """Tool that adjusts the Windows screen display brightness."""
+    name: str = "set_brightness"
+    description: str = (
+        "Sets the display screen brightness to a percentage between 0 and 100."
+    )
+
+    def run(self, level: int, **kwargs: Any) -> ToolResult:
+        """Sets the screen brightness.
+
+        Args:
+            level: Target brightness percentage between 0 and 100.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with adjusted brightness level.
+        """
+        try:
+            if level is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="level parameter is required."
+                )
+
+            try:
+                bright_int = int(level)
+            except (ValueError, TypeError):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Brightness level must be an integer between 0 and 100, got '{level}'."
+                )
+
+            if bright_int < 0 or bright_int > 100:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Brightness level {bright_int} is out of bounds. Must be between 0 and 100."
+                )
+
+            import screen_brightness_control as sbc
+            sbc.set_brightness(bright_int)
+            curr = sbc.get_brightness()
+            current_val = curr[0] if isinstance(curr, list) and curr else bright_int
+
+            return ToolResult(
+                success=True,
+                data={"brightness_level": current_val},
+                message=f"Screen brightness set to {current_val}%."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to set screen brightness: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "Brightness percentage from 0 to 100.",
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                },
+                "required": ["level"]
+            }
+        }
+
+
+class LockScreenTool(BaseTool):
+    """Tool that locks the Windows workstation immediately."""
+    name: str = "lock_screen"
+    description: str = (
+        "Immediately locks the Windows workstation screen using Windows API. Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Locks the Windows workstation screen.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Result indicating lock operation status.
+        """
+        try:
+            import ctypes
+            res = ctypes.windll.user32.LockWorkStation()
+            if res != 0:
+                return ToolResult(
+                    success=True,
+                    data={"locked": True},
+                    message="Windows workstation screen locked successfully."
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    data={"locked": False},
+                    message="LockWorkStation call failed."
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to lock workstation screen: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+
+
+class BatteryTool(BaseTool):
+    """Tool that inspects laptop battery charge and power connection status."""
+    name: str = "battery"
+    description: str = (
+        "Retrieves battery charge percentage, charging/plugged-in status, and remaining time. "
+        "Takes no arguments."
+    )
+
+    def run(self, **kwargs: Any) -> ToolResult:
+        """Inspects system battery telemetry.
+
+        Args:
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Battery telemetry details.
+        """
+        try:
+            battery = psutil.sensors_battery()
+            if battery is None:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "percent": None,
+                        "power_plugged": True,
+                        "is_desktop": True,
+                        "secsleft": None
+                    },
+                    message="No battery detected. Running on AC wall power (Desktop PC)."
+                )
+
+            status_str = "Plugged in (Charging)" if battery.power_plugged else "On Battery"
+            secs = battery.secsleft if battery.secsleft != psutil.POWER_TIME_UNLIMITED else None
+            mins_left = round(secs / 60) if secs is not None and secs > 0 else None
+
+            data = {
+                "percent": battery.percent,
+                "power_plugged": battery.power_plugged,
+                "status": status_str,
+                "minutes_left": mins_left
+            }
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Battery level is {battery.percent}% ({status_str})."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to inspect battery status: {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }

@@ -26,10 +26,15 @@ class TestJarvisBrain(unittest.TestCase):
         self.mock_key_patch = patch("core.brain.load_api_key", return_value="fake-api-key")
         self.mock_key_patch.start()
 
+        # Isolate environment for deterministic Gemini brain unit testing
+        self.mock_env = patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GROQ_API_KEY": ""})
+        self.mock_env.start()
+
     def tearDown(self) -> None:
         """Tear down all patches."""
         self.mock_client_patch.stop()
         self.mock_key_patch.stop()
+        self.mock_env.stop()
 
     def test_initialization(self) -> None:
         """Verify brain initializes with default model and system prompt."""
