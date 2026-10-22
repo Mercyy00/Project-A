@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from tools.base import BaseTool, ToolResult
@@ -507,11 +508,120 @@ def create_pptx(title: str, sections: Any, theme: str = "clean_light", auto_open
     return CreatePptxTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
 
 
+class CreateDocumentTool(BaseTool):
+    """Tool that autonomously designs and generates a full document or slide deck from a topic prompt."""
+
+    name: str = "create_document"
+    description: str = (
+        "Generates a complete, professionally formatted PDF, Word document, or PowerPoint slide deck "
+        "from a single topic prompt. Formats 4-6 sections with headings, summaries, and bullet points. "
+        "Supports English, Hindi, and Marathi in native Devanagari script. "
+        "Arguments: topic (str, required), kind (optional: 'pdf', 'docx', 'pptx'), "
+        "language (optional: 'en', 'hi', 'mr'), theme (optional: 'clean_light', 'dark_pro', 'colourful'), "
+        "auto_open (optional bool, default True)."
+    )
+
+    def run(
+        self,
+        topic: str,
+        kind: str = "pdf",
+        language: str = "en",
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        auto_open: bool = True,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute document outline generation and binary rendering."""
+        clean_topic = (topic or "").strip()
+        if not clean_topic:
+            return ToolResult(success=False, message="Document topic cannot be empty.")
+
+        try:
+            from creator.outline import create_document as make_full_document
+            file_path = make_full_document(
+                topic=clean_topic,
+                kind=kind,
+                theme=theme,
+                language=language,
+                out_dir=out_dir,
+                auto_open=auto_open,
+            )
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            fmt = Path(file_path).suffix.lstrip(".").lower()
+
+            return ToolResult(
+                success=True,
+                message=f"Document '{clean_topic}' successfully created at: {file_path} ({file_size} bytes)",
+                data={
+                    "file_path": file_path,
+                    "format": fmt,
+                    "bytes": file_size,
+                    "topic": clean_topic,
+                    "language": language,
+                    "theme": theme,
+                },
+            )
+        except Exception as exc:
+            logger.error("CreateDocumentTool execution failed: %s", exc, exc_info=True)
+            return ToolResult(success=False, message=f"Failed to create document: {exc}")
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Return OpenAPI / Gemini function calling schema for CreateDocumentTool."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Topic or theme of the document (e.g. 'Solar Energy', 'AI in Education', 'प्रकल्प नियोजन').",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Document format to generate: 'pdf' (default), 'docx' (Word), or 'pptx' (PowerPoint).",
+                        "enum": ["pdf", "docx", "pptx"],
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Content language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi). Default is 'en'.",
+                        "enum": ["en", "hi", "mr"],
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Styling theme: 'clean_light' (default), 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to automatically open the document upon creation (default: True).",
+                    },
+                },
+                "required": ["topic"],
+            },
+        }
+
+
+def create_document_tool(
+    topic: str,
+    kind: str = "pdf",
+    language: str = "en",
+    theme: str = "clean_light",
+    auto_open: bool = True,
+    **kwargs: Any,
+) -> ToolResult:
+    """Convenience callable for CreateDocumentTool."""
+    return CreateDocumentTool().run(
+        topic=topic, kind=kind, language=language, theme=theme, auto_open=auto_open, **kwargs
+    )
+
+
 # Canonical exported tools list for Abhijit's registry auto-loader (Catch-Up Plan Section 4 & 7)
 TOOLS: List[BaseTool] = [
     CreatePdfTool(),
     CreateDocxTool(),
     CreatePptxTool(),
+    CreateDocumentTool(),
 ]
 
 # Auto-register all tools immediately into central registry
