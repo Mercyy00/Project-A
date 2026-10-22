@@ -5,13 +5,18 @@ Calibrated for native Indian voices to prevent American phonetic mangling:
   - Indian English: en-IN-PrabhatNeural (or en-IN-NeerjaNeural)
   - Hindi: hi-IN-MadhurNeural (or hi-IN-SwaraNeural)
   - Marathi: mr-IN-ManoharNeural (or mr-IN-AarohiNeural)
-Features SSML cadence normalization, strict overlap prevention,
-and seamless pygame playback with offline fallback.
+Features:
+  - High-speed MD5 audio cache for 0ms repeated replies
+  - Background audio cleanup for temporary storage
+  - Asynchronous speak_to_file_async for WebSockets & FastAPI
+  - Strict thread-safe overlap prevention and playback locking
+  - SSML cadence tuning with offline pyttsx3 fallback
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import sys
 import tempfile
@@ -68,7 +73,7 @@ class TTSError(Exception):
 
 
 class JarvisSpeaker:
-    """Multilingual speaker for Project JARVIS with overlap prevention."""
+    """Multilingual speaker for Project JARVIS with overlap prevention and audio caching."""
 
     def __init__(self) -> None:
         self.voices = {
@@ -80,6 +85,20 @@ class JarvisSpeaker:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self._is_speaking = False
         self._lock = threading.Lock()
+        self._cleanup_old_audio()
+
+    def _cleanup_old_audio(self, max_age_seconds: int = 1800) -> None:
+        """Remove temporary audio files older than max_age_seconds."""
+        try:
+            now = time.time()
+            for p in self.temp_dir.glob("speech_*.mp3"):
+                if now - p.stat().st_mtime > max_age_seconds:
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     @property
     def is_speaking(self) -> bool:
@@ -94,7 +113,7 @@ class JarvisSpeaker:
         """
         dialect_info = detect_code_switching(text)
 
-        # If user explicitly asked for a language
+        # If user explicitly asked for a supported language code
         if lang in self.voices:
             return self.voices[lang]
 
@@ -109,25 +128,27 @@ class JarvisSpeaker:
         return self.voices.get("en", DEFAULT_VOICE_EN)
 
     def _format_ssml_text(self, text: str) -> str:
-        """Format text with natural pacing to avoid robotic cadence."""
+        """Format text with natural punctuation pacing to avoid robotic cadence."""
         clean = text.strip()
-        # Edge-tts supports direct text or SSML. Using clean punctuation ensures natural cadence.
         if not clean.endswith((".", "!", "?", "।")):
             clean += "."
         return clean
 
     async def _generate_audio_edge(self, text: str, voice: str, output_path: Path) -> bool:
-        """Generate audio file using edge-tts asynchronously with rate tuning."""
+        """Generate audio file using edge-tts asynchronously with rate and volume tuning."""
         if edge_tts is None:
             return False
         try:
             formatted_text = self._format_ssml_text(text)
-            # rate='+0%' and pitch='+0Hz' for standard natural human cadence
-            communicate = edge_tts.Communicate(formatted_text, voice, rate="+0%", pitch="+0Hz")
+            volume_boost = os.getenv("TTS_VOLUME", "+0%")
+            rate_setting = os.getenv("TTS_RATE", "+0%")
+            communicate = edge_tts.Communicate(
+                formatted_text, voice, volume=volume_boost, rate=rate_setting
+            )
             await communicate.save(str(output_path))
             return output_path.is_file() and output_path.stat().st_size > 0
         except Exception as exc:
-            print(f"Notice: edge-tts generation error ({exc}).")
+            print(f"Notice: edge-tts generation failed ({exc}).")
             return False
 
     def _speak_offline_fallback(self, text: str) -> None:
@@ -146,6 +167,36 @@ class JarvisSpeaker:
         finally:
             self._is_speaking = False
 
+    async def speak_to_file_async(self, text: str, lang: str | None = None) -> str:
+        """Synthesize speech asynchronously with MD5 caching and save to an audio file (.mp3).
+
+        Args:
+            text: Text to synthesize.
+            lang: Language code ('en', 'hi', 'mr') or None for auto-detection.
+
+        Returns:
+            Absolute path string to the generated audio file.
+        """
+        clean_text = text.strip()
+        if not clean_text:
+            return ""
+
+        voice = self.get_voice_for_language(lang, clean_text)
+        # Check high-speed neural audio cache first (instant 0ms response)
+        cache_hash = hashlib.md5(f"{voice}::{clean_text}".encode("utf-8")).hexdigest()
+        cache_path = self.temp_dir / f"tts_cache_{cache_hash}.mp3"
+        if cache_path.is_file() and cache_path.stat().st_size > 0:
+            return str(cache_path.resolve())
+
+        try:
+            success = await self._generate_audio_edge(clean_text, voice, cache_path)
+            if success and cache_path.is_file():
+                return str(cache_path.resolve())
+        except Exception as exc:
+            print(f"Failed to generate speech file asynchronously: {exc}")
+
+        return ""
+
     def speak_to_file(self, text: str, lang: str | None = None) -> str:
         """Synthesize speech and save to an audio file (.mp3).
 
@@ -160,12 +211,24 @@ class JarvisSpeaker:
         if not clean_text:
             return ""
 
+        self._cleanup_old_audio()
         voice = self.get_voice_for_language(lang, clean_text)
         file_name = f"speech_{int(time.time() * 1000)}.mp3"
         out_path = self.temp_dir / file_name
 
         try:
-            asyncio.run(self._generate_audio_edge(clean_text, voice, out_path))
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(asyncio.run, self._generate_audio_edge(clean_text, voice, out_path)).result()
+            else:
+                asyncio.run(self._generate_audio_edge(clean_text, voice, out_path))
+
             if out_path.is_file():
                 return str(out_path.resolve())
         except Exception as exc:
@@ -176,7 +239,7 @@ class JarvisSpeaker:
     def speak(self, text: str, lang: str | None = None) -> None:
         """Speak text aloud with strict overlap prevention.
 
-        Haults any currently playing speech before initiating new playback,
+        Halts any currently playing speech before initiating new playback,
         and blocks until playback has finished completely.
 
         Args:
@@ -210,6 +273,10 @@ class JarvisSpeaker:
                 pygame.mixer.init()
 
             pygame.mixer.music.load(file_path)
+            try:
+                pygame.mixer.music.set_volume(1.0)
+            except Exception:
+                pass
             self._is_speaking = True
             pygame.mixer.music.play()
 
@@ -267,3 +334,8 @@ def stop() -> None:
 def speak_to_file(text: str, lang: str | None = None) -> str:
     """Module-level convenience function to synthesize to audio file."""
     return get_speaker().speak_to_file(text, lang)
+
+
+async def speak_to_file_async(text: str, lang: str | None = None) -> str:
+    """Module-level convenience function to synthesize to audio file asynchronously."""
+    return await get_speaker().speak_to_file_async(text, lang)
