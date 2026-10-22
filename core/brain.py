@@ -611,21 +611,24 @@ class JarvisBrain:
         stripped_lower = lower_input.strip("?.!")
         time_triggers = (
             "what time is it", "current time", "what is the time", "tell me the time",
-            "time please", "what date", "today's date", "which day is it",
-            "kiti vajle", "vel kay zali", "samay kya hai", "kitne baje"
+            "time please", "what date", "today's date", "which day is it", "what is the date",
+            "kiti vajle", "vel kay zali", "samay kya hai", "kitne baje", "aaj ki tarikh"
         )
-        if any(t in stripped_lower for t in time_triggers) or stripped_lower in ("time", "date"):
+        words = set(stripped_lower.split())
+        if any(t in stripped_lower for t in time_triggers) or "time" in words or "date" in words:
             now = datetime.datetime.now()
             t = now.strftime("%I:%M %p")
             d = now.strftime("%A, %B %d, %Y")
-            yield f"The current time is {t} on {d}."
+            yield f"Today's date is {d}, and the current time is {t}."
             return
 
-        if any(k in stripped_lower for k in (
+        system_stat_triggers = (
             "system info", "system stats", "system status", "report system status",
-            "report status", "cpu usage", "ram usage", "battery", "telemetry",
+            "cpu usage", "ram usage", "battery", "telemetry",
             "hardware status", "status report"
-        )):
+        )
+        cleaned_cmd = stripped_lower.removeprefix("jarvis").strip(", ")
+        if cleaned_cmd in system_stat_triggers:
             try:
                 from tools.system_tools import GetSystemStatsTool
                 stats = GetSystemStatsTool().run()
