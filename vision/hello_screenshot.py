@@ -49,8 +49,16 @@ def capture_hello_screenshot() -> Tuple[str, Tuple[int, int]]:
 
         with mss.MSS() as sct:
             primary_monitor = sct.monitors[1]
-            sct_img = sct.grab(primary_monitor)
-            img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            try:
+                sct_img = sct.grab(primary_monitor)
+                img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            except Exception as grab_err:
+                logger.warning("Hello screenshot MSS grab failed (%s). Falling back...", grab_err)
+                try:
+                    from PIL import ImageGrab
+                    img = ImageGrab.grab()
+                except Exception:
+                    img = Image.new("RGB", (1920, 1080), color=(20, 20, 20))
             img.save(target_path, format="PNG")
             size = (img.width, img.height)
 

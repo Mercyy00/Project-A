@@ -168,8 +168,20 @@ def take_screenshot(
             else:
                 monitor = primary_monitor
 
-            sct_img = sct.grab(monitor)
-            img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            try:
+                sct_img = sct.grab(monitor)
+                img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+            except Exception as grab_err:
+                logger.warning("Primary MSS screen grab failed (%s). Attempting fallback...", grab_err)
+                try:
+                    from PIL import ImageGrab
+                    img = ImageGrab.grab()
+                    if region:
+                        img = img.crop((region[0], region[1], region[0] + region[2], region[1] + region[3]))
+                except Exception:
+                    w = int(monitor.get("width", 1920))
+                    h = int(monitor.get("height", 1080))
+                    img = Image.new("RGB", (max(1, w), max(1, h)), color=(20, 20, 20))
 
             # Resize to max 1280px wide for optimal AI token speed & network efficiency
             target_width = 1280

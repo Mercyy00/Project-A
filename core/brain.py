@@ -25,6 +25,7 @@ DEFAULT_SYSTEM_PROMPT: str = (
     "CRITICAL CONVERSATIONAL RULE: Keep responses under 20 words in 1 or 2 punchy, spoken sentences suitable for instant voice synthesis. Never write conversational filler, long disclaimers, or paragraphs. "
     "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening an app, setting volume or brightness, locking screen, managing windows, running commands, reading/writing files, taking screenshots, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
     "ZERO-PHANTOM RULE: NEVER claim, simulate, or hallucinate that you performed any action unless you actually invoked the corresponding tool and received a successful response. If a tool call fails, state the failure honestly and crisply. "
+    "STATE AWARENESS: You possess ZERO psychic knowledge of the computer state. You do not know what windows are active, what files exist, what is on the clipboard, or what the telemetry is until you call the respective inspection tool (list_windows, list_directory, clipboard_read, get_system_stats, battery). Never invent or guess desktop states. "
     "MULTILINGUAL RULE: Respond in the user's language (English, Hindi, Marathi, or Hinglish). When speaking Hindi or Marathi, always output in native Devanagari script so the speech synthesizer pronounces it flawlessly. "
     "SAFETY: Require explicit user confirmation before executing destructive commands (deletions, file overwrites, sending messages)."
 )
@@ -734,7 +735,7 @@ class JarvisBrain:
                     completion = client.chat.completions.create(
                         model=m,
                         messages=messages,
-                        temperature=0.4 if is_combat else 0.7,
+                        temperature=0.2 if is_combat else 0.3,
                         max_tokens=256 if is_combat else 1024,
                         **extra_params,
                     )
@@ -778,10 +779,12 @@ class JarvisBrain:
                     follow_up = client.chat.completions.create(
                         model=used_model,
                         messages=messages,
-                        max_tokens=64 if is_combat else 128,
-                        temperature=0.3 if is_combat else 0.5,
+                        max_tokens=48 if is_combat else 64,
+                        temperature=0.2,
                     )
-                    final_text = (follow_up.choices[0].message.content or "").strip()
+                    raw_content = (follow_up.choices[0].message.content or "").strip()
+                    lines = [line.strip() for line in raw_content.splitlines() if line.strip()]
+                    final_text = lines[0] if lines else "Directive executed successfully, sir."
                 except Exception:
                     final_text = "Directive executed successfully."
             else:
