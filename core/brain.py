@@ -414,7 +414,30 @@ class JarvisBrain:
         except Exception as exc:
             error_msg = f"Groq fallback execution error: {str(exc)}"
             print(f"[!] {error_msg}", file=sys.stderr)
+            fallback = self._offline_fallback(user_message)
+            if fallback:
+                return fallback
             return "Both primary neural core and backup engine encountered an execution error."
+
+    def _offline_fallback(self, message: str) -> str:
+        """Intelligent offline fallback for common queries when API rate limits occur."""
+        clean = message.lower().strip()
+        import datetime
+        now = datetime.datetime.now()
+        if any(w in clean for w in ("date", "tarikh", "तारीख", "दिनांक")):
+            return f"Today is {now.strftime('%A, %d %B %Y')}."
+        if any(w in clean for w in ("time", "vel", "वेळ", "समय")):
+            return f"The current time is {now.strftime('%I:%M %p')}."
+        if any(w in clean for w in ("notepad", "नोटपॅड", "नोटपैड")):
+            try:
+                import subprocess
+                subprocess.Popen("notepad.exe")
+                return "Opening Notepad for you right away."
+            except Exception:
+                pass
+        if any(w in clean for w in ("hello", "hi", "hey", "namaste", "namaskar", "नमस्कार", "नमस्ते")):
+            return "Hello! I am Jarvis. How can I assist you today?"
+        return ""
 
     def process_input(self, text: str) -> str:
         """Unified interface contract for Voice engine (Aryan) and UI (Rohit).
@@ -487,6 +510,17 @@ def run_interactive_cli() -> None:
         except (KeyboardInterrupt, EOFError):
             print("\nJarvis > Emergency shutdown requested. Goodbye, Jay.")
             break
+
+
+_default_brain = None
+
+
+def get_brain():
+    """Retrieve or initialize the shared singleton JarvisBrain instance."""
+    global _default_brain
+    if _default_brain is None:
+        _default_brain = JarvisBrain()
+    return _default_brain
 
 
 def main() -> None:

@@ -48,8 +48,84 @@ HINDI_MARKERS: Final[set[str]] = {
     "किसलिए", "कौन", "कब", "कहाँ", "समय", "आज", "कल", "कृपया", "अच्छा", "नया"
 }
 
+# Distinctive Roman-transliterated Hinglish tokens (code-switching)
+ROMAN_HINGLISH_MARKERS: Final[set[str]] = {
+    "kya", "hai", "hain", "kaise", "kaisa", "kaisi", "karo", "karen", "karna",
+    "karta", "karti", "aaj", "kal", "batao", "bataiye", "mujhe", "mera", "meri",
+    "mere", "hum", "aap", "nahi", "nahin", "kuch", "shuru", "kholo", "samay",
+    "namaste", "shukriya", "chahiye", "dekho", "suno", "theek"
+}
+
+# Distinctive Roman-transliterated Marathish tokens (code-switching)
+ROMAN_MARATHISH_MARKERS: Final[set[str]] = {
+    "kay", "aahe", "aahet", "kasa", "ahes", "kase", "kasaa", "sang", "sanga",
+    "mala", "majha", "majhi", "majhe", "majhya", "aamhi", "tumhi", "nahi", "nahit",
+    "aathvan", "havaman", "ughada", "liha", "lihayla", "karun", "dya", "namaskar",
+    "dhanyavaad", "tarikh", "aajche", "aajchi", "kashasathi", "bagh", "bagha"
+}
+
 DEVANAGARI_REGEX: Final[re.Pattern[str]] = re.compile(r"[\u0900-\u097F]")
 ROMAN_REGEX: Final[re.Pattern[str]] = re.compile(r"[A-Za-z]")
+
+
+def detect_code_switching(text: str) -> dict[str, Any]:
+    """Identify code-switching, transliterated Hinglish, or Marathish in Roman script.
+
+    Args:
+        text: Input text string.
+
+    Returns:
+        Dict with keys:
+          'primary_lang': 'en' | 'hi' | 'mr',
+          'is_code_switched': bool,
+          'dialect': 'standard_en' | 'hinglish' | 'marathish' | 'devanagari_hi' | 'devanagari_mr'
+    """
+    clean_text = text.strip()
+    if not clean_text:
+        return {"primary_lang": "en", "is_code_switched": False, "dialect": "standard_en"}
+
+    devanagari_count = len(DEVANAGARI_REGEX.findall(clean_text))
+    if devanagari_count > 0:
+        lang = _detect_devanagari_language(clean_text)
+        return {
+            "primary_lang": lang,
+            "is_code_switched": False,
+            "dialect": f"devanagari_{lang}",
+        }
+
+    # Analyze Roman tokens for Hinglish and Marathish vocabulary
+    tokens = set(re.findall(r"[A-Za-z]+", clean_text.lower()))
+    marathish_count = len(tokens.intersection(ROMAN_MARATHISH_MARKERS))
+    hinglish_count = len(tokens.intersection(ROMAN_HINGLISH_MARKERS))
+
+    if marathish_count >= 1 and marathish_count >= hinglish_count:
+        return {
+            "primary_lang": "mr",
+            "is_code_switched": True,
+            "dialect": "marathish",
+        }
+    if hinglish_count >= 1:
+        return {
+            "primary_lang": "hi",
+            "is_code_switched": True,
+            "dialect": "hinglish",
+        }
+
+    return {
+        "primary_lang": "en",
+        "is_code_switched": False,
+        "dialect": "standard_en",
+    }
+
+
+def is_hinglish(text: str) -> bool:
+    """Return True if Roman text exhibits Hinglish code-switching."""
+    return detect_code_switching(text)["dialect"] == "hinglish"
+
+
+def is_marathish(text: str) -> bool:
+    """Return True if Roman text exhibits Marathish code-switching."""
+    return detect_code_switching(text)["dialect"] == "marathish"
 
 
 def is_roman_script(text: str) -> bool:

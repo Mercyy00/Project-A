@@ -51,9 +51,14 @@ from voice.lang import detect_language
 
 
 DEFAULT_SAMPLE_RATE: Final[int] = 16000  # 16 kHz mono standard
-DEFAULT_SILENCE_SECONDS: Final[float] = 1.5
-DEFAULT_MAX_SECONDS: Final[int] = 10
+DEFAULT_SILENCE_SECONDS: Final[float] = 3.0  # Adaptive pause threshold (allows 2s thinking pauses)
+DEFAULT_MAX_SECONDS: Final[int] = 15
 DEFAULT_MIC_DURATION: Final[int] = 4
+
+# Initial prompt hotwords to prevent Whisper mishearing 'Jarvis' as 'that is' / 'service' / 'drivers'
+WHISPER_INITIAL_PROMPT: Final[str] = (
+    "Jarvis, J.A.R.V.I.S., Hindi, Marathi, namaste, open, search, notepad, date, time"
+)
 
 
 class STTError(Exception):
@@ -201,6 +206,7 @@ class Transcriber:
                 audio,
                 beam_size=5,
                 vad_filter=True,
+                initial_prompt=WHISPER_INITIAL_PROMPT,
             )
             text = " ".join(seg.text.strip() for seg in segments).strip()
             return text
@@ -259,13 +265,21 @@ class Transcriber:
                     if audio_data.ndim > 1:
                         audio_data = np.mean(audio_data, axis=1)
                     if file_sr == DEFAULT_SAMPLE_RATE:
-                        segments, info = model.transcribe(audio_data, beam_size=5, vad_filter=True)
+                        segments, info = model.transcribe(
+                            audio_data, beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
+                        )
                     else:
-                        segments, info = model.transcribe(str(target_path), beam_size=5, vad_filter=True)
+                        segments, info = model.transcribe(
+                            str(target_path), beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
+                        )
                 except Exception:
-                    segments, info = model.transcribe(str(target_path), beam_size=5, vad_filter=True)
+                    segments, info = model.transcribe(
+                        str(target_path), beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
+                    )
             else:
-                segments, info = model.transcribe(str(target_path), beam_size=5, vad_filter=True)
+                segments, info = model.transcribe(
+                    str(target_path), beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
+                )
 
             text = " ".join(seg.text.strip() for seg in segments).strip()
 
@@ -321,9 +335,21 @@ class Transcriber:
 
         recorded_chunks: list[np.ndarray] = []
         speech_started = False
+        consecutive_voice_chunks = 0
         silence_chunk_count = 0
 
-        print(f"Listening (max {max_seconds}s, stopping after {silence_seconds}s silence)...")
+        # Prevent voice overlap: ensure speaker has completely stopped before listening
+        try:
+            from voice.tts import get_speaker
+            speaker = get_speaker()
+            while speaker._is_speaking:
+                time.sleep(0.05)
+            time.sleep(0.25)  # Guard interval to clear room echo / mic buffer
+        except Exception:
+            pass
+
+        sec_label = int(silence_seconds) if silence_seconds == int(silence_seconds) else silence_seconds
+        print(f"Speak now (stops automatically on {sec_label} sec silence)...")
 
         try:
             with sd.InputStream(
@@ -340,11 +366,15 @@ class Transcriber:
                     rms = float(np.sqrt(np.mean(data_flat ** 2)))
 
                     if rms > silence_threshold:
-                        speech_started = True
+                        consecutive_voice_chunks += 1
+                        if consecutive_voice_chunks >= 2:
+                            speech_started = True
                         silence_chunk_count = 0
                     else:
+                        consecutive_voice_chunks = 0
                         if speech_started:
                             silence_chunk_count += 1
+                            # Terminate only after sustained silence exceeds threshold
                             if silence_chunk_count >= silence_chunks_required:
                                 break
 
@@ -372,6 +402,7 @@ class Transcriber:
                 full_audio,
                 beam_size=5,
                 vad_filter=True,
+                initial_prompt=WHISPER_INITIAL_PROMPT,
             )
             text = " ".join(seg.text.strip() for seg in segments).strip()
             detected_lang = detect_language(text)
