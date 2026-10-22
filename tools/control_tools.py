@@ -8,6 +8,16 @@ import pyautogui
 
 from tools.base import BaseTool, ToolResult
 
+# Import safety kill-switch and action logger from tools.guard
+try:
+    from tools.guard import is_stopped, log_action
+except ImportError:
+    def is_stopped() -> bool:
+        return False
+
+    def log_action(tool_name: str, args: Any, result_summary: Any) -> None:
+        pass
+
 # Configure PyAutoGUI safety and timing settings
 # 0.3 s pause between PyAutoGUI actions as specified in the plan
 pyautogui.PAUSE = 0.3
@@ -41,19 +51,42 @@ class TypeTextTool(BaseTool):
         Returns:
             ToolResult: Execution outcome with character count on success.
         """
+        args_payload = {"text": text, "interval": interval, "press_enter": press_enter}
         try:
+            # Emergency kill switch check prior to performing any action
+            if is_stopped():
+                res = ToolResult(
+                    success=False,
+                    data=None,
+                    message="Execution stopped: Kill switch is active."
+                )
+                log_action(self.name, args_payload, res.message)
+                return res
+
             if not isinstance(text, str):
-                return ToolResult(
+                res = ToolResult(
                     success=False,
                     data=None,
                     message="Invalid parameter: 'text' must be a string."
                 )
+                log_action(self.name, args_payload, res.message)
+                return res
 
+            # If mocked in unit test, call write directly to preserve test assertions
             pyautogui.write(text, interval=interval)
+
             if press_enter:
+                if is_stopped():
+                    res = ToolResult(
+                        success=False,
+                        data={"chars_typed": len(text), "pressed_enter": False},
+                        message="Execution stopped: Kill switch triggered before pressing Enter."
+                    )
+                    log_action(self.name, args_payload, res.message)
+                    return res
                 pyautogui.press("enter")
 
-            return ToolResult(
+            res = ToolResult(
                 success=True,
                 data={
                     "chars_typed": len(text),
@@ -61,19 +94,25 @@ class TypeTextTool(BaseTool):
                 },
                 message=f"Successfully typed {len(text)} characters."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
         except pyautogui.FailSafeException:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message="Execution stopped: PyAutoGUI fail-safe corner triggered by user."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
         except Exception as e:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message=f"Failed to type text: {str(e)}"
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
     def get_schema(self) -> Dict[str, Any]:
         """Returns JSON schema definition for LLM tool calling."""
@@ -131,25 +170,44 @@ class PressKeysTool(BaseTool):
         Returns:
             ToolResult: Execution outcome with keys pressed.
         """
+        args_payload = {
+            "keys": keys if keys is not None else (hotkey or key),
+            "presses": presses,
+            "interval": interval,
+        }
         try:
+            # Emergency kill switch check
+            if is_stopped():
+                res = ToolResult(
+                    success=False,
+                    data=None,
+                    message="Execution stopped: Kill switch is active."
+                )
+                log_action(self.name, args_payload, res.message)
+                return res
+
             target = keys if keys is not None else (hotkey or key)
             if target is None:
-                return ToolResult(
+                res = ToolResult(
                     success=False,
                     data=None,
                     message="Missing required parameter: 'keys' must be provided."
                 )
+                log_action(self.name, args_payload, res.message)
+                return res
 
             # Normalize keys to a list of strings
             key_list: List[str] = []
             if isinstance(target, str):
                 cleaned = target.strip()
                 if not cleaned:
-                    return ToolResult(
+                    res = ToolResult(
                         success=False,
                         data=None,
                         message="'keys' cannot be an empty string."
                     )
+                    log_action(self.name, args_payload, res.message)
+                    return res
                 if "+" in cleaned:
                     key_list = [k.strip().lower() for k in cleaned.split("+") if k.strip()]
                 elif "," in cleaned:
@@ -159,30 +217,57 @@ class PressKeysTool(BaseTool):
             elif isinstance(target, (list, tuple)):
                 key_list = [str(k).strip().lower() for k in target if str(k).strip()]
             else:
-                return ToolResult(
+                res = ToolResult(
                     success=False,
                     data=None,
                     message="'keys' must be a string or a list of key names."
                 )
+                log_action(self.name, args_payload, res.message)
+                return res
 
             if not key_list:
-                return ToolResult(
+                res = ToolResult(
                     success=False,
                     data=None,
                     message="No valid keys provided to press."
                 )
+                log_action(self.name, args_payload, res.message)
+                return res
 
             # Perform key press or hotkey execution
             if len(key_list) == 1:
-                pyautogui.press(key_list[0], presses=max(1, presses), interval=interval)
+                if presses <= 1:
+                    pyautogui.press(key_list[0], presses=max(1, presses), interval=interval)
+                else:
+                    for p in range(presses):
+                        if is_stopped():
+                            res = ToolResult(
+                                success=False,
+                                data={"keys": key_list, "presses_completed": p},
+                                message="Execution stopped: Kill switch triggered during key presses."
+                            )
+                            log_action(self.name, args_payload, res.message)
+                            return res
+                        pyautogui.press(key_list[0], presses=1, interval=interval)
             else:
-                for _ in range(max(1, presses)):
+                if presses <= 1:
                     pyautogui.hotkey(*key_list)
-                    if presses > 1:
-                        pyautogui.sleep(interval)
+                else:
+                    for p in range(presses):
+                        if is_stopped():
+                            res = ToolResult(
+                                success=False,
+                                data={"keys": key_list, "presses_completed": p},
+                                message="Execution stopped: Kill switch triggered during hotkey presses."
+                            )
+                            log_action(self.name, args_payload, res.message)
+                            return res
+                        pyautogui.hotkey(*key_list)
+                        if presses > 1:
+                            pyautogui.sleep(interval)
 
             formatted_keys = "+".join(key_list)
-            return ToolResult(
+            res = ToolResult(
                 success=True,
                 data={
                     "keys": key_list,
@@ -190,19 +275,25 @@ class PressKeysTool(BaseTool):
                 },
                 message=f"Successfully pressed key(s): '{formatted_keys}'."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
         except pyautogui.FailSafeException:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message="Execution stopped: PyAutoGUI fail-safe corner triggered by user."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
         except Exception as e:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message=f"Failed to press keys: {str(e)}"
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
     def get_schema(self) -> Dict[str, Any]:
         """Returns JSON schema definition for LLM tool calling."""
@@ -261,31 +352,46 @@ class ClickTool(BaseTool):
         Returns:
             ToolResult: Execution outcome with click position and button.
         """
+        args_payload = {"x": x, "y": y, "clicks": clicks, "button": button, "interval": interval}
         try:
+            # Emergency kill switch check
+            if is_stopped():
+                res = ToolResult(
+                    success=False,
+                    data=None,
+                    message="Execution stopped: Kill switch is active."
+                )
+                log_action(self.name, args_payload, res.message)
+                return res
+
             btn = button.lower().strip()
             if btn not in ("left", "right", "middle", "primary", "secondary"):
-                return ToolResult(
+                res = ToolResult(
                     success=False,
                     data=None,
                     message=f"Invalid mouse button '{button}'. Must be 'left', 'right', or 'middle'."
                 )
+                log_action(self.name, args_payload, res.message)
+                return res
 
             # Determine coordinates
             if x is not None and y is not None:
                 click_x, click_y = int(x), int(y)
                 if click_x < 0 or click_y < 0:
-                    return ToolResult(
+                    res = ToolResult(
                         success=False,
                         data=None,
                         message=f"Coordinates cannot be negative: ({x}, {y})."
                     )
+                    log_action(self.name, args_payload, res.message)
+                    return res
                 pyautogui.click(x=click_x, y=click_y, clicks=clicks, interval=interval, button=btn)
             else:
                 curr_pos = pyautogui.position()
                 click_x, click_y = curr_pos.x, curr_pos.y
                 pyautogui.click(clicks=clicks, interval=interval, button=btn)
 
-            return ToolResult(
+            res = ToolResult(
                 success=True,
                 data={
                     "x": click_x,
@@ -295,19 +401,25 @@ class ClickTool(BaseTool):
                 },
                 message=f"Successfully clicked {btn} button {clicks} time(s) at ({click_x}, {click_y})."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
         except pyautogui.FailSafeException:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message="Execution stopped: PyAutoGUI fail-safe corner triggered by user."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
         except Exception as e:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message=f"Failed to perform click: {str(e)}"
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
     def get_schema(self) -> Dict[str, Any]:
         """Returns JSON schema definition for LLM tool calling."""
@@ -372,14 +484,27 @@ class ScrollTool(BaseTool):
         Returns:
             ToolResult: Execution outcome with scroll clicks performed.
         """
+        args_payload = {"clicks": clicks, "amount": amount, "x": x, "y": y}
         try:
+            # Emergency kill switch check
+            if is_stopped():
+                res = ToolResult(
+                    success=False,
+                    data=None,
+                    message="Execution stopped: Kill switch is active."
+                )
+                log_action(self.name, args_payload, res.message)
+                return res
+
             scroll_clicks = clicks if clicks != 0 else (amount if amount is not None else 0)
             if scroll_clicks == 0:
-                return ToolResult(
+                res = ToolResult(
                     success=False,
                     data=None,
                     message="Invalid scroll amount: 'clicks' must be a non-zero integer."
                 )
+                log_action(self.name, args_payload, res.message)
+                return res
 
             if x is not None and y is not None:
                 pyautogui.scroll(int(scroll_clicks), x=int(x), y=int(y))
@@ -387,7 +512,7 @@ class ScrollTool(BaseTool):
                 pyautogui.scroll(int(scroll_clicks))
 
             direction = "up" if scroll_clicks > 0 else "down"
-            return ToolResult(
+            res = ToolResult(
                 success=True,
                 data={
                     "clicks": scroll_clicks,
@@ -397,19 +522,25 @@ class ScrollTool(BaseTool):
                 },
                 message=f"Successfully scrolled {direction} by {abs(scroll_clicks)} click(s)."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
         except pyautogui.FailSafeException:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message="Execution stopped: PyAutoGUI fail-safe corner triggered by user."
             )
+            log_action(self.name, args_payload, res.message)
+            return res
         except Exception as e:
-            return ToolResult(
+            res = ToolResult(
                 success=False,
                 data=None,
                 message=f"Failed to scroll: {str(e)}"
             )
+            log_action(self.name, args_payload, res.message)
+            return res
 
     def get_schema(self) -> Dict[str, Any]:
         """Returns JSON schema definition for LLM tool calling."""
