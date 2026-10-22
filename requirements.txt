@@ -43,3 +43,9 @@ pytest-asyncio>=0.23.0
 pyTelegramBotAPI
 pywhatkit
 schedule
+
+# --- Vidhita: Documents ---
+reportlab>=5.0.0
+python-docx>=1.1.0
+python-pptx>=1.0.0
+matplotlib>=3.10.0
