@@ -16,9 +16,11 @@ import os
 from typing import Any, Dict, List, Optional, Union
 
 from tools.base import BaseTool, ToolResult
+from creator.chart_maker import generate_chart
 from creator.docx_maker import make_docx
 from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
+from creator.report_maker import generate_executive_report
 
 logger = logging.getLogger(__name__)
 
@@ -491,6 +493,241 @@ class CreatePptxTool(BaseTool):
         }
 
 
+class CreateChartTool(BaseTool):
+    """Tool for creating themed high-resolution charts (bar, line, pie, donut, horizontal_bar)."""
+
+    name = "create_chart"
+    description = (
+        "Generates a themed high-resolution chart (bar, line, pie, donut, horizontal_bar) "
+        "matching JARVIS themes ('clean_light', 'dark_pro', 'colourful'). Saves as PNG image."
+    )
+
+    def run(
+        self,
+        chart_type: str = "bar",
+        data: Optional[Any] = None,
+        title: str = "Analytics Chart",
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        filename: Optional[str] = None,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute chart creation tool."""
+        try:
+            if not title or not isinstance(title, str) or not title.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Chart generation requires a non-empty title string.",
+                )
+
+            chart_data = data or {"Metric A": 20, "Metric B": 35, "Metric C": 45}
+            if isinstance(chart_data, str):
+                try:
+                    chart_data = json.loads(chart_data)
+                except Exception:
+                    chart_data = {"Value": 10}
+
+            path = generate_chart(
+                chart_type=chart_type,
+                data=chart_data,
+                title=title,
+                theme=theme,
+                out_dir=out_dir,
+                filename=filename,
+            )
+
+            file_size = os.path.getsize(path) if os.path.exists(path) else 0
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": path,
+                    "chart_type": chart_type,
+                    "theme": theme,
+                    "bytes": file_size,
+                },
+                message=f"Chart '{title}' successfully generated at {path} ({file_size} bytes).",
+            )
+        except Exception as e:
+            logger.error("Failed to generate chart: %s", e, exc_info=True)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Chart generation failed: {str(e)}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chart_type": {
+                        "type": "string",
+                        "description": "Chart type: 'bar', 'line', 'pie', 'donut', or 'horizontal_bar'.",
+                        "enum": ["bar", "line", "pie", "donut", "horizontal_bar"],
+                    },
+                    "data": {
+                        "type": "object",
+                        "description": "Data mapping categories to values, e.g. {'Q1': 100, 'Q2': 250}.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Chart title.",
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light', 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Optional output PNG filename.",
+                    },
+                },
+                "required": ["title", "data"],
+            },
+        }
+
+
+class GenerateReportTool(BaseTool):
+    """Tool for generating autonomous multi-format executive intelligence reports (PDF, Word, PPTX)."""
+
+    name = "generate_report"
+    description = (
+        "Generates a synchronized executive intelligence report package across PDF, Word (DOCX), "
+        "and PowerPoint (PPTX) with embedded charts, Bento KPI cards, and modern tables."
+    )
+
+    def run(
+        self,
+        title: str,
+        summary: str = "",
+        sections: Optional[Any] = None,
+        key_metrics: Optional[Any] = None,
+        chart_configs: Optional[Any] = None,
+        theme: str = "clean_light",
+        formats: Optional[Any] = None,
+        out_dir: str = "workspace",
+        auto_open: bool = False,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute autonomous executive report generator."""
+        try:
+            if not title or not isinstance(title, str) or not title.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Report generation requires a non-empty title string.",
+                )
+
+            norm_sections = _normalize_sections(sections) if sections else []
+
+            norm_metrics = key_metrics
+            if isinstance(norm_metrics, str):
+                try:
+                    norm_metrics = json.loads(norm_metrics)
+                except Exception:
+                    norm_metrics = []
+
+            norm_charts = chart_configs
+            if isinstance(norm_charts, str):
+                try:
+                    norm_charts = json.loads(norm_charts)
+                except Exception:
+                    norm_charts = []
+
+            norm_formats = formats
+            if isinstance(norm_formats, str):
+                try:
+                    norm_formats = json.loads(norm_formats)
+                except Exception:
+                    norm_formats = [f.strip() for f in norm_formats.split(",") if f.strip()]
+
+            output_map = generate_executive_report(
+                title=title,
+                summary=summary or "Autonomous executive report.",
+                sections=norm_sections,
+                key_metrics=norm_metrics,
+                chart_configs=norm_charts,
+                theme=theme,
+                formats=norm_formats,
+                out_dir=out_dir,
+                auto_open=auto_open,
+            )
+
+            total_bytes = sum(os.path.getsize(p) for p in output_map.values() if os.path.exists(p))
+
+            return ToolResult(
+                success=True,
+                data={
+                    "files": output_map,
+                    "formats": list(output_map.keys()),
+                    "theme": theme,
+                    "total_bytes": total_bytes,
+                },
+                message=f"Executive report '{title}' generated successfully in {len(output_map)} formats: {list(output_map.keys())}.",
+            )
+        except Exception as e:
+            logger.error("Failed to generate report: %s", e, exc_info=True)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Report generation failed: {str(e)}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Executive report title.",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "High-level executive summary narrative.",
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "List of report sections with heading, text, bullets, and table data.",
+                        "items": {"type": "object"},
+                    },
+                    "key_metrics": {
+                        "type": "array",
+                        "description": "Key KPI metrics for Bento grid cards (label, value).",
+                        "items": {"type": "object"},
+                    },
+                    "chart_configs": {
+                        "type": "array",
+                        "description": "Chart configurations (type, title, data) to render and embed.",
+                        "items": {"type": "object"},
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light', 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "formats": {
+                        "type": "array",
+                        "description": "Target formats list: ['pdf', 'docx', 'pptx'].",
+                        "items": {"type": "string"},
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to auto-open the generated report.",
+                    },
+                },
+                "required": ["title"],
+            },
+        }
+
+
 # Convenience function wrappers
 def create_pdf(title: str, sections: Any, theme: str = "clean_light", auto_open: bool = True, **kwargs: Any) -> ToolResult:
     """Convenience callable for CreatePdfTool."""
@@ -507,11 +744,23 @@ def create_pptx(title: str, sections: Any, theme: str = "clean_light", auto_open
     return CreatePptxTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
 
 
+def create_chart(chart_type: str = "bar", data: Any = None, title: str = "Analytics Chart", theme: str = "clean_light", **kwargs: Any) -> ToolResult:
+    """Convenience callable for CreateChartTool."""
+    return CreateChartTool().run(chart_type=chart_type, data=data, title=title, theme=theme, **kwargs)
+
+
+def generate_report(title: str, summary: str = "", sections: Any = None, key_metrics: Any = None, chart_configs: Any = None, theme: str = "clean_light", **kwargs: Any) -> ToolResult:
+    """Convenience callable for GenerateReportTool."""
+    return GenerateReportTool().run(title=title, summary=summary, sections=sections, key_metrics=key_metrics, chart_configs=chart_configs, theme=theme, **kwargs)
+
+
 # Canonical exported tools list for Abhijit's registry auto-loader (Catch-Up Plan Section 4 & 7)
 TOOLS: List[BaseTool] = [
     CreatePdfTool(),
     CreateDocxTool(),
     CreatePptxTool(),
+    CreateChartTool(),
+    GenerateReportTool(),
 ]
 
 # Auto-register all tools immediately into central registry

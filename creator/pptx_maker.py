@@ -30,6 +30,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
+from creator.chart_maker import generate_chart
 from creator.themes import (
     THEMES,
     contains_devanagari,
@@ -397,6 +398,62 @@ def make_pptx(
                 tf_p.font.name = font_name
                 tf_p.font.size = Pt(11)
                 tf_p.font.color.rgb = sec_rgb
+
+            # Chart slide if section has a chart (Day 4 Deliverable)
+            chart_cfg = sec.get("chart")
+            chart_path = sec.get("chart_path") or sec.get("image_path")
+            if chart_cfg and isinstance(chart_cfg, dict):
+                try:
+                    c_type = chart_cfg.get("type", "bar")
+                    c_data = chart_cfg.get("data", {})
+                    c_title = chart_cfg.get("title", f"{heading} Visualisation")
+                    chart_path = generate_chart(
+                        chart_type=c_type,
+                        data=c_data,
+                        title=c_title,
+                        theme=theme,
+                        out_dir=out_dir,
+                    )
+                except Exception:
+                    chart_path = None
+
+            if chart_path and os.path.exists(chart_path):
+                c_slide = prs.slides.add_slide(blank_layout)
+                _apply_slide_background(c_slide, bg_hex)
+
+                ch_box = c_slide.shapes.add_textbox(Inches(1.0), Inches(0.7), Inches(11.333), Inches(1.1))
+                ch_tf = ch_box.text_frame
+                ch_tf.word_wrap = True
+                ch_p = ch_tf.paragraphs[0]
+                ch_p.text = f"{heading} - Data Visualisation"
+                ch_p.font.name = _pick_font(heading, font_name)
+                ch_p.font.size = Pt(30)
+                ch_p.font.bold = True
+                ch_p.font.color.rgb = prim_rgb
+
+                # Top decorative line under header
+                hdr_line = c_slide.shapes.add_shape(
+                    MSO_SHAPE.RECTANGLE,
+                    Inches(1.0),
+                    Inches(1.85),
+                    Inches(11.333),
+                    Inches(0.04),
+                )
+                hdr_line.fill.solid()
+                hdr_line.fill.fore_color.rgb = sec_rgb
+                hdr_line.line.fill.background()
+
+                # Center picture on 16:9 widescreen slide
+                c_slide.shapes.add_picture(chart_path, Inches(2.666), Inches(2.1), width=Inches(8.0))
+
+                # Footer
+                cf_box = c_slide.shapes.add_textbox(Inches(1.0), Inches(6.8), Inches(11.333), Inches(0.4))
+                cf_tf = cf_box.text_frame
+                cf_p = cf_tf.paragraphs[0]
+                cf_p.text = f"JARVIS  •  {title[:40]}"
+                cf_p.font.name = font_name
+                cf_p.font.size = Pt(11)
+                cf_p.font.color.rgb = sec_rgb
 
         # -------------------------------------------------------------
         # 3. Closing 'Thank You' Slide

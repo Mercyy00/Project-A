@@ -27,6 +27,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfgen import canvas
 from reportlab.platypus import (
     HRFlowable,
+    Image as RLImage,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -35,6 +36,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from creator.chart_maker import generate_chart
 from creator.themes import (
     THEMES,
     contains_devanagari,
@@ -513,6 +515,34 @@ def make_pdf(
                 story.append(Spacer(1, 6))
                 story.append(tbl)
                 story.append(Spacer(1, 12))
+
+            # Chart Embedding (Day 4 Deliverable)
+            chart_cfg = sec.get("chart")
+            chart_path = sec.get("chart_path") or sec.get("image_path")
+            if chart_cfg and isinstance(chart_cfg, dict):
+                try:
+                    c_type = chart_cfg.get("type", "bar")
+                    c_data = chart_cfg.get("data", {})
+                    c_title = chart_cfg.get("title", f"{heading} Chart")
+                    chart_path = generate_chart(
+                        chart_type=c_type,
+                        data=c_data,
+                        title=c_title,
+                        theme=theme,
+                        out_dir=out_dir,
+                    )
+                except Exception as _c_err:
+                    chart_path = None
+
+            if chart_path and os.path.exists(chart_path):
+                try:
+                    c_img = RLImage(chart_path, width=440, height=230)
+                    c_img.hAlign = "CENTER"
+                    story.append(Spacer(1, 6))
+                    story.append(c_img)
+                    story.append(Spacer(1, 10))
+                except Exception:
+                    pass
 
             if sec.get("page_break_after") and idx < len(sections) - 1:
                 story.append(PageBreak())

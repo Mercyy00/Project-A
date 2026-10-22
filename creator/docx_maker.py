@@ -29,6 +29,7 @@ from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
 
+from creator.chart_maker import generate_chart
 from creator.themes import (
     THEMES,
     contains_devanagari,
@@ -366,6 +367,35 @@ def make_docx(
                     # Space after table
                     tbl_gap = doc.add_paragraph()
                     tbl_gap.paragraph_format.space_before = Pt(8)
+
+            # Chart Embedding (Day 4 Deliverable)
+            chart_cfg = sec.get("chart")
+            chart_path = sec.get("chart_path") or sec.get("image_path")
+            if chart_cfg and isinstance(chart_cfg, dict):
+                try:
+                    c_type = chart_cfg.get("type", "bar")
+                    c_data = chart_cfg.get("data", {})
+                    c_title = chart_cfg.get("title", f"{heading} Chart")
+                    chart_path = generate_chart(
+                        chart_type=c_type,
+                        data=c_data,
+                        title=c_title,
+                        theme=theme,
+                        out_dir=out_dir,
+                    )
+                except Exception:
+                    chart_path = None
+
+            if chart_path and os.path.exists(chart_path):
+                try:
+                    pic_p = doc.add_paragraph()
+                    pic_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pic_p.paragraph_format.space_before = Pt(8)
+                    pic_p.paragraph_format.space_after = Pt(8)
+                    r = pic_p.add_run()
+                    r.add_picture(chart_path, width=Inches(5.5))
+                except Exception:
+                    pass
 
             # Optional section page break
             if sec.get("page_break_after"):

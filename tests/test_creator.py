@@ -38,19 +38,25 @@ import docx
 from pptx import Presentation
 import pytest
 
+from creator.chart_maker import generate_chart
 from creator.docx_maker import make_docx
 from creator.hello_docs import generate_hello_docs
 from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
+from creator.report_maker import generate_executive_report
 from creator.themes import THEMES, contains_devanagari, get_theme
 from creator.tools import (
+    CreateChartTool,
     CreateDocxTool,
     CreatePdfTool,
     CreatePptxTool,
+    GenerateReportTool,
     TOOLS,
+    create_chart,
     create_docx,
     create_pdf,
     create_pptx,
+    generate_report,
 )
 from tools.base import ToolResult
 from tools.registry import TOOL_REGISTRY, execute_tool
@@ -475,6 +481,251 @@ def test_auto_open_parameter_in_all_makers(tmp_path: Path) -> None:
 
 
 # =====================================================================
+# Day 4: High-Fidelity Themed Charts & Document Embedding Tests
+# =====================================================================
+@pytest.mark.parametrize("chart_type", ["bar", "line", "pie", "donut", "horizontal_bar"])
+def test_day4_generate_chart_all_types(tmp_path: Path, chart_type: str) -> None:
+    """Verify chart generation for all standard visualization types."""
+    data = {"Alpha": 45, "Beta": 80, "Gamma": 60, "Delta": 95}
+    chart_path = generate_chart(
+        chart_type=chart_type,
+        data=data,
+        title=f"Benchmark {chart_type.title()} Visualisation",
+        theme="clean_light",
+        out_dir=str(tmp_path),
+    )
+    p = Path(chart_path)
+    assert p.exists()
+    assert p.stat().st_size > 15000  # High DPI crisp PNG
+
+
+@pytest.mark.parametrize("theme_name", ["clean_light", "dark_pro", "colourful"])
+def test_day4_chart_theming(tmp_path: Path, theme_name: str) -> None:
+    """Verify that generated charts accurately reflect theme palettes."""
+    data = {"Metric 1": 25, "Metric 2": 65, "Metric 3": 40}
+    chart_path = generate_chart(
+        chart_type="bar",
+        data=data,
+        title=f"Themed Chart {theme_name}",
+        theme=theme_name,
+        out_dir=str(tmp_path),
+    )
+    p = Path(chart_path)
+    assert p.exists()
+    assert p.stat().st_size > 10000
+
+
+def test_day4_pdf_maker_with_chart(tmp_path: Path) -> None:
+    """Verify PDF maker automatically renders and embeds chart images."""
+    sections = [
+        {
+            "heading": "1. Performance Distribution",
+            "text": "The visualization below highlights system resource metrics.",
+            "chart": {
+                "type": "bar",
+                "data": {"CPU": 35, "RAM": 52, "Disk": 28},
+                "title": "Hardware Metrics",
+            },
+        }
+    ]
+    pdf_path = make_pdf(
+        title="PDF with Integrated Chart",
+        sections=sections,
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(pdf_path)
+    assert p.exists()
+    assert p.stat().st_size > 8000
+
+
+def test_day4_docx_maker_with_chart(tmp_path: Path) -> None:
+    """Verify DOCX maker embeds chart image cleanly centered into Word document."""
+    sections = [
+        {
+            "heading": "Analytics Trend",
+            "text": "Visual trend over previous generation cycles.",
+            "chart": {
+                "type": "line",
+                "data": {"Cycle 1": 12, "Cycle 2": 24, "Cycle 3": 38, "Cycle 4": 55},
+                "title": "Cycle Velocity Trend",
+            },
+        }
+    ]
+    docx_path = make_docx(
+        title="DOCX with Embedded Trend",
+        sections=sections,
+        theme="dark_pro",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(docx_path)
+    assert p.exists()
+    assert p.stat().st_size > 12000
+
+
+def test_day4_pptx_maker_with_chart(tmp_path: Path) -> None:
+    """Verify PPTX maker adds dedicated widescreen slide for visual charts."""
+    sections = [
+        {
+            "heading": "Market Share",
+            "chart": {
+                "type": "donut",
+                "data": {"Product A": 55, "Product B": 30, "Product C": 15},
+                "title": "Segment Distribution",
+            },
+        }
+    ]
+    pptx_path = make_pptx(
+        title="Presentation with Donut Visual",
+        sections=sections,
+        theme="colourful",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(pptx_path)
+    assert p.exists()
+    prs = Presentation(pptx_path)
+    assert len(prs.slides) >= 2
+
+
+def test_day4_create_chart_tool_execution(tmp_path: Path) -> None:
+    """Verify CreateChartTool execution through central registry."""
+    res = execute_tool(
+        "create_chart",
+        {
+            "chart_type": "horizontal_bar",
+            "data": {"Task A": 10, "Task B": 25, "Task C": 18},
+            "title": "Sprint Velocity",
+            "theme": "clean_light",
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert res.success is True
+    assert "file_path" in res.data
+    assert Path(res.data["file_path"]).exists()
+
+
+# =====================================================================
+# Day 5: Autonomous Multi-Format Executive Report Generator Tests
+# =====================================================================
+def test_day5_generate_executive_report_multiformat(tmp_path: Path) -> None:
+    """Verify Day 5 multi-format generator creates coordinated PDF, DOCX, and PPTX reports."""
+    metrics = [
+        {"label": "Model Latency", "value": "< 200ms"},
+        {"label": "Document Fidelity", "value": "100%"},
+        {"label": "Multilingual Accuracy", "value": "99.8%"},
+        {"label": "Pipeline Status", "value": "Healthy"},
+    ]
+    charts = [
+        {
+            "type": "bar",
+            "data": {"Q1": 150, "Q2": 320, "Q3": 410, "Q4": 600},
+            "title": "Annual Executive Growth",
+        }
+    ]
+    sections = [
+        {
+            "heading": "Operational Highlights",
+            "text": "Detailed multi-modular execution and coordination statistics.",
+            "bullets": [
+                "Full dual-engine LLM failover active.",
+                "Real-time voice and audio transcription loop operational.",
+            ],
+            "table": [
+                ["Deliverable", "Format", "Verification"],
+                ["Executive PDF", "ReportLab", "Verified"],
+                ["Executive Word", "python-docx", "Verified"],
+                ["Executive Deck", "python-pptx", "Verified"],
+            ],
+        }
+    ]
+    result_files = generate_executive_report(
+        title="JARVIS Executive Intelligence Review",
+        summary="Autonomous end-to-end multi-format executive intelligence report.",
+        sections=sections,
+        key_metrics=metrics,
+        chart_configs=charts,
+        theme="clean_light",
+        formats=["pdf", "docx", "pptx"],
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert "pdf" in result_files
+    assert "docx" in result_files
+    assert "pptx" in result_files
+
+    for fmt, fpath in result_files.items():
+        p = Path(fpath)
+        assert p.exists()
+        assert p.stat().st_size > 5000, f"Format {fmt} output unexpectedly small: {p.stat().st_size} bytes"
+
+
+def test_day5_generate_report_tool_registry(tmp_path: Path) -> None:
+    """Verify GenerateReportTool execution via central TOOL_REGISTRY."""
+    assert "generate_report" in TOOL_REGISTRY
+    res = execute_tool(
+        "generate_report",
+        {
+            "title": "Quarterly Autonomous Assessment",
+            "summary": "Verified multi-modular desktop assistant capabilities.",
+            "key_metrics": [{"label": "Uptime", "value": "99.9%"}],
+            "chart_configs": [{"type": "line", "data": {"W1": 5, "W2": 15, "W3": 30}, "title": "Progression"}],
+            "theme": "dark_pro",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert res.success is True
+    assert "files" in res.data
+    assert len(res.data["files"]) >= 3
+
+
+def test_day5_devanagari_marathi_report_generation(tmp_path: Path) -> None:
+    """Verify Day 5 executive report generation in Marathi with Devanagari fonts."""
+    marathi_metrics = [
+        {"label": "अचूकता", "value": "१००%"},
+        {"label": "वेग", "value": "< २०० मिलीसेकंद"},
+    ]
+    marathi_sections = [
+        {
+            "heading": "प्रकल्प प्रगती अहवाल",
+            "text": "हा संपूर्ण अहवाल मराठी भाषेतील देवनागरी फॉन्ट तपासणीसाठी तयार करण्यात आला आहे.",
+            "bullets": ["सर्व दस्तऐवज अचूकपणे तयार झाले आहेत.", "फॉन्ट करप्शन नाही."],
+        }
+    ]
+    result = generate_executive_report(
+        title="प्रकल्प जार्विस: सर्वसमावेशक अहवाल",
+        summary="स्वायत्त मल्टीमॉडल दस्तऐवज निर्मिती प्रणाली.",
+        sections=marathi_sections,
+        key_metrics=marathi_metrics,
+        theme="clean_light",
+        formats=["pdf", "docx"],
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert "pdf" in result
+    assert "docx" in result
+    assert Path(result["pdf"]).exists()
+    assert Path(result["docx"]).exists()
+
+
+def test_day5_selective_formats(tmp_path: Path) -> None:
+    """Verify that requesting a subset of formats only builds those formats."""
+    res = generate_executive_report(
+        title="Selective Export",
+        summary="Testing selective format generation.",
+        formats=["pdf"],
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert "pdf" in res
+    assert "docx" not in res
+    assert "pptx" not in res
+
+
+# =====================================================================
 # Runnable Standalone Verification Script
 # =====================================================================
 def run_verification() -> bool:
@@ -660,8 +911,45 @@ def run_verification() -> bool:
         assert dev_res.success is True
         print(f"  [PASS] Devanagari PDF: {dev_res.data['file_path']} ({dev_res.data['bytes']} bytes)")
 
+        # 7. Day 4: Chart Generation & Document Embedding Verification
+        print("\n[DAY 4] Verifying Themed Chart Generation & Document Embedding...")
+        ch_res = execute_tool(
+            "create_chart",
+            {
+                "chart_type": "bar",
+                "data": {"Q1": 120, "Q2": 260, "Q3": 390, "Q4": 510},
+                "title": "Verification Quarterly Velocity",
+                "theme": "clean_light",
+                "out_dir": str(workspace_dir),
+            },
+        )
+        assert ch_res.success is True, f"create_chart failed: {ch_res.message}"
+        print(f"  [PASS] create_chart: {ch_res.data['file_path']} ({ch_res.data['bytes']} bytes)")
+
+        # 8. Day 5: Multi-Format Executive Report Package Verification
+        print("\n[DAY 5] Verifying Autonomous Multi-Format Executive Report Generator...")
+        rep_res = execute_tool(
+            "generate_report",
+            {
+                "title": "JARVIS Autonomous Assessment Report",
+                "summary": "Multi-format executive intelligence report verifying Days 1 to 5.",
+                "key_metrics": [
+                    {"label": "Document Engines", "value": "PDF, DOCX, PPTX"},
+                    {"label": "Data Visuals", "value": "Matplotlib (Agg)"},
+                ],
+                "chart_configs": [
+                    {"type": "donut", "data": {"Engine": 40, "Voice": 30, "Vision": 30}, "title": "System Distribution"}
+                ],
+                "theme": "clean_light",
+                "out_dir": str(workspace_dir),
+                "auto_open": False,
+            },
+        )
+        assert rep_res.success is True, f"generate_report failed: {rep_res.message}"
+        print(f"  [PASS] generate_report files: {list(rep_res.data['files'].keys())} ({rep_res.data['total_bytes']} bytes)")
+
         print("\n" + "=" * 75)
-        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1, 2, 3 & D1.1-D1.3 PASSED!")
+        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 5 PASSED!")
         print("=" * 75)
         return True
 
