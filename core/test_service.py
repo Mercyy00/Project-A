@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from core.brain import JarvisBrain
-from core.service import get_brain, handle_text, reset_brain
+from core.service import get_brain, handle_text, handle_text_stream, reset_brain
 
 
 class TestCoreService(unittest.IsolatedAsyncioTestCase):
@@ -84,6 +84,129 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res["source"], "telegram")
         self.assertEqual(res["tool_steps"], [])
         self.assertIn("listening", res["text"].lower())
+
+    def test_chat_stream_shortcuts(self) -> None:
+        """Verify chat_stream handles fast shortcuts without remote API latency."""
+        brain = get_brain()
+        # Time shortcut
+        time_chunks = list(brain.chat_stream("what time is it"))
+        self.assertEqual(len(time_chunks), 1)
+        self.assertIn("current time", time_chunks[0].lower())
+
+        # Combat mode shortcut
+        combat_chunks = list(brain.chat_stream("engage combat mode"))
+        self.assertEqual(len(combat_chunks), 1)
+        self.assertIn("combat protocol engaged", combat_chunks[0].lower())
+
+    @patch.object(JarvisBrain, "chat_stream")
+    async def test_handle_text_stream_events(
+        self, mock_chat_stream: MagicMock
+    ) -> None:
+        """Verify handle_text_stream yields chunk events followed by completion event."""
+        def fake_stream(text: str, mode: str = "normal"):
+            yield "All "
+            yield "systems "
+            yield "nominal, "
+            yield "sir."
+
+        mock_chat_stream.side_effect = fake_stream
+
+        events = []
+        async for event in handle_text_stream("report status", source="ws"):
+            events.append(event)
+
+        # 4 chunks + 1 done event = 5 events
+        self.assertEqual(len(events), 5)
+        self.assertEqual(events[0], {"type": "chunk", "text": "All "})
+        self.assertEqual(events[1], {"type": "chunk", "text": "systems "})
+        self.assertEqual(events[2], {"type": "chunk", "text": "nominal, "})
+        self.assertEqual(events[3], {"type": "chunk", "text": "sir."})
+
+        done_event = events[4]
+        self.assertEqual(done_event["type"], "done")
+        self.assertEqual(done_event["text"], "All systems nominal, sir.")
+        self.assertEqual(done_event["tool_steps"], [])
+        self.assertEqual(done_event["source"], "ws")
+
+    @patch.object(JarvisBrain, "chat_stream")
+    async def test_handle_text_stream_with_tool_steps(
+        self, mock_chat_stream: MagicMock
+    ) -> None:
+        """Verify handle_text_stream captures tool steps upon completion."""
+        brain = get_brain()
+
+        def fake_stream(text: str, mode: str = "normal"):
+            brain.last_tool_steps = ["set_volume({'level': 75})"]
+            yield "Volume adjusted to 75%, sir."
+
+        mock_chat_stream.side_effect = fake_stream
+
+        events = []
+        async for event in handle_text_stream("set volume to 75", source="cli"):
+            events.append(event)
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["type"], "chunk")
+        self.assertEqual(events[0]["text"], "Volume adjusted to 75%, sir.")
+
+        done_event = events[1]
+        self.assertEqual(done_event["type"], "done")
+        self.assertEqual(done_event["text"], "Volume adjusted to 75%, sir.")
+        self.assertEqual(done_event["tool_steps"], ["set_volume({'level': 75})"])
+        self.assertEqual(done_event["source"], "cli")
+
+    async def test_handle_text_stream_empty_input(self) -> None:
+        """Verify handle_text_stream returns prompt on empty input."""
+        events = []
+        async for event in handle_text_stream("", source="voice"):
+            events.append(event)
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["type"], "chunk")
+        self.assertIn("listening", events[0]["text"].lower())
+        self.assertEqual(events[1]["type"], "done")
+        self.assertEqual(events[1]["source"], "voice")
+
+    @patch("time.sleep", return_value=None)
+    @patch("groq.Groq")
+    def test_groq_backoff_retry(
+        self, mock_groq_cls: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        """Verify exponential backoff retry on transient 429 errors in Groq engine."""
+        brain = get_brain()
+        brain.groq_api_key = "fake_key"
+        brain.llm_provider = "groq"
+
+        mock_client = MagicMock()
+        mock_groq_cls.return_value = mock_client
+
+        # Simulate 1st call fails with 429, 2nd call succeeds
+        class FakeChunk:
+            def __init__(self, content):
+                delta = MagicMock()
+                delta.content = content
+                delta.tool_calls = None
+                choice = MagicMock()
+                choice.delta = delta
+                self.choices = [choice]
+
+        def fake_stream():
+            yield FakeChunk("Directive ")
+            yield FakeChunk("acknowledged, ")
+            yield FakeChunk("sir.")
+
+        # Simulate attempt 0 fails for model with 429, then attempt 1 succeeds
+        mock_client.chat.completions.create.side_effect = [
+            Exception("Error code: 429 - Rate limit reached"),
+            fake_stream(),
+        ]
+
+        chunks = list(brain._chat_stream_with_groq("test directive"))
+        full_res = "".join(chunks)
+
+        self.assertEqual(full_res, "Directive acknowledged, sir.")
+        self.assertEqual(mock_client.chat.completions.create.call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
 
 
 if __name__ == "__main__":
