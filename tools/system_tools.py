@@ -94,6 +94,7 @@ class OpenAppTool(BaseTool):
         "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         "cmd": r"C:\Windows\System32\cmd.exe",
         "code": os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
+        "edge": r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
         "excel": r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE",
         "explorer": r"C:\Windows\explorer.exe",
         "mspaint": r"C:\Windows\System32\mspaint.exe",
@@ -106,8 +107,22 @@ class OpenAppTool(BaseTool):
         "taskmgr": r"C:\Windows\System32\Taskmgr.exe",
         "terminal": os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe"),
         "vlc": r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+        "whatsapp": os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\WhatsApp.exe"),
         "word": r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
     }
+
+    # Strict allowlist of recognized application names for Day 7 compliance
+    ALLOWLIST: List[str] = [
+        "calc",
+        "chrome",
+        "code",
+        "edge",
+        "explorer",
+        "notepad",
+        "settings",
+        "spotify",
+        "whatsapp",
+    ]
 
     # Alternate candidates for different Windows setups
     APP_CANDIDATES: Dict[str, List[str]] = {
@@ -132,6 +147,11 @@ class OpenAppTool(BaseTool):
             os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
             r"C:\Program Files\Microsoft VS Code\Code.exe",
             r"C:\Program Files (x86)\Microsoft VS Code\Code.exe",
+        ],
+        "edge": [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
         ],
         "excel": [
             r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE",
@@ -194,6 +214,11 @@ class OpenAppTool(BaseTool):
             r"C:\Program Files\VideoLAN\VLC\vlc.exe",
             r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
         ],
+        "whatsapp": [
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\WhatsApp.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\WhatsApp\WhatsApp.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\WindowsApps\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App\WhatsApp.exe"),
+        ],
         "word": [
             r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
             r"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE",
@@ -214,6 +239,12 @@ class OpenAppTool(BaseTool):
         "visual studio code": "code",
         "google chrome": "chrome",
         "browser": "chrome",
+        "edge": "edge",
+        "msedge": "edge",
+        "ms edge": "edge",
+        "microsoft edge": "edge",
+        "whatsapp": "whatsapp",
+        "whats app": "whatsapp",
         "command prompt": "cmd",
         "command": "cmd",
         "ms word": "word",
@@ -237,6 +268,7 @@ class OpenAppTool(BaseTool):
     APP_PROTOCOLS: Dict[str, str] = {
         "calc": "calculator:",
         "calculator": "calculator:",
+        "edge": "microsoft-edge:",
         "settings": "ms-settings:",
         "camera": "microsoft.windows.camera:",
         "spotify": "spotify:",
@@ -278,6 +310,7 @@ class OpenAppTool(BaseTool):
         "chrome": ["chrome.exe"],
         "cmd": ["cmd.exe"],
         "code": ["code.exe"],
+        "edge": ["msedge.exe", "edge.exe"],
         "excel": ["excel.exe"],
         "explorer": ["explorer.exe"],
         "mspaint": ["mspaint.exe"],
@@ -290,6 +323,7 @@ class OpenAppTool(BaseTool):
         "taskmgr": ["taskmgr.exe"],
         "terminal": ["wt.exe"],
         "vlc": ["vlc.exe"],
+        "whatsapp": ["WhatsApp.exe", "whatsapp.exe"],
         "word": ["winword.exe"],
     }
 
@@ -367,6 +401,19 @@ class OpenAppTool(BaseTool):
             raw_key = app_name.strip().lower()
             key = self.APP_ALIASES.get(raw_key, raw_key)
 
+            # Enforce allowlist / supported applications validation
+            if key not in self.APP_MAPPING and key not in self.ALLOWLIST and raw_key not in self.ALLOWLIST:
+                available = ", ".join(sorted(self.ALLOWLIST))
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=(
+                        f"Unknown application shortcut '{app_name}'. "
+                        f"I can only open supported applications from the allowlist: {available}. "
+                        "Please check the application name and try again."
+                    )
+                )
+
             # Direct launch for notepad (handles classic notepad and Windows 11 UWP App Execution Alias)
             if key == "notepad":
                 notepad_candidates = [
@@ -418,7 +465,7 @@ class OpenAppTool(BaseTool):
                     os.startfile(protocol)
                     return ToolResult(
                         success=True,
-                        data={"app_name": raw_key, "protocol": protocol},
+                        data={"app_name": key, "protocol": protocol},
                         message=f"Application '{app_name}' launched successfully via Windows protocol '{protocol}'."
                     )
                 except Exception:
@@ -451,7 +498,7 @@ class OpenAppTool(BaseTool):
                     os.startfile(executable_path)
                     return ToolResult(
                         success=True,
-                        data={"app_name": raw_key, "shortcut_path": executable_path},
+                        data={"app_name": key, "shortcut_path": executable_path},
                         message=f"Application '{app_name}' launched successfully from Start Menu."
                     )
                 except Exception as exc:
@@ -772,25 +819,39 @@ class OpenWebsiteTool(BaseTool):
         "github": "https://github.com",
     }
 
-    def run(self, site: str, **kwargs: Any) -> ToolResult:
+    def run(
+        self,
+        url: str = "",
+        site: Any = None,
+        **kwargs: Any
+    ) -> ToolResult:
         """Opens a website shortcut or HTTP(S) URL in the default web browser.
 
         Args:
-            site: Shortcut name ('youtube', 'google', 'gmail', 'github') or full HTTP/HTTPS URL.
+            url: Full HTTP/HTTPS URL or shortcut name.
+            site: Shortcut name or full HTTP/HTTPS URL (alias for url).
             **kwargs: Extra keyword arguments.
 
         Returns:
             ToolResult: Execution outcome indicating success or error details.
         """
         try:
-            if not site or not isinstance(site, str) or not site.strip():
+            # Detect whether caller invoked with 'site' or 'url'
+            if "site" in kwargs or site is not None or (not url and not kwargs.get("url")):
+                target = site if site is not None else kwargs.get("site", "")
+                err_param = "site"
+            else:
+                target = url or kwargs.get("url", "")
+                err_param = "url"
+
+            if not target or not isinstance(target, str) or not target.strip():
                 return ToolResult(
                     success=False,
                     data=None,
-                    message="site must be a non-empty string."
+                    message=f"{err_param} must be a non-empty string."
                 )
 
-            clean_site = site.strip()
+            clean_site = target.strip()
             parsed = urllib.parse.urlparse(clean_site)
 
             # Check for explicit URL scheme
@@ -819,7 +880,7 @@ class OpenWebsiteTool(BaseTool):
                     success=False,
                     data=None,
                     message=(
-                        f"Unknown website shortcut '{site}'. "
+                        f"Unknown website shortcut '{target}'. "
                         f"Supported shortcuts: {supported}. "
                         "Alternatively, provide a full URL starting with 'http://' or 'https://'."
                     )
@@ -829,7 +890,7 @@ class OpenWebsiteTool(BaseTool):
             return ToolResult(
                 success=True,
                 data={
-                    "site": site,
+                    "site": target,
                     "url": target_url
                 },
                 message=f"Website '{target_url}' opened successfully."
@@ -838,7 +899,7 @@ class OpenWebsiteTool(BaseTool):
             return ToolResult(
                 success=False,
                 data=None,
-                message=f"Failed to open website '{site}': {str(e)}"
+                message=f"Failed to open website '{target}': {str(e)}"
             )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -853,6 +914,10 @@ class OpenWebsiteTool(BaseTool):
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Full HTTP or HTTPS website URL (e.g. 'https://www.google.com')."
+                    },
                     "site": {
                         "type": "string",
                         "description": (
@@ -862,6 +927,120 @@ class OpenWebsiteTool(BaseTool):
                     }
                 },
                 "required": ["site"]
+            }
+        }
+
+
+class OpenSettingsPageTool(BaseTool):
+    """Tool that opens specific Windows Settings pages via ms-settings: protocol."""
+    name: str = "open_settings_page"
+    description: str = (
+        "Opens a specific Windows Settings page using ms-settings: protocol. "
+        "Supported pages: 'display', 'sound', 'bluetooth', 'wifi'."
+    )
+
+    PAGE_MAPPING: Dict[str, str] = {
+        "display": "ms-settings:display",
+        "sound": "ms-settings:sound",
+        "bluetooth": "ms-settings:bluetooth",
+        "wifi": "ms-settings:network-wifi",
+        "network": "ms-settings:network",
+        "network-wifi": "ms-settings:network-wifi",
+        "battery": "ms-settings:batterysaver",
+        "power": "ms-settings:powersleep",
+        "notifications": "ms-settings:notifications",
+        "apps": "ms-settings:appsfeatures",
+        "defaultapps": "ms-settings:defaultapps",
+        "windowsupdate": "ms-settings:windowsupdate",
+        "update": "ms-settings:windowsupdate",
+        "about": "ms-settings:about",
+        "privacy": "ms-settings:privacy",
+        "dateandtime": "ms-settings:dateandtime",
+        "printers": "ms-settings:printers",
+    }
+
+    def run(self, page: str, **kwargs: Any) -> ToolResult:
+        """Opens a Windows Settings page.
+
+        Args:
+            page: Name of the settings page ('display', 'sound', 'bluetooth', 'wifi', etc.).
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Result object indicating whether settings page was opened.
+        """
+        try:
+            if not page or not isinstance(page, str) or not page.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="page must be a non-empty string."
+                )
+
+            clean_page = page.strip().lower()
+
+            if clean_page.startswith("ms-settings:"):
+                uri = clean_page
+                page_key = clean_page.replace("ms-settings:", "").strip()
+            elif clean_page in self.PAGE_MAPPING:
+                uri = self.PAGE_MAPPING[clean_page]
+                page_key = clean_page
+            else:
+                supported = ", ".join(sorted(self.PAGE_MAPPING.keys()))
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=(
+                        f"Unknown settings page '{page}'. "
+                        f"Supported pages: {supported}."
+                    )
+                )
+
+            if os.name == "nt":
+                try:
+                    os.startfile(uri)
+                except Exception:
+                    subprocess.Popen(["cmd.exe", "/c", "start", uri], shell=True)
+            else:
+                subprocess.Popen(["xdg-open", uri])
+
+            return ToolResult(
+                success=True,
+                data={
+                    "page": page_key,
+                    "uri": uri,
+                },
+                message=f"Settings page '{page}' opened successfully ({uri})."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to open settings page '{page}': {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling.
+
+        Returns:
+            Dict[str, Any]: JSON schema specification.
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page": {
+                        "type": "string",
+                        "description": (
+                            "The Windows Settings page to open. "
+                            "Supported pages include: 'display', 'sound', 'bluetooth', 'wifi'."
+                        ),
+                        "enum": sorted(list(self.PAGE_MAPPING.keys()))
+                    }
+                },
+                "required": ["page"]
             }
         }
 

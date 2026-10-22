@@ -15,6 +15,9 @@ if REPO_ROOT not in sys.path:
 from tools.base import ToolResult
 from tools.window_tools import ListWindowsTool, FocusWindowTool, MinimizeWindowTool
 from tools.system_tools import (
+    OpenAppTool,
+    OpenWebsiteTool,
+    OpenSettingsPageTool,
     ClipboardReadTool,
     ClipboardWriteTool,
     SetVolumeTool,
@@ -171,8 +174,177 @@ class TestBatteryTool:
         assert "power_plugged" in res.data
 
 
+class TestOpenAppToolAllowlist:
+    """Tests for Day 7 OpenAppTool allowlist, case-insensitivity, and friendly errors."""
+
+    def test_allowlist_contains_day7_required_apps(self):
+        tool = OpenAppTool()
+        required_allowlist = [
+            "chrome",
+            "edge",
+            "notepad",
+            "calc",
+            "code",
+            "explorer",
+            "spotify",
+            "whatsapp",
+            "settings",
+        ]
+        for app in required_allowlist:
+            assert app in tool.ALLOWLIST, f"Required app '{app}' missing from OpenAppTool.ALLOWLIST"
+            assert app in tool.APP_MAPPING or app in tool.APP_PROTOCOLS, f"Required app '{app}' missing executable or protocol mapping"
+
+    def test_case_insensitive_and_alias_lookup(self):
+        tool = OpenAppTool()
+        with patch("subprocess.Popen") as mock_popen, patch("os.path.exists", return_value=True):
+            mock_proc = MagicMock()
+            mock_proc.pid = 1234
+            mock_popen.return_value = mock_proc
+
+            # Uppercase CHROME
+            res_upper = tool.run(app_name="CHROME")
+            assert res_upper.success is True
+            assert res_upper.data["app_name"] == "chrome"
+
+            # Mixed case Edge
+            res_edge = tool.run(app_name="Microsoft Edge")
+            assert res_edge.success is True
+            assert res_edge.data["app_name"] == "edge"
+
+    def test_unknown_app_friendly_error(self):
+        tool = OpenAppTool()
+        res = tool.run(app_name="nonexistent_application_xyz")
+        assert res.success is False
+        assert res.data is None
+        # Must be friendly and informative
+        assert "Unknown application shortcut" in res.message
+        assert "allowlist" in res.message or "Supported applications" in res.message
+        for sample_app in ["chrome", "notepad", "calc"]:
+            assert sample_app in res.message
+
+    def test_invalid_app_name_arguments(self):
+        tool = OpenAppTool()
+        res_empty = tool.run(app_name="")
+        assert res_empty.success is False
+        assert "non-empty string" in res_empty.message
+
+        res_none = tool.run(app_name=None)  # type: ignore
+        assert res_none.success is False
+
+    @patch("subprocess.Popen")
+    @patch("os.path.exists", return_value=True)
+    def test_chrome_opens_successfully(self, mock_exists, mock_popen):
+        tool = OpenAppTool()
+        mock_proc = MagicMock()
+        mock_proc.pid = 9876
+        mock_popen.return_value = mock_proc
+
+        res = tool.run(app_name="chrome")
+        assert res.success is True
+        assert res.data["app_name"] == "chrome"
+        assert res.data["pid"] == 9876
+        mock_popen.assert_called_once()
+
+
+class TestOpenWebsiteTool:
+    """Tests for Day 7 OpenWebsiteTool HTTP/HTTPS enforcement and URL opening."""
+
+    @patch("webbrowser.open", return_value=True)
+    def test_open_website_url_parameter_https(self, mock_browser):
+        tool = OpenWebsiteTool()
+        res = tool.run(url="https://www.google.com")
+        assert res.success is True
+        assert res.data["url"] == "https://www.google.com"
+        mock_browser.assert_called_once_with("https://www.google.com")
+
+    @patch("webbrowser.open", return_value=True)
+    def test_open_website_url_parameter_http(self, mock_browser):
+        tool = OpenWebsiteTool()
+        res = tool.run(url="http://example.com")
+        assert res.success is True
+        assert res.data["url"] == "http://example.com"
+        mock_browser.assert_called_once_with("http://example.com")
+
+    @patch("webbrowser.open", return_value=True)
+    def test_open_website_shortcuts(self, mock_browser):
+        tool = OpenWebsiteTool()
+        res = tool.run(url="youtube")
+        assert res.success is True
+        assert res.data["url"] == "https://www.youtube.com"
+        mock_browser.assert_called_once_with("https://www.youtube.com")
+
+    @patch("webbrowser.open")
+    def test_reject_unsupported_url_schemes(self, mock_browser):
+        tool = OpenWebsiteTool()
+        for bad_scheme in ["ftp://files.example.com", "file:///C:/test.txt", "javascript:void(0)"]:
+            res = tool.run(url=bad_scheme)
+            assert res.success is False
+            assert "Invalid URL scheme" in res.message
+            mock_browser.assert_not_called()
+
+    def test_invalid_or_empty_url(self):
+        tool = OpenWebsiteTool()
+        for invalid in ["", "   ", None]:
+            res = tool.run(url=invalid)  # type: ignore
+            assert res.success is False
+            assert "must be a non-empty string" in res.message
+
+
+class TestOpenSettingsPageTool:
+    """Tests for Day 7 OpenSettingsPageTool ms-settings: protocol launching."""
+
+    def test_schema_validity(self):
+        tool = OpenSettingsPageTool()
+        schema = tool.get_schema()
+        assert schema["name"] == "open_settings_page"
+        assert "page" in schema["parameters"]["properties"]
+        assert schema["parameters"]["required"] == ["page"]
+
+    @patch("os.startfile", return_value=None)
+    def test_supported_settings_pages(self, mock_startfile):
+        tool = OpenSettingsPageTool()
+        expected_pages = ["display", "sound", "bluetooth", "wifi"]
+        for page in expected_pages:
+            mock_startfile.reset_mock()
+            res = tool.run(page=page)
+            assert res.success is True
+            assert res.data["page"] in (page, "network-wifi")
+            assert res.data["uri"].startswith("ms-settings:")
+            mock_startfile.assert_called_once_with(res.data["uri"])
+
+    @patch("os.startfile", return_value=None)
+    def test_settings_page_case_insensitive(self, mock_startfile):
+        tool = OpenSettingsPageTool()
+        res = tool.run(page="DISPLAY")
+        assert res.success is True
+        assert res.data["uri"] == "ms-settings:display"
+        mock_startfile.assert_called_once_with("ms-settings:display")
+
+    @patch("os.startfile", return_value=None)
+    def test_direct_ms_settings_uri(self, mock_startfile):
+        tool = OpenSettingsPageTool()
+        res = tool.run(page="ms-settings:bluetooth")
+        assert res.success is True
+        assert res.data["uri"] == "ms-settings:bluetooth"
+        mock_startfile.assert_called_once_with("ms-settings:bluetooth")
+
+    def test_unknown_settings_page(self):
+        tool = OpenSettingsPageTool()
+        res = tool.run(page="unknown_subpage_123")
+        assert res.success is False
+        assert "Unknown settings page" in res.message
+        assert "display" in res.message
+
+    def test_empty_or_invalid_page(self):
+        tool = OpenSettingsPageTool()
+        for invalid in ["", "  ", None]:
+            res = tool.run(page=invalid)  # type: ignore
+            assert res.success is False
+            assert "page must be a non-empty string" in res.message
+
+
 class TestRegistryIntegration:
-    """Tests that all Day 4 tools are registered and executable via registry."""
+    """Tests that all tools are registered and executable via registry."""
 
     def test_all_tools_in_registry(self):
         expected_tools = [
@@ -185,6 +357,9 @@ class TestRegistryIntegration:
             "set_brightness",
             "lock_screen",
             "battery",
+            "open_app",
+            "open_website",
+            "open_settings_page",
         ]
         for name in expected_tools:
             assert name in TOOL_REGISTRY, f"Tool '{name}' missing from TOOL_REGISTRY"
@@ -199,6 +374,24 @@ class TestRegistryIntegration:
         res = execute_tool("clipboard_read", {})
         assert res.success is True
         assert "Integration test payload" in res.data["text"]
+
+    def test_execute_tool_unknown_app_friendly_error_via_registry(self):
+        res = execute_tool("open_app", {"app_name": "unknown_app_xyz_999"})
+        assert res.success is False
+        assert "Unknown application shortcut" in res.message
+        assert "allowlist" in res.message or "Supported applications" in res.message
+
+    @patch("webbrowser.open", return_value=True)
+    def test_execute_tool_open_website_via_registry(self, mock_browser):
+        res = execute_tool("open_website", {"url": "https://www.google.com"})
+        assert res.success is True
+        mock_browser.assert_called_once_with("https://www.google.com")
+
+    @patch("os.startfile", return_value=None)
+    def test_execute_tool_open_settings_page_via_registry(self, mock_startfile):
+        res = execute_tool("open_settings_page", {"page": "display"})
+        assert res.success is True
+        mock_startfile.assert_called_once_with("ms-settings:display")
 
 
 if __name__ == "__main__":

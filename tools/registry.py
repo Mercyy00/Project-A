@@ -15,7 +15,8 @@ from tools.system_tools import (
     OpenFileTool,
     ListDirectoryTool,
     OpenWebsiteTool,
-    SearchWebTool,
+    SearchWebTool,
+    OpenSettingsPageTool,
     ClipboardReadTool,
     ClipboardWriteTool,
     SetVolumeTool,
@@ -104,7 +105,8 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "set_volume": SetVolumeTool(),
     "set_brightness": SetBrightnessTool(),
     "lock_screen": LockScreenTool(),
-    "battery": BatteryTool(),
+    "battery": BatteryTool(),
+    "open_settings_page": OpenSettingsPageTool(),
 })
 
 # Registry aliases
