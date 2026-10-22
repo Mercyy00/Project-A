@@ -20,13 +20,13 @@ from google.genai import errors, types
 
 
 DEFAULT_SYSTEM_PROMPT: str = (
-    "You are Jarvis, an ultra-fast AI desktop assistant. "
-    "Reply in the same language as the user (English, Hindi, Marathi, or Hinglish). "
-    "When the user speaks Hindi or Marathi, always reply in Devanagari script so text-to-speech can pronounce it properly. "
-    "CRITICAL CONVERSATIONAL RULE: Keep your response under 15 words in a single crisp sentence suitable for immediate voice output. Never write paragraphs of conversational fluff. "
-    "You are helpful, witty, technically precise, and proactive. "
-    "Always ask for confirmation before executing any tool that deletes files, overwrites data, or sends messages. "
-    "If a tool fails, say so honestly."
+    "You are JARVIS, the ultra-fast, highly sophisticated AI desktop assistant inspired by Tony Stark's JARVIS. "
+    "Address the user respectfully as 'sir' with a razor-sharp, cool, and subtly witty British cadence. "
+    "CRITICAL CONVERSATIONAL RULE: Keep responses under 20 words in 1 or 2 punchy, spoken sentences suitable for instant voice synthesis. Never write conversational filler, long disclaimers, or paragraphs. "
+    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening an app, setting volume or brightness, locking screen, managing windows, running commands, reading/writing files, taking screenshots, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
+    "ZERO-PHANTOM RULE: NEVER claim, simulate, or hallucinate that you performed any action unless you actually invoked the corresponding tool and received a successful response. If a tool call fails, state the failure honestly and crisply. "
+    "MULTILINGUAL RULE: Respond in the user's language (English, Hindi, Marathi, or Hinglish). When speaking Hindi or Marathi, always output in native Devanagari script so the speech synthesizer pronounces it flawlessly. "
+    "SAFETY: Require explicit user confirmation before executing destructive commands (deletions, file overwrites, sending messages)."
 )
 
 
@@ -394,6 +394,156 @@ class JarvisBrain:
 
         discovered.append(search_notes)
 
+        def set_volume(level: int) -> str:
+            """Sets the Windows master audio volume to a specified percentage between 0 and 100.
+
+            Args:
+                level: Volume percentage from 0 (mute) to 100 (maximum).
+            """
+            self.last_tool_steps.append(f"set_volume({level})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("set_volume", {"level": level}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to set volume: {exc}"
+
+        discovered.append(set_volume)
+
+        def set_brightness(level: int) -> str:
+            """Sets the display screen brightness to a percentage between 0 and 100.
+
+            Args:
+                level: Brightness percentage from 0 to 100.
+            """
+            self.last_tool_steps.append(f"set_brightness({level})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("set_brightness", {"level": level}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to set brightness: {exc}"
+
+        discovered.append(set_brightness)
+
+        def lock_screen() -> str:
+            """Immediately locks the Windows workstation screen."""
+            self.last_tool_steps.append("lock_screen")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("lock_screen").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to lock screen: {exc}"
+
+        discovered.append(lock_screen)
+
+        def battery() -> str:
+            """Retrieves battery charge percentage, charging status, and remaining power time."""
+            self.last_tool_steps.append("battery")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("battery").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to inspect battery: {exc}"
+
+        discovered.append(battery)
+
+        def list_windows(include_empty: bool = False) -> str:
+            """Lists all visible and active application windows on the desktop.
+
+            Args:
+                include_empty: Whether to include windows without titles.
+            """
+            self.last_tool_steps.append("list_windows")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("list_windows", {"include_empty": include_empty}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to list windows: {exc}"
+
+        discovered.append(list_windows)
+
+        def focus_window(title: str) -> str:
+            """Brings an open application window matching the title to the foreground.
+
+            Args:
+                title: Window title or substring to search for.
+            """
+            self.last_tool_steps.append(f"focus_window('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("focus_window", {"title": title}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to focus window: {exc}"
+
+        discovered.append(focus_window)
+
+        def minimize_window(title: str) -> str:
+            """Minimizes an open application window matching the given title substring.
+
+            Args:
+                title: Window title or substring to search for.
+            """
+            self.last_tool_steps.append(f"minimize_window('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("minimize_window", {"title": title}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to minimize window: {exc}"
+
+        discovered.append(minimize_window)
+
+        def clipboard_read() -> str:
+            """Reads and returns the current text content stored in the system clipboard."""
+            self.last_tool_steps.append("clipboard_read")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("clipboard_read").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to read clipboard: {exc}"
+
+        discovered.append(clipboard_read)
+
+        def clipboard_write(text: str) -> str:
+            """Copies the given text into the system clipboard.
+
+            Args:
+                text: Text string to copy to the clipboard.
+            """
+            self.last_tool_steps.append(f"clipboard_write('{text}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("clipboard_write", {"text": text}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to write clipboard: {exc}"
+
+        discovered.append(clipboard_write)
+
+        def explain_screen_error(question: Optional[str] = None) -> str:
+            """Analyzes the screen specifically for error messages, stack traces, or dialogs."""
+            self.last_tool_steps.append("explain_screen_error")
+            try:
+                from tools.registry import execute_tool
+                args = {"question": question} if question else {}
+                return execute_tool("explain_screen_error", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to explain screen error: {exc}"
+
+        discovered.append(explain_screen_error)
+
+        def click_element(description: str) -> str:
+            """Visually locates a UI element on screen by natural language description and clicks it.
+
+            Args:
+                description: Visual description of the target UI button, icon, or text to click.
+            """
+            self.last_tool_steps.append(f"click_element('{description}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("click_element", {"description": description}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to click element: {exc}"
+
+        discovered.append(click_element)
+
         return discovered
 
     def _init_chat_session(self) -> None:
@@ -595,18 +745,9 @@ class JarvisBrain:
                     if "429" in err_text or "rate" in err_text:
                         continue
                     if "tool" in err_text or "400" in err_text:
-                        # Fallback to pure conversational prompt without tools if tool calling fails
-                        try:
-                            completion = client.chat.completions.create(
-                                model=m,
-                                messages=messages,
-                                temperature=0.4 if is_combat else 0.7,
-                                max_tokens=256 if is_combat else 1024,
-                            )
-                            used_model = m
-                            break
-                        except Exception:
-                            continue
+                        # Try next model without dropping tools
+                        print(f"[*] Tool execution schema error on {m}: {m_err}. Trying alternate model...", file=sys.stderr)
+                        continue
                     raise
 
             if completion is None:
@@ -651,30 +792,14 @@ class JarvisBrain:
             return final_text
 
         except Exception as exc:
-            error_msg = f"Groq execution notice: {str(exc)}"
-            print(f"[*] {error_msg}. Retrying pure conversational completion on Groq...", file=sys.stderr)
-            try:
-                direct = client.chat.completions.create(
-                    model=self.groq_model,
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": user_message}
-                    ],
-                    max_tokens=128
-                )
-                final_direct = (direct.choices[0].message.content or "").strip()
-                if final_direct:
-                    return final_direct
-            except Exception:
-                pass
-
-            if self.chat_session:
+            print(f"[!] Groq execution exception: {exc}. Failing over to Gemini...", file=sys.stderr)
+            if hasattr(self, "chat_session") and self.chat_session:
                 try:
                     response = self.chat_session.send_message(user_message)
-                    return response.text.strip() if response.text else "Directive acknowledged."
+                    return response.text.strip() if response.text else "Directive acknowledged, sir."
                 except Exception as gemini_err:
-                    print(f"[!] Gemini failover error: {gemini_err}", file=sys.stderr)
-            return "I encountered an issue processing your directive. Please try again."
+                    print(f"[!] Gemini failover also encountered an error: {gemini_err}", file=sys.stderr)
+            return f"I was unable to execute your directive, sir: {exc}"
 
     def process_input(self, text: str) -> str:
         """Unified interface contract for Voice engine (Aryan) and UI (Rohit).

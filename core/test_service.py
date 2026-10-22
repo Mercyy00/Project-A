@@ -17,14 +17,28 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         """Reset brain before each test."""
         reset_brain()
 
+    def test_tool_discovery_count(self) -> None:
+        """Verify that all 29 tools are discovered and registered in the brain."""
+        brain = get_brain()
+        self.assertGreaterEqual(len(brain.tools), 29)
+        tool_names = [t.__name__ for t in brain.tools]
+        self.assertIn("set_volume", tool_names)
+        self.assertIn("set_brightness", tool_names)
+        self.assertIn("lock_screen", tool_names)
+        self.assertIn("battery", tool_names)
+        self.assertIn("list_windows", tool_names)
+        self.assertIn("focus_window", tool_names)
+        self.assertIn("minimize_window", tool_names)
+
     @patch.object(JarvisBrain, "chat")
-    async def test_handle_text_english_and_hindi(
+    async def test_handle_text_multilingual(
         self, mock_chat: MagicMock
     ) -> None:
-        """Verify handle_text processes English and Hindi inputs returning dict with 'text' and 'tool_steps'."""
+        """Verify handle_text processes English, Hindi, and Marathi inputs."""
         mock_chat.side_effect = [
             "All systems are operational, sir.",
             "नमस्ते, मैं आपकी क्या सहायता कर सकता हूँ?",
+            "नमस्कार, मी तयार आहे.",
         ]
 
         # 1. English directive
@@ -38,10 +52,31 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         # 2. Hindi directive
         result_hi = await handle_text("जार्विस, आज का मौसम कैसा है?", source="ws")
         self.assertIsInstance(result_hi, dict)
-        self.assertIn("text", result_hi)
-        self.assertIn("tool_steps", result_hi)
         self.assertEqual(result_hi["source"], "ws")
         self.assertEqual(result_hi["text"], "नमस्ते, मैं आपकी क्या सहायता कर सकता हूँ?")
+
+        # 3. Marathi directive
+        result_mr = await handle_text("जार्विस, काय चालू आहे?", source="voice")
+        self.assertIsInstance(result_mr, dict)
+        self.assertEqual(result_mr["source"], "voice")
+        self.assertEqual(result_mr["text"], "नमस्कार, मी तयार आहे.")
+
+    @patch.object(JarvisBrain, "chat")
+    async def test_handle_text_with_tool_steps(
+        self, mock_chat: MagicMock
+    ) -> None:
+        """Verify handle_text faithfully records tool steps executed during turn."""
+        brain = get_brain()
+
+        def fake_chat(text: str, mode: str = "normal") -> str:
+            brain.last_tool_steps = ["open_app({'app_name': 'calc'})"]
+            return "Calculator opened, sir."
+
+        mock_chat.side_effect = fake_chat
+
+        result = await handle_text("open calculator", source="cli")
+        self.assertEqual(result["text"], "Calculator opened, sir.")
+        self.assertEqual(result["tool_steps"], ["open_app({'app_name': 'calc'})"])
 
     async def test_handle_text_empty_input(self) -> None:
         """Verify empty input returns prompt to speak."""
@@ -49,15 +84,6 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res["source"], "telegram")
         self.assertEqual(res["tool_steps"], [])
         self.assertIn("listening", res["text"].lower())
-
-
-async def run_live_test() -> None:
-    """Run live sample for demonstration."""
-    print("Testing core/service.py with English and Hindi messages:")
-    res_en = await handle_text("Hello Jarvis, what is your status?", source="cli")
-    print("\nEnglish Result:", res_en)
-    res_hi = await handle_text("नमस्ते जार्विस, आप कैसे हैं?", source="ws")
-    print("\nHindi Result:", res_hi)
 
 
 if __name__ == "__main__":
