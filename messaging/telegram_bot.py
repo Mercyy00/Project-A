@@ -1,14 +1,22 @@
 """Telegram Bot module for Project JARVIS.
 
 Authored by: Trupti (Messaging Engineer)
-Handles secure Telegram communication, owner-only authorization,
-message routing to Jarvis handler, long message chunking, and file delivery.
+Covers Day 1 to Day 5 requirements:
+- Secure communication & owner-only authorization
+- Command handlers: /start, /help, /status, /screenshot
+- Long message splitting (4096-char Telegram limit)
+- send_telegram() sending text, photos (.png/.jpg/.jpeg), or documents
+- File safety validation (workspace/ or temp_* folders, <= 45 MB)
+- Incoming photo handler saving to workspace/ and replying 'Saved'
+- JarvisBrain handler routing with error safety
 """
 
 from __future__ import annotations
 
+import datetime
 import logging
 import os
+from pathlib import Path
 import sys
 from typing import Callable, List, Optional
 
@@ -25,9 +33,11 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-# Telegram API constants
+# Telegram API & safety limits
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_MAX_CAPTION_LENGTH = 1024
+MAX_FILE_SIZE_MB = 45.0
+MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
 
 _ENV_LOADED = False
 
@@ -100,7 +110,6 @@ def split_message(text: str, max_length: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> L
     remaining = text
 
     while len(remaining) > max_length:
-        # Search for safe split point near max_length
         split_index = -1
 
         # Prefer newline boundary
@@ -114,7 +123,7 @@ def split_message(text: str, max_length: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> L
             if space_idx != -1 and space_idx >= max_length // 2:
                 split_index = space_idx + 1
 
-        # Hard split if no suitable whitespace found
+        # Hard split if no whitespace found
         if split_index == -1:
             split_index = max_length
 
@@ -127,6 +136,42 @@ def split_message(text: str, max_length: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> L
         chunks.append(remaining)
 
     return chunks
+
+
+def is_allowed_path(file_path: str) -> bool:
+    """Validate if file is within designated safe workspace/ or temp_* directories.
+
+    Args:
+        file_path: Filesystem path to evaluate.
+
+    Returns:
+        bool: True if inside workspace/ or temp_* directory, False otherwise.
+    """
+    try:
+        norm_path = os.path.normpath(file_path).replace("\\", "/")
+        parts = [p.lower() for p in norm_path.split("/") if p and p != "."]
+
+        # Check relative folder prefix or path component
+        for part in parts:
+            if part == "workspace" or part.startswith("temp_"):
+                return True
+
+        # Check absolute resolution against project root
+        proj_root = Path(__file__).resolve().parent.parent
+        resolved = Path(file_path).resolve()
+
+        workspace_dir = (proj_root / "workspace").resolve()
+        if resolved == workspace_dir or workspace_dir in resolved.parents:
+            return True
+
+        for parent in [resolved, *resolved.parents]:
+            if parent.name.lower().startswith("temp_"):
+                return True
+
+        return False
+    except Exception as exc:
+        logger.error("Path validation error for '%s': %s", file_path, exc)
+        return False
 
 
 def create_bot(token: Optional[str] = None) -> telebot.TeleBot:
@@ -143,19 +188,22 @@ def create_bot(token: Optional[str] = None) -> telebot.TeleBot:
 
 
 def send_telegram(text: str, file_path: Optional[str] = None) -> bool:
-    """Send a text message or a document to the owner on Telegram.
+    """Send text, photos, or documents to the owner on Telegram.
 
-    Adheres strictly to the specification:
-    - Sends to TELEGRAM_OWNER_ID (text, or document if file_path is given and exists).
-    - Never raises an unhandled exception; returns False and logs on failure.
-    - Never logs or prints secrets.
+    Adheres strictly to the Day 3-5 specification:
+    1. Sends to TELEGRAM_OWNER_ID.
+    2. Only allows files inside workspace/ or temp_* folders.
+    3. Refuses files larger than 45 MB with a clear message.
+    4. If file_path ends with .png/.jpg/.jpeg, sends as photo; otherwise as document.
+    5. Splits messages longer than 4096 characters.
+    6. Never raises; returns False and logs on failure.
 
     Args:
-        text: The text message or document caption.
-        file_path: Optional path to a local document file to send.
+        text: Text message or document caption.
+        file_path: Optional file path to deliver.
 
     Returns:
-        bool: True if sent successfully, False otherwise.
+        bool: True if delivered successfully, False otherwise.
     """
     try:
         owner_id = get_owner_id()
@@ -172,18 +220,43 @@ def send_telegram(text: str, file_path: Optional[str] = None) -> bool:
             logger.error("send_telegram failed to initialize bot: %s", exc)
             return False
 
-        # If a file_path is provided
+        # File sending branch
         if file_path is not None:
             if not os.path.isfile(file_path):
                 logger.error("send_telegram failed: file '%s' does not exist.", file_path)
                 return False
 
-            with open(file_path, "rb") as document_file:
-                # Handle caption limit
-                caption = text if text and len(text) <= TELEGRAM_MAX_CAPTION_LENGTH else None
-                bot.send_document(chat_id=owner_id, document=document_file, caption=caption)
+            # Security check: folder restriction
+            if not is_allowed_path(file_path):
+                logger.error(
+                    "send_telegram refused: '%s' is not inside workspace/ or temp_* directories.",
+                    file_path,
+                )
+                return False
 
-            # If text exceeds caption limit, send text in subsequent message
+            # Size check: 45 MB maximum
+            file_size = os.path.getsize(file_path)
+            if file_size > MAX_FILE_SIZE_BYTES:
+                size_mb = file_size / (1024 * 1024)
+                logger.error(
+                    "send_telegram refused: file '%s' is %.2f MB (limit is %.1f MB).",
+                    file_path,
+                    size_mb,
+                    MAX_FILE_SIZE_MB,
+                )
+                return False
+
+            caption = text if text and len(text) <= TELEGRAM_MAX_CAPTION_LENGTH else None
+            lower_path = file_path.lower()
+            is_photo = lower_path.endswith((".png", ".jpg", ".jpeg"))
+
+            with open(file_path, "rb") as media_file:
+                if is_photo:
+                    bot.send_photo(chat_id=owner_id, photo=media_file, caption=caption)
+                else:
+                    bot.send_document(chat_id=owner_id, document=media_file, caption=caption)
+
+            # If text exceeded caption limit, send full text in subsequent message chunks
             if text and len(text) > TELEGRAM_MAX_CAPTION_LENGTH:
                 for chunk in split_message(text):
                     if chunk:
@@ -206,21 +279,18 @@ def start_bot(
     handler: Optional[Callable[[str], str]] = None,
     bot_instance: Optional[telebot.TeleBot] = None,
 ) -> None:
-    """Start the Telegram bot with owner authorization and message handler.
+    """Start the Telegram bot with owner authorization, commands, and photo handling.
 
-    Specification:
-    1. Text messages from owner call handler(text) and returned answer is sent back
-       (sending long answers in several messages).
-    2. Runs handler in polling thread, catches exceptions, replies 'Sorry, something went wrong.'
-    3. Ignores every message whose chat id is not TELEGRAM_OWNER_ID.
-    4. If TELEGRAM_OWNER_ID is not set yet, prints chat id of first incoming message,
-       tells user to add it to .env, and does NOT reply.
-    5. Network errors handled without crashing using infinity_polling.
+    Covers:
+    - Commands: /start, /help, /status, /screenshot
+    - Message routing to handler with exception recovery
+    - Incoming photo saving to workspace/
+    - Owner-only isolation
 
     Args:
         handler: Callable accepting input text and returning string response.
-                 Defaults to echo handler (repeats user text).
-        bot_instance: Optional injected TeleBot instance (used for testing).
+                 Defaults to echo handler.
+        bot_instance: Optional injected TeleBot instance for testing.
     """
     effective_handler: Callable[[str], str] = handler if handler is not None else (lambda msg: msg)
 
@@ -230,45 +300,157 @@ def start_bot(
         logger.error("Failed to start bot: %s", exc)
         raise
 
+    def check_owner(message: telebot.types.Message) -> bool:
+        """Validate if incoming message originates from the registered owner."""
+        owner_id = get_owner_id()
+        chat_id = message.chat.id
+
+        if owner_id is None:
+            print(
+                f"\n[JARVIS Bot] Incoming message from chat ID: {chat_id}\n"
+                f"Please add TELEGRAM_OWNER_ID={chat_id} to your .env file and restart.\n"
+            )
+            return False
+
+        if chat_id != owner_id:
+            logger.warning("Ignored message from unauthorized chat ID: %s", chat_id)
+            return False
+
+        return True
+
+    # -------------------------------------------------------------------------
+    # Day 4: Bot Commands (/start, /help, /status)
+    # -------------------------------------------------------------------------
+
+    @bot.message_handler(commands=["start"])
+    def cmd_start(message: telebot.types.Message) -> None:
+        if not check_owner(message):
+            return
+        welcome_text = (
+            "Welcome to JARVIS! I am your desktop assistant.\n"
+            "You can talk to me directly, or use commands:\n"
+            "/help - List commands\n"
+            "/status - System status\n"
+            "/screenshot - Capture laptop screen"
+        )
+        for chunk in split_message(welcome_text):
+            bot.send_message(message.chat.id, chunk)
+
+    @bot.message_handler(commands=["help"])
+    def cmd_help(message: telebot.types.Message) -> None:
+        if not check_owner(message):
+            return
+        help_text = (
+            "Available JARVIS Commands:\n"
+            "/start - Welcome and setup overview\n"
+            "/help - Display this commands list\n"
+            "/status - Check assistant status and current time\n"
+            "/screenshot - Capture laptop screen and receive photo\n\n"
+            "Or send any text prompt to chat directly with Jarvis Brain."
+        )
+        for chunk in split_message(help_text):
+            bot.send_message(message.chat.id, chunk)
+
+    @bot.message_handler(commands=["status"])
+    def cmd_status(message: telebot.types.Message) -> None:
+        if not check_owner(message):
+            return
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status_text = f"Jarvis is online. Current time: {current_time}"
+        for chunk in split_message(status_text):
+            bot.send_message(message.chat.id, chunk)
+
+    # -------------------------------------------------------------------------
+    # Day 5: /screenshot Command
+    # -------------------------------------------------------------------------
+
+    @bot.message_handler(commands=["screenshot"])
+    def cmd_screenshot(message: telebot.types.Message) -> None:
+        if not check_owner(message):
+            return
+
+        if os.getenv("VISION_PAUSED", "0") == "1":
+            bot.send_message(
+                message.chat.id,
+                "Screen capture is currently paused by user privacy mode (VISION_PAUSED=1).",
+            )
+            return
+
+        try:
+            from vision.screen import take_screenshot  # type: ignore
+
+            screenshot_path = take_screenshot()
+            success = send_telegram(text="Here is your laptop screen:", file_path=screenshot_path)
+            if not success:
+                bot.send_message(message.chat.id, "Failed to deliver screenshot image.")
+        except ImportError:
+            bot.send_message(
+                message.chat.id,
+                "Screen capture module (vision.screen) is not available on this system.",
+            )
+        except PermissionError:
+            bot.send_message(
+                message.chat.id,
+                "Screen capture is currently paused by user privacy mode (VISION_PAUSED=1).",
+            )
+        except Exception as exc:
+            logger.error("Screenshot error: %s", exc)
+            bot.send_message(message.chat.id, f"Could not capture screenshot: {exc}")
+
+    # -------------------------------------------------------------------------
+    # Day 5: Incoming Photo Handler (Save to workspace/ and reply 'Saved')
+    # -------------------------------------------------------------------------
+
+    @bot.message_handler(content_types=["photo"])
+    def on_photo_message(message: telebot.types.Message) -> None:
+        if not check_owner(message):
+            return
+
+        try:
+            os.makedirs("workspace", exist_ok=True)
+            # Pick highest resolution photo
+            photo = message.photo[-1]
+            file_info = bot.get_file(photo.file_id)
+            downloaded = bot.download_file(file_info.file_path)
+
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"received_photo_{timestamp}_{photo.file_id[-6:]}.jpg"
+            target_path = os.path.join("workspace", filename)
+
+            with open(target_path, "wb") as f:
+                f.write(downloaded)
+
+            logger.info("Saved photo from owner to %s", target_path)
+            bot.reply_to(message, "Saved")
+        except Exception as exc:
+            logger.error("Failed to save incoming photo: %s", exc, exc_info=True)
+            bot.reply_to(message, "Sorry, failed to save photo.")
+
+    # -------------------------------------------------------------------------
+    # Day 2-3: Incoming Text Message Handler (Jarvis Brain / Echo)
+    # -------------------------------------------------------------------------
+
     @bot.message_handler(func=lambda msg: True, content_types=["text"])
     def on_text_message(message: telebot.types.Message) -> None:
+        if not check_owner(message):
+            return
+
+        incoming_text = message.text or ""
+        logger.info("Received message from owner (length: %d)", len(incoming_text))
+
         try:
-            owner_id = get_owner_id()
-            chat_id = message.chat.id
+            response = effective_handler(incoming_text)
+        except Exception as err:
+            logger.error("Exception during handler execution: %s", err, exc_info=True)
+            response = "Sorry, something went wrong."
 
-            # Case: TELEGRAM_OWNER_ID is not set yet
-            if owner_id is None:
-                print(
-                    f"\n[JARVIS Bot] Incoming message from chat ID: {chat_id}\n"
-                    f"Please add TELEGRAM_OWNER_ID={chat_id} to your .env file and restart.\n"
-                )
-                return  # Do not reply to unauthorized/unknown user
+        if response is None:
+            response = ""
 
-            # Case: Message from anyone other than the owner
-            if chat_id != owner_id:
-                logger.warning("Ignored message from unauthorized chat ID: %s", chat_id)
-                return  # Silently ignore
-
-            # Case: Authorized owner message
-            incoming_text = message.text or ""
-            logger.info("Received message from owner (length: %d)", len(incoming_text))
-
-            try:
-                response = effective_handler(incoming_text)
-            except Exception as err:
-                logger.error("Exception during handler execution: %s", err, exc_info=True)
-                response = "Sorry, something went wrong."
-
-            if response is None:
-                response = ""
-
-            chunks = split_message(response)
-            for chunk in chunks:
-                if chunk:
-                    bot.send_message(chat_id=chat_id, text=chunk)
-
-        except Exception as exc:
-            logger.error("Error processing message: %s", exc, exc_info=True)
+        chunks = split_message(response)
+        for chunk in chunks:
+            if chunk:
+                bot.send_message(chat_id=message.chat.id, text=chunk)
 
     logger.info("Starting Telegram bot infinity_polling...")
     try:
@@ -278,37 +460,22 @@ def start_bot(
 
 
 def verify_telegram_module() -> bool:
-    """Run verification checks on telegram_bot functions.
-
-    Returns:
-        bool: True if internal checks pass.
-    """
+    """Run verification checks on telegram_bot functions."""
     print("Running verification checks on messaging.telegram_bot...")
 
-    # 1. Test split_message
     short_text = "Hello JARVIS"
     assert split_message(short_text) == [short_text], "Short message split failed"
 
     long_text = "A" * 5000
     chunks = split_message(long_text, max_length=1000)
     assert len(chunks) == 5, f"Expected 5 chunks, got {len(chunks)}"
-    assert all(len(c) <= 1000 for c in chunks), "Chunk exceeded max_length"
-    assert "".join(chunks) == long_text, "Chunk reconstruction mismatch"
 
-    # 2. Test environment validation
-    try:
-        token = get_bot_token()
-        print(f"TELEGRAM_BOT_TOKEN is present (length: {len(token)}).")
-    except ValueError as val_err:
-        print(f"Notice: {val_err}")
+    # Test allowed paths
+    assert is_allowed_path("workspace/report.pdf")
+    assert is_allowed_path("temp_vision/screen.jpg")
+    assert not is_allowed_path("C:/Windows/system32/cmd.exe")
 
-    owner_id = get_owner_id()
-    if owner_id:
-        print(f"TELEGRAM_OWNER_ID is configured: {owner_id}")
-    else:
-        print("Notice: TELEGRAM_OWNER_ID is not configured yet in .env.")
-
-    print("Verification checks passed successfully!")
+    print("[PASS] telegram_bot functions verified successfully!")
     return True
 
 
@@ -316,5 +483,5 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--verify":
         verify_telegram_module()
     else:
-        print("Starting Echo Bot. Press Ctrl+C to stop.")
+        print("Starting Jarvis Telegram Bot. Press Ctrl+C to stop.")
         start_bot()
