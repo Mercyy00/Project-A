@@ -63,3 +63,10 @@ Thumbs.db
 *.pdf
 generate_pdf.py
 WEEK_1_EXECUTION_PLAN.md
+
+# --- Trupti: Messaging ---
+messaging/contacts.json
+messaging/reminders.json
+
+# Local runner scripts
+push_to_github.bat
