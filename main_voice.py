@@ -55,10 +55,15 @@ def run_voice_turn(auto_listen: bool = False) -> bool:
             speaker.speak("Goodbye! Have a productive day.")
             return False
 
-    print("\n[STATUS: LISTENING] Speak now (stops automatically on 1.5s silence)...")
+    # Prevent voice overlap: ensure speaker has finished and audio buffer is cleared
+    while speaker.is_speaking:
+        time.sleep(0.05)
+    time.sleep(0.2)
+
+    print("\n[STATUS: LISTENING] Speak now (stops automatically on 5 sec silence)...")
     try:
-        # Step 1: Listen until silence
-        result = transcriber.listen(max_seconds=10, silence_seconds=1.5)
+        # Step 1: Listen with adaptive 5-second silence threshold (allows natural thinking pauses)
+        result = transcriber.listen(max_seconds=15, silence_seconds=5.0)
         user_text = result.get("text", "").strip()
         speech_end_time = result.get("speech_end_time", time.time())
 
