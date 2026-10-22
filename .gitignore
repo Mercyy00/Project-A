@@ -53,6 +53,9 @@ temp_*/
 *.jpg
 *.jpeg
 *.png
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg
+!docs/screenshots/*.jpeg
 
 
 # OS specific

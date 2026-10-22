@@ -1,9 +1,12 @@
+# Benchmark Suite Script - Not a unit test
+__test__ = False
+
 import asyncio
 import websockets
 import json
 import time
 
-async def test_q(q, mode="attentive"):
+async def run_benchmark_query(q, mode="attentive"):
     uri = "ws://127.0.0.1:8000/ws/jarvis"
     try:
         async with asyncio.timeout(10.0):
@@ -22,12 +25,12 @@ async def test_q(q, mode="attentive"):
 
 async def main():
     print("--- BENCHMARK SUITE ---", flush=True)
-    await test_q("Hello")
-    await test_q("What time is it?")
-    await test_q("System stats")
-    await test_q("What is the weather today?")
-    await test_q("Create a file on my desktop called jarvis_demo.txt with content Hello World", mode="combat")
-    await test_q("Status report", mode="combat")
+    await run_benchmark_query("Hello")
+    await run_benchmark_query("What time is it?")
+    await run_benchmark_query("System stats")
+    await run_benchmark_query("What is the weather today?")
+    await run_benchmark_query("Create a file on my desktop called jarvis_demo.txt with content Hello World", mode="combat")
+    await run_benchmark_query("Status report", mode="combat")
 
 if __name__ == "__main__":
     asyncio.run(main())

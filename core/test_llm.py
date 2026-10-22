@@ -69,7 +69,7 @@ def run_llm_test(
     Returns:
         The response text string if successful, or None if the request failed.
     """
-    target_model: str = model_name or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+    target_model: str = model_name or os.getenv("MODEL_NAME", "gemini-3.8-flash")
     print(f"[*] Initializing Gemini client with model: {target_model}")
 
     try:

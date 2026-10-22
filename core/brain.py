@@ -12,7 +12,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Generator, Iterator, List, Optional
 
 from dotenv import load_dotenv
 from google import genai
@@ -20,13 +20,14 @@ from google.genai import errors, types
 
 
 DEFAULT_SYSTEM_PROMPT: str = (
-    "You are Jarvis, an ultra-fast AI desktop assistant. "
-    "Reply in the same language as the user (English, Hindi, Marathi, or Hinglish). "
-    "When the user speaks Hindi or Marathi, always reply in Devanagari script so text-to-speech can pronounce it properly. "
-    "CRITICAL CONVERSATIONAL RULE: Keep your response under 15 words in a single crisp sentence suitable for immediate voice output. Never write paragraphs of conversational fluff. "
-    "You are helpful, witty, technically precise, and proactive. "
-    "Always ask for confirmation before executing any tool that deletes files, overwrites data, or sends messages. "
-    "If a tool fails, say so honestly."
+    "You are JARVIS, the ultra-fast, highly sophisticated AI desktop assistant inspired by Tony Stark's JARVIS. "
+    "Address the user respectfully as 'sir' with a razor-sharp, cool, and subtly witty British cadence. "
+    "CRITICAL CONVERSATIONAL RULE: Keep responses under 20 words in 1 or 2 punchy, spoken sentences suitable for instant voice synthesis. Never write conversational filler, long disclaimers, or paragraphs. "
+    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening an app, setting volume or brightness, locking screen, managing windows, running commands, reading/writing files, taking screenshots, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
+    "ZERO-PHANTOM RULE: NEVER claim, simulate, or hallucinate that you performed any action unless you actually invoked the corresponding tool and received a successful response. If a tool call fails, state the failure honestly and crisply. "
+    "STATE AWARENESS: You possess ZERO psychic knowledge of the computer state. You do not know what windows are active, what files exist, what is on the clipboard, or what the telemetry is until you call the respective inspection tool (list_windows, list_directory, clipboard_read, get_system_stats, battery). Never invent or guess desktop states. "
+    "MULTILINGUAL RULE: Respond in the user's language (English, Hindi, Marathi, or Hinglish). When speaking Hindi or Marathi, always output in native Devanagari script so the speech synthesizer pronounces it flawlessly. "
+    "SAFETY: Require explicit user confirmation before executing destructive commands (deletions, file overwrites, sending messages)."
 )
 
 
@@ -394,6 +395,156 @@ class JarvisBrain:
 
         discovered.append(search_notes)
 
+        def set_volume(level: int) -> str:
+            """Sets the Windows master audio volume to a specified percentage between 0 and 100.
+
+            Args:
+                level: Volume percentage from 0 (mute) to 100 (maximum).
+            """
+            self.last_tool_steps.append(f"set_volume({level})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("set_volume", {"level": level}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to set volume: {exc}"
+
+        discovered.append(set_volume)
+
+        def set_brightness(level: int) -> str:
+            """Sets the display screen brightness to a percentage between 0 and 100.
+
+            Args:
+                level: Brightness percentage from 0 to 100.
+            """
+            self.last_tool_steps.append(f"set_brightness({level})")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("set_brightness", {"level": level}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to set brightness: {exc}"
+
+        discovered.append(set_brightness)
+
+        def lock_screen() -> str:
+            """Immediately locks the Windows workstation screen."""
+            self.last_tool_steps.append("lock_screen")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("lock_screen").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to lock screen: {exc}"
+
+        discovered.append(lock_screen)
+
+        def battery() -> str:
+            """Retrieves battery charge percentage, charging status, and remaining power time."""
+            self.last_tool_steps.append("battery")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("battery").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to inspect battery: {exc}"
+
+        discovered.append(battery)
+
+        def list_windows(include_empty: bool = False) -> str:
+            """Lists all visible and active application windows on the desktop.
+
+            Args:
+                include_empty: Whether to include windows without titles.
+            """
+            self.last_tool_steps.append("list_windows")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("list_windows", {"include_empty": include_empty}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to list windows: {exc}"
+
+        discovered.append(list_windows)
+
+        def focus_window(title: str) -> str:
+            """Brings an open application window matching the title to the foreground.
+
+            Args:
+                title: Window title or substring to search for.
+            """
+            self.last_tool_steps.append(f"focus_window('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("focus_window", {"title": title}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to focus window: {exc}"
+
+        discovered.append(focus_window)
+
+        def minimize_window(title: str) -> str:
+            """Minimizes an open application window matching the given title substring.
+
+            Args:
+                title: Window title or substring to search for.
+            """
+            self.last_tool_steps.append(f"minimize_window('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("minimize_window", {"title": title}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to minimize window: {exc}"
+
+        discovered.append(minimize_window)
+
+        def clipboard_read() -> str:
+            """Reads and returns the current text content stored in the system clipboard."""
+            self.last_tool_steps.append("clipboard_read")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("clipboard_read").to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to read clipboard: {exc}"
+
+        discovered.append(clipboard_read)
+
+        def clipboard_write(text: str) -> str:
+            """Copies the given text into the system clipboard.
+
+            Args:
+                text: Text string to copy to the clipboard.
+            """
+            self.last_tool_steps.append(f"clipboard_write('{text}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("clipboard_write", {"text": text}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to write clipboard: {exc}"
+
+        discovered.append(clipboard_write)
+
+        def explain_screen_error(question: Optional[str] = None) -> str:
+            """Analyzes the screen specifically for error messages, stack traces, or dialogs."""
+            self.last_tool_steps.append("explain_screen_error")
+            try:
+                from tools.registry import execute_tool
+                args = {"question": question} if question else {}
+                return execute_tool("explain_screen_error", args).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to explain screen error: {exc}"
+
+        discovered.append(explain_screen_error)
+
+        def click_element(description: str) -> str:
+            """Visually locates a UI element on screen by natural language description and clicks it.
+
+            Args:
+                description: Visual description of the target UI button, icon, or text to click.
+            """
+            self.last_tool_steps.append(f"click_element('{description}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("click_element", {"description": description}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to click element: {exc}"
+
+        discovered.append(click_element)
+
         return discovered
 
     def _init_chat_session(self) -> None:
@@ -421,6 +572,93 @@ class JarvisBrain:
             else:
                 raise
 
+    def chat_stream(self, user_message: str, mode: str = "normal") -> Generator[str, None, None]:
+        """Process a user message and stream the assistant response tokens.
+
+        Executes autonomous tool calls transparently, with exponential backoff
+        retry on rate limits (429/503) and automatic dual-engine failover.
+
+        Args:
+            user_message: Spoken or typed user input string.
+            mode: Operating mode ('normal', 'silent', 'attentive', 'combat').
+
+        Yields:
+            Response text tokens/chunks in real time.
+        """
+        cleaned_input: str = user_message.strip()
+        if not cleaned_input:
+            yield "I am listening. How can I assist you?"
+            return
+
+        self.last_tool_steps = []
+
+        # Handle verbal mode switching
+        lower_input = cleaned_input.lower()
+        if any(k in lower_input for k in ("engage combat mode", "combat mode", "switch to combat mode", "enter combat mode")):
+            yield "Combat protocol engaged. All neural nodes running at maximum clock. Directives will be executed with extreme speed and precision."
+            return
+        if any(k in lower_input for k in ("exit combat mode", "disengage combat", "disable combat mode")):
+            yield "Combat protocol disengaged. Returning to standard standby."
+            return
+        if any(k in lower_input for k in ("go to silent mode", "switch to silent mode", "silent mode", "standby mode")):
+            yield "Silent mode engaged. Awaiting wake word directive."
+            return
+        if any(k in lower_input for k in ("go to attentive mode", "attentive mode", "always listen", "continuous mode", "listen continuously")):
+            yield "Attentive mode activated. Always listening."
+            return
+
+        # Fast Sub-Millisecond Contextual Shortcuts (Zero Cloud Latency)
+        stripped_lower = lower_input.strip("?.!")
+        time_triggers = (
+            "what time is it", "current time", "what is the time", "tell me the time",
+            "time please", "what date", "today's date", "which day is it", "what is the date",
+            "kiti vajle", "vel kay zali", "samay kya hai", "kitne baje", "aaj ki tarikh"
+        )
+        words = set(stripped_lower.split())
+        if any(t in stripped_lower for t in time_triggers) or "time" in words or "date" in words:
+            now = datetime.datetime.now()
+            t = now.strftime("%I:%M %p")
+            d = now.strftime("%A, %B %d, %Y")
+            yield f"Today's date is {d}, and the current time is {t}."
+            return
+
+        system_stat_triggers = (
+            "system info", "system stats", "system status", "report system status",
+            "cpu usage", "ram usage", "battery", "telemetry",
+            "hardware status", "status report"
+        )
+        cleaned_cmd = stripped_lower.removeprefix("jarvis").strip(", ")
+        if cleaned_cmd in system_stat_triggers:
+            try:
+                from tools.system_tools import GetSystemStatsTool
+                stats = GetSystemStatsTool().run()
+                if stats.success and stats.data:
+                    d = stats.data
+                    cpu = d.get("cpu_percent") if d.get("cpu_percent") is not None else d.get("cpu_usage_percent", 0)
+                    ram = d.get("ram_used_pct") if d.get("ram_used_pct") is not None else d.get("ram_usage_percent", 0)
+                    battery_str = d.get("battery")
+                    if battery_str:
+                        yield f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {battery_str}. All systems nominal."
+                        return
+                    batt_pct = d.get("battery_pct", 100)
+                    yield f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt_pct}%. All systems nominal."
+                    return
+            except Exception:
+                pass
+
+        # Fast Weather Shortcut (avoid slow DuckDuckGo scraping for location-agnostic weather)
+        weather_triggers = ("what is the weather", "what's the weather", "how is the weather", "weather today", "current weather", "aaj mausam kaisa hai", "havaman kase ahe")
+        if any(w in stripped_lower for w in weather_triggers) and not any(city in stripped_lower for city in (" in ", " at ", " for ")):
+            yield "Please specify your city or region, and I will check the live forecast for you."
+            return
+
+        # High-speed Combat Mode or Groq provider
+        if (mode == "combat" or self.llm_provider == "groq") and self.groq_api_key:
+            yield from self._chat_stream_with_groq(cleaned_input, is_combat=(mode == "combat"))
+            return
+
+        yield from self._chat_stream_with_gemini(cleaned_input)
+
     def chat(self, user_message: str, mode: str = "normal") -> str:
         """Process a user message and return the assistant response.
 
@@ -434,106 +672,15 @@ class JarvisBrain:
         Returns:
             The assistant's natural language response.
         """
-        cleaned_input: str = user_message.strip()
-        if not cleaned_input:
-            return "I am listening. How can I assist you?"
+        return "".join(self.chat_stream(user_message, mode=mode))
 
-        self.last_tool_steps = []
+    def _chat_stream_with_groq(
+        self, user_message: str, is_combat: bool = False, is_failover: bool = False
+    ) -> Generator[str, None, None]:
+        """Execute chat directive using Groq Cloud API with real-time token streaming.
 
-        # Handle verbal mode switching
-        lower_input = cleaned_input.lower()
-        if any(k in lower_input for k in ("engage combat mode", "combat mode", "switch to combat mode", "enter combat mode")):
-            return "Combat protocol engaged. All neural nodes running at maximum clock. Directives will be executed with extreme speed and precision."
-        if any(k in lower_input for k in ("exit combat mode", "disengage combat", "disable combat mode")):
-            return "Combat protocol disengaged. Returning to standard standby."
-        if any(k in lower_input for k in ("go to silent mode", "switch to silent mode", "silent mode", "standby mode")):
-            return "Silent mode engaged. Awaiting wake word directive."
-        if any(k in lower_input for k in ("go to attentive mode", "attentive mode", "always listen", "continuous mode", "listen continuously")):
-            return "Attentive mode activated. Always listening."
-
-        # Fast Sub-Millisecond Contextual Shortcuts (Zero Cloud Latency)
-        stripped_lower = lower_input.strip("?.!")
-        time_triggers = (
-            "what time is it", "current time", "what is the time", "tell me the time",
-            "time please", "what date", "today's date", "which day is it",
-            "kiti vajle", "vel kay zali", "samay kya hai", "kitne baje"
-        )
-        if any(t in stripped_lower for t in time_triggers) or stripped_lower in ("time", "date"):
-            now = datetime.datetime.now()
-            t = now.strftime("%I:%M %p")
-            d = now.strftime("%A, %B %d, %Y")
-            return f"The current time is {t} on {d}."
-
-        if stripped_lower in ("system info", "system stats", "cpu usage", "ram usage", "battery", "telemetry", "hardware status", "status report"):
-            try:
-                from tools.system_tools import GetSystemStatsTool
-                stats = GetSystemStatsTool().run()
-                if stats.success and stats.data:
-                    d = stats.data
-                    cpu = d.get("cpu_percent") if d.get("cpu_percent") is not None else d.get("cpu_usage_percent", 0)
-                    ram = d.get("ram_used_pct") if d.get("ram_used_pct") is not None else d.get("ram_usage_percent", 0)
-                    battery_str = d.get("battery")
-                    if battery_str:
-                        return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {battery_str}. All systems nominal."
-                    batt_pct = d.get("battery_pct", 100)
-                    return f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt_pct}%. All systems nominal."
-            except Exception:
-                pass
-
-        # Fast Weather Shortcut (avoid slow DuckDuckGo scraping for location-agnostic weather)
-        weather_triggers = ("what is the weather", "what's the weather", "how is the weather", "weather today", "current weather", "aaj mausam kaisa hai", "havaman kase ahe")
-        if any(w in stripped_lower for w in weather_triggers) and not any(city in stripped_lower for city in (" in ", " at ", " for ")):
-            return "Please specify your city or region, and I will check the live forecast for you." 
-
-        # High-speed Combat Mode or Groq provider
-        if (mode == "combat" or self.llm_provider == "groq") and self.groq_api_key:
-            return self._chat_with_groq(cleaned_input, is_combat=(mode == "combat"))
-
-        try:
-            response = self.chat_session.send_message(cleaned_input)
-            response_text: str = response.text.strip() if response.text else ""
-
-            # Record turn in history buffer
-            self.history.append({"role": "user", "content": cleaned_input})
-            self.history.append({"role": "model", "content": response_text})
-
-            return response_text
-
-        except errors.APIError as err:
-            err_str: str = str(err).lower()
-            if "gemini-2.5-flash" in self.model_name and ("no longer available" in err_str or "not found" in err_str):
-                self.model_name = "gemini-3.8-flash"
-                self._init_chat_session()
-                return self.chat(user_message)
-            if any(k in err_str for k in ("quota", "rate", "429", "resource_exhausted", "503", "high demand", "unavailable")):
-                if self.groq_api_key:
-                    print(
-                        f"[*] Gemini limit encountered ({err.message}). Seamlessly failing over to Groq ({self.groq_model})...",
-                        file=sys.stderr,
-                    )
-                    return self._chat_with_groq(cleaned_input)
-                error_msg: str = f"Gemini API rate/quota limit reached: {err.message}"
-                print(f"[!] {error_msg}", file=sys.stderr)
-                return "Gemini API quota limit reached. Please add GROQ_API_KEY to .env as auto-fallback or retry in a moment."
-            error_msg = f"Gemini API error occurred: {err.message}"
-            print(f"[!] {error_msg}", file=sys.stderr)
-            return "I encountered an error communicating with my neural core."
-        except Exception as err:
-            error_msg = f"Unexpected error during chat processing: {err}"
-            print(f"[!] {error_msg}", file=sys.stderr)
-            return "I encountered an internal error processing your request."
-
-    def _chat_with_groq(self, user_message: str, is_combat: bool = False) -> str:
-        """Execute chat directive using Groq Cloud API as high-speed fallback or primary engine.
-
-        Maintains conversation history buffer and executes tools autonomously.
-
-        Args:
-            user_message: Cleaned user prompt string.
-            is_combat: If True, uses tactical high-speed instructions with strict brevity.
-
-        Returns:
-            Assistant response string.
+        Handles tool execution, exponential backoff on 429/503, and automatic
+        failover to Gemini.
         """
         try:
             import json
@@ -576,105 +723,249 @@ class JarvisBrain:
                 extra_params["tools"] = tools_param
                 extra_params["tool_choice"] = "auto"
 
-            candidate_models = [self.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
-            completion = None
+            # Only attempt models that support tool schemas if tools are requested
+            candidate_models = [self.groq_model] if tools_param else [self.groq_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
             used_model = self.groq_model
-            for m in candidate_models:
-                try:
-                    completion = client.chat.completions.create(
-                        model=m,
-                        messages=messages,
-                        temperature=0.4 if is_combat else 0.7,
-                        max_tokens=256 if is_combat else 1024,
-                        **extra_params,
-                    )
-                    used_model = m
-                    break
-                except Exception as m_err:
-                    err_text = str(m_err).lower()
-                    if "429" in err_text or "rate" in err_text:
-                        continue
-                    if "tool" in err_text or "400" in err_text:
-                        # Fallback to pure conversational prompt without tools if tool calling fails
-                        try:
-                            completion = client.chat.completions.create(
-                                model=m,
-                                messages=messages,
-                                temperature=0.4 if is_combat else 0.7,
-                                max_tokens=256 if is_combat else 1024,
-                            )
-                            used_model = m
-                            break
-                        except Exception:
+            stream = None
+            backoff_delays = [0.5, 1.0]
+            last_exception = None
+
+            for attempt in range(len(backoff_delays) + 1):
+                for m in candidate_models:
+                    try:
+                        stream = client.chat.completions.create(
+                            model=m,
+                            messages=messages,
+                            temperature=0.2 if is_combat else 0.3,
+                            max_tokens=256 if is_combat else 1024,
+                            stream=True,
+                            **extra_params,
+                        )
+                        used_model = m
+                        break
+                    except Exception as m_err:
+                        last_exception = m_err
+                        err_text = str(m_err).lower()
+                        if "429" in err_text or "rate" in err_text or "503" in err_text or "unavailable" in err_text:
                             continue
-                    raise
+                        if "tool" in err_text or "400" in err_text:
+                            print(f"[*] Tool execution schema error on {m}: {m_err}. Trying alternate model...", file=sys.stderr)
+                            continue
+                        raise
 
-            if completion is None:
-                raise RuntimeError("All Groq models currently experiencing rate limits.")
+                if stream is not None:
+                    break
 
-            msg = completion.choices[0].message
-            if getattr(msg, "tool_calls", None):
-                messages.append(msg)
+                if attempt < len(backoff_delays):
+                    delay = backoff_delays[attempt]
+                    print(f"[*] Groq 429/503 encountered. Retrying in {delay}s...", file=sys.stderr)
+                    time.sleep(delay)
+
+            if stream is None:
+                if not is_failover:
+                    print(f"[!] Groq rate limit reached ({last_exception}). Failing over to Gemini...", file=sys.stderr)
+                    yield from self._chat_stream_with_gemini(user_message, is_failover=True)
+                    return
+                yield "All neural computing nodes are temporarily rate-limited, sir. Please retry shortly."
+                return
+
+            tool_calls_map: Dict[int, Dict[str, Any]] = {}
+            has_tool_calls: bool = False
+            first_turn_chunks: List[str] = []
+
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if getattr(delta, "tool_calls", None) and delta.tool_calls:
+                    has_tool_calls = True
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_map:
+                            tool_calls_map[idx] = {
+                                "id": tc.id or "",
+                                "name": tc.function.name if tc.function and tc.function.name else "",
+                                "arguments": "",
+                            }
+                        if tc.id:
+                            tool_calls_map[idx]["id"] = tc.id
+                        if tc.function and tc.function.name:
+                            tool_calls_map[idx]["name"] += tc.function.name
+                        if tc.function and tc.function.arguments:
+                            tool_calls_map[idx]["arguments"] += tc.function.arguments
+                elif not has_tool_calls and getattr(delta, "content", None):
+                    if delta.content:
+                        first_turn_chunks.append(delta.content)
+                        yield delta.content
+
+            if has_tool_calls:
                 from tools.registry import execute_tool
-                for tool_call in msg.tool_calls:
-                    fn_name = tool_call.function.name
+
+                assistant_tool_calls = []
+                for idx in sorted(tool_calls_map.keys()):
+                    t_info = tool_calls_map[idx]
+                    assistant_tool_calls.append({
+                        "id": t_info["id"] or f"call_{idx}",
+                        "type": "function",
+                        "function": {
+                            "name": t_info["name"],
+                            "arguments": t_info["arguments"],
+                        },
+                    })
+
+                messages.append({
+                    "role": "assistant",
+                    "tool_calls": assistant_tool_calls,
+                })
+
+                for tc in assistant_tool_calls:
+                    fn_name = tc["function"]["name"]
+                    raw_args = tc["function"]["arguments"]
                     fn_args = {}
-                    if tool_call.function.arguments:
+                    if raw_args:
                         try:
-                            fn_args = json.loads(tool_call.function.arguments)
+                            fn_args = json.loads(raw_args)
                         except Exception:
                             fn_args = {}
                     self.last_tool_steps.append(f"{fn_name}({fn_args})")
                     tool_res = execute_tool(fn_name, fn_args)
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": tc["id"],
                         "name": fn_name,
                         "content": tool_res.to_llm_string(),
                     })
 
-                try:
-                    follow_up = client.chat.completions.create(
-                        model=used_model,
-                        messages=messages,
-                        max_tokens=64 if is_combat else 128,
-                        temperature=0.3 if is_combat else 0.5,
-                    )
-                    final_text = (follow_up.choices[0].message.content or "").strip()
-                except Exception:
-                    final_text = "Directive executed successfully."
+                follow_up_stream = None
+                for attempt in range(len(backoff_delays) + 1):
+                    try:
+                        follow_up_stream = client.chat.completions.create(
+                            model=used_model,
+                            messages=messages,
+                            max_tokens=48 if is_combat else 64,
+                            temperature=0.2,
+                            stream=True,
+                        )
+                        break
+                    except Exception as fu_err:
+                        err_text = str(fu_err).lower()
+                        if ("429" in err_text or "rate" in err_text or "503" in err_text) and attempt < len(backoff_delays):
+                            time.sleep(backoff_delays[attempt])
+                            continue
+                        break
+
+                follow_up_chunks: List[str] = []
+                if follow_up_stream:
+                    for chunk in follow_up_stream:
+                        if not chunk.choices:
+                            continue
+                        delta_content = chunk.choices[0].delta.content or ""
+                        if delta_content:
+                            follow_up_chunks.append(delta_content)
+                            yield delta_content
+
+                final_text = "".join(follow_up_chunks).strip()
+                if not final_text:
+                    default_ack = "Directive executed successfully, sir."
+                    yield default_ack
+                    final_text = default_ack
+                else:
+                    lines = [line.strip() for line in final_text.splitlines() if line.strip()]
+                    if lines:
+                        final_text = lines[0]
             else:
-                final_text = (msg.content or "").strip()
+                final_text = "".join(first_turn_chunks).strip()
 
             self.history.append({"role": "user", "content": user_message})
             self.history.append({"role": "model", "content": final_text})
-            return final_text
 
         except Exception as exc:
-            error_msg = f"Groq execution notice: {str(exc)}"
-            print(f"[*] {error_msg}. Retrying pure conversational completion on Groq...", file=sys.stderr)
-            try:
-                direct = client.chat.completions.create(
-                    model=self.groq_model,
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": user_message}
-                    ],
-                    max_tokens=128
-                )
-                final_direct = (direct.choices[0].message.content or "").strip()
-                if final_direct:
-                    return final_direct
-            except Exception:
-                pass
+            if not is_failover:
+                print(f"[!] Groq execution exception: {exc}. Failing over to Gemini...", file=sys.stderr)
+                if hasattr(self, "chat_session") and self.chat_session:
+                    try:
+                        yield from self._chat_stream_with_gemini(user_message, is_failover=True)
+                        return
+                    except Exception as gemini_err:
+                        print(f"[!] Gemini failover also encountered an error: {gemini_err}", file=sys.stderr)
+            yield f"I was unable to execute your directive, sir: {exc}"
 
-            if self.chat_session:
-                try:
-                    response = self.chat_session.send_message(user_message)
-                    return response.text.strip() if response.text else "Directive acknowledged."
-                except Exception as gemini_err:
-                    print(f"[!] Gemini failover error: {gemini_err}", file=sys.stderr)
-            return "I encountered an issue processing your directive. Please try again."
+    def _chat_with_groq(self, user_message: str, is_combat: bool = False) -> str:
+        """Execute chat directive using Groq Cloud API as high-speed fallback or primary engine.
+
+        Maintains conversation history buffer and executes tools autonomously.
+        """
+        return "".join(self._chat_stream_with_groq(user_message, is_combat=is_combat))
+
+    def _chat_stream_with_gemini(
+        self, user_message: str, is_failover: bool = False
+    ) -> Generator[str, None, None]:
+        """Execute chat directive using Gemini API with real-time streaming, backoff, and AFC."""
+        backoff_delays = [0.5, 1.0]
+        cleaned_input = user_message.strip()
+
+        for attempt in range(len(backoff_delays) + 1):
+            try:
+                chunks: List[str] = []
+                if hasattr(self.chat_session, "send_message_stream"):
+                    try:
+                        response_stream = self.chat_session.send_message_stream(cleaned_input)
+                        for chunk in response_stream:
+                            if hasattr(chunk, "text") and chunk.text:
+                                chunks.append(chunk.text)
+                                yield chunk.text
+                    except (TypeError, AttributeError):
+                        chunks = []
+
+                if chunks:
+                    response_text = "".join(chunks).strip()
+                    self.history.append({"role": "user", "content": cleaned_input})
+                    self.history.append({"role": "model", "content": response_text})
+                    return
+
+                # Fallback to send_message if streaming produced no chunks or send_message was mocked
+                response = self.chat_session.send_message(cleaned_input)
+                response_text = response.text.strip() if hasattr(response, "text") and response.text else ""
+                self.history.append({"role": "user", "content": cleaned_input})
+                self.history.append({"role": "model", "content": response_text})
+                if response_text:
+                    yield response_text
+                return
+
+            except errors.APIError as err:
+                err_str = str(err).lower()
+                if "gemini-2.5-flash" in self.model_name and ("no longer available" in err_str or "not found" in err_str):
+                    self.model_name = "gemini-3.8-flash"
+                    self._init_chat_session()
+                    continue
+
+                if any(k in err_str for k in ("quota", "rate", "429", "resource_exhausted", "503", "high demand", "unavailable")):
+                    if attempt < len(backoff_delays):
+                        delay = backoff_delays[attempt]
+                        print(f"[*] Gemini limit encountered ({err.message}). Retrying in {delay}s...", file=sys.stderr)
+                        time.sleep(delay)
+                        continue
+
+                    # Exhausted Gemini retries; failover to Groq if key exists and not already failed over
+                    if self.groq_api_key and not is_failover:
+                        print(
+                            f"[*] Gemini limit encountered ({err.message}). Seamlessly failing over to Groq ({self.groq_model})...",
+                            file=sys.stderr,
+                        )
+                        yield from self._chat_stream_with_groq(cleaned_input, is_failover=True)
+                        return
+
+                    yield "Gemini API quota limit reached, sir. Please retry in a few moments."
+                    return
+
+                print(f"[!] Gemini API error occurred: {err.message}", file=sys.stderr)
+                yield "I encountered an error communicating with my neural core."
+                return
+
+            except Exception as err:
+                print(f"[!] Unexpected error during Gemini streaming: {err}", file=sys.stderr)
+                yield "I encountered an internal error processing your request."
+                return
 
     def process_input(self, text: str) -> str:
         """Unified interface contract for Voice engine (Aryan) and UI (Rohit).
@@ -741,8 +1032,11 @@ def run_interactive_cli() -> None:
                 print("Jarvis > Conversation history cleared.")
                 continue
 
-            response: str = brain.chat(user_input)
-            print(f"Jarvis > {response}\n")
+            print("Jarvis > ", end="", flush=True)
+            for chunk in brain.chat_stream(user_input):
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+            print("\n")
 
         except (KeyboardInterrupt, EOFError):
             print("\nJarvis > Emergency shutdown requested. Goodbye, Jay.")
