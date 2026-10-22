@@ -37,22 +37,29 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
   - Custom `NumberedCanvas` two-pass rendering for dynamic page footers (`"Page X of Y"`) and document title tracking.
   - Page-level background painting matching the selected theme.
 
-### Day 3: Word, PowerPoint Makers & Day 3 Elevation (D1.1, D1.2, D1.3)
-- **`creator/tools.py` (Task D1.1 - Brain Integration & Tool Registry)**:
-  - `CreatePdfTool`: Generates publication-ready binary PDFs.
-  - `CreateDocxTool`: Generates styled Word documents.
-  - `CreatePptxTool`: Generates 16:9 widescreen PowerPoint presentation decks.
-  - Full OpenAPI / Gemini JSON schemas via `get_schema()` enabling autonomous ReAct brain function calling.
-  - Automatic registration into `TOOL_REGISTRY` so Jarvis executes real binary generators instead of falling back to raw markdown `write_file`.
-  - Canonical exports: `TOOLS = [CreatePdfTool(), CreateDocxTool(), CreatePptxTool()]`.
-- **Claude-Quality Document Themes & Styling (Task D1.2)**:
-  - **Executive Cover Page**: Full-bleed accent stripe, document title, subtitle, and structured metadata card (Author: Vidhita • Pair D, Theme, Engine, Status).
-  - **Bento Grid Cards**: 2-column key metric callout cards with colored borders, card background shading, bold numerals, and descriptive labels.
-  - **Modern Tables**: Bold header row with theme fill, alternating row fills (`card_bg` and `table_row_alt`), and clean light borders.
-  - **Devanagari Font Embedding**: TrueType Noto Sans Devanagari (`creator/fonts/NotoSansDevanagari-Regular.ttf` & `Bold`) registered in ReportLab and embedded in Word/PPTX, ensuring flawless Marathi and Hindi rendering without square-box corruption.
-- **Auto-Open Document Feature (Task D1.3)**:
-  - Optional `auto_open: bool = True` argument on all makers and tools.
-  - Calls `os.startfile(output_path)` immediately after creation on Windows, opening the document in Adobe Acrobat, Microsoft Word, or PowerPoint.
+### Day 3: Word and PowerPoint Makers (`creator/docx_maker.py`, `creator/pptx_maker.py`)
+- **`creator/docx_maker.py`**:
+  - `make_docx(title, sections, theme='clean_light', out_dir='workspace') -> str`
+  - Word documents with custom margins, header/footer branding, styled Heading 1 titles, paragraphs, bullet lists, and tables with light borders and alternating row shading.
+- **`creator/pptx_maker.py`**:
+  - `make_pptx(title, sections, theme='clean_light', out_dir='workspace') -> str`
+  - 16:9 widescreen presentation slides with accent bar, metadata, closing 'Thank you' slide, and auto-bullet splitting (max 6 bullets per slide).
+
+### Day 4: Document Tools for the Brain (`creator/tools.py`)
+- **`CreatePdfTool`**, **`CreateDocxTool`**, and **`CreatePptxTool`**:
+  - Conforms strictly to `BaseTool` specification in `tools/base.py`.
+  - `get_schema()` exports full OpenAPI / Gemini JSON parameter definitions.
+  - Automatically registered into central `TOOL_REGISTRY` so Jarvis Brain can autonomously invoke document generators.
+
+### Day 5: AI Outline to Document & Hindi/Marathi Devanagari Fonts (`creator/outline.py`)
+- **`creator/outline.py` (`create_document`)**:
+  - `create_document(topic, kind='pdf', theme='clean_light', language='en', out_dir='workspace', auto_open=True) -> str`
+  - Requests 4-6 section structured JSON outline via Google Gemini (`google-genai` using `GEMINI_API_KEY` and `GEMINI_MODEL`) with automatic retry and Groq LPU / offline fallback.
+  - Seamless support for English (`en`), Hindi (`hi`), and Marathi (`mr`).
+  - Native Devanagari TrueType font embedding (`NotoSansDevanagari-Regular.ttf` and `Bold.ttf`) in ReportLab, python-docx, and python-pptx preventing square-box font corruption.
+- **`CreateDocumentTool`**:
+  - Exposed in `creator/tools.py` and exported in `TOOLS` for central tool discovery.
+  - Enables voice/chat directives like: *"Make a presentation about solar energy in Marathi"* to work seamlessly end-to-end.
 
 ---
 

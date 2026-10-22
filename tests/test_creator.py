@@ -43,14 +43,17 @@ from creator.hello_docs import generate_hello_docs
 from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
 from creator.themes import THEMES, contains_devanagari, get_theme
+from creator.outline import create_document, generate_outline
 from creator.tools import (
     CreateDocxTool,
     CreatePdfTool,
     CreatePptxTool,
+    CreateDocumentTool,
     TOOLS,
     create_docx,
     create_pdf,
     create_pptx,
+    create_document_tool,
 )
 from tools.base import ToolResult
 from tools.registry import TOOL_REGISTRY, execute_tool
@@ -472,6 +475,120 @@ def test_auto_open_parameter_in_all_makers(tmp_path: Path) -> None:
     assert Path(pdf_p).exists()
     assert Path(docx_p).exists()
     assert Path(pptx_p).exists()
+
+
+# =====================================================================
+# Day 5 Tests: create_document & CreateDocumentTool (Multilingual)
+# =====================================================================
+def test_day5_create_document_pdf(tmp_path: Path) -> None:
+    """Verify Day 5 create_document generates valid PDF on a topic."""
+    out_file = create_document(
+        topic="Solar Energy Innovations",
+        kind="pdf",
+        theme="clean_light",
+        language="en",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".pdf")
+
+
+def test_day5_create_document_docx(tmp_path: Path) -> None:
+    """Verify Day 5 create_document generates valid Word DOCX on a topic."""
+    out_file = create_document(
+        topic="Artificial Intelligence Architecture",
+        kind="docx",
+        theme="dark_pro",
+        language="en",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".docx")
+
+
+def test_day5_create_document_pptx(tmp_path: Path) -> None:
+    """Verify Day 5 create_document generates valid PowerPoint presentation on a topic."""
+    out_file = create_document(
+        topic="Autonomous Desktop Agents",
+        kind="pptx",
+        theme="colourful",
+        language="en",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".pptx")
+
+
+def test_day5_create_document_hindi(tmp_path: Path) -> None:
+    """Verify Day 5 Hindi document generation with native Devanagari script."""
+    out_file = create_document(
+        topic="सौर ऊर्जा",
+        kind="pdf",
+        theme="clean_light",
+        language="hi",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 5000  # Embedded Devanagari font data
+    assert out_file.endswith(".pdf")
+
+
+def test_day5_create_document_marathi(tmp_path: Path) -> None:
+    """Verify Day 5 Marathi document generation with native Devanagari script."""
+    out_file = create_document(
+        topic="प्रकल्प नियोजन आणि व्यवस्थापन",
+        kind="docx",
+        theme="dark_pro",
+        language="mr",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".docx")
+
+
+def test_day5_create_document_tool_schema() -> None:
+    """Verify CreateDocumentTool conforms to BaseTool and exports OpenAPI schema."""
+    tool = CreateDocumentTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "create_document"
+    assert "parameters" in schema
+    assert "topic" in schema["parameters"]["properties"]
+    assert "topic" in schema["parameters"]["required"]
+    assert "kind" in schema["parameters"]["properties"]
+    assert "language" in schema["parameters"]["properties"]
+
+
+def test_day5_create_document_tool_execution(tmp_path: Path) -> None:
+    """Verify executing CreateDocumentTool via TOOL_REGISTRY succeeds."""
+    res = execute_tool(
+        "create_document",
+        {
+            "topic": "Quantum Computing Future",
+            "kind": "pdf",
+            "theme": "clean_light",
+            "language": "en",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert res.success is True
+    assert "successfully created" in res.message.lower()
+    assert Path(res.data["file_path"]).exists()
+
+
+def test_day5_create_document_tool_in_registry() -> None:
+    """Verify create_document is auto-registered in TOOL_REGISTRY."""
+    assert "create_document" in TOOL_REGISTRY
+    assert isinstance(TOOL_REGISTRY["create_document"], CreateDocumentTool)
 
 
 # =====================================================================
