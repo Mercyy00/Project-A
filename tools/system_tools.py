@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 import psutil
 
 from tools.base import BaseTool, ToolResult
+from tools.safety import is_path_safe
+from pathlib import Path
 
 
 class GetSystemStatsTool(BaseTool):
@@ -149,6 +151,8 @@ class OpenAppTool(BaseTool):
             os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\mspaint.exe"),
         ],
         "notepad": [
+            "notepad.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\notepad.exe"),
             r"C:\Windows\System32\notepad.exe",
             os.path.expandvars(r"%SystemRoot%\System32\notepad.exe"),
         ],
@@ -237,6 +241,16 @@ class OpenAppTool(BaseTool):
         "camera": "microsoft.windows.camera:",
         "spotify": "spotify:",
         "whatsapp": "whatsapp:",
+    }
+
+    # Windows 11 UWP App Execution Alias / AppsFolder mappings
+    APP_APPSFOLDER: Dict[str, str] = {
+        "notepad": r"shell:AppsFolder\Microsoft.WindowsNotepad_8wekyb3d8bbwe!App",
+        "calc": r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        "calculator": r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+        "camera": r"shell:AppsFolder\Microsoft.WindowsCamera_8wekyb3d8bbwe!App",
+        "terminal": r"shell:AppsFolder\Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
+        "paint": r"shell:AppsFolder\Microsoft.MSPaint_8wekyb3d8bbwe!Microsoft.MSPaint",
     }
 
     @staticmethod
@@ -353,6 +367,50 @@ class OpenAppTool(BaseTool):
             raw_key = app_name.strip().lower()
             key = self.APP_ALIASES.get(raw_key, raw_key)
 
+            # Direct launch for notepad (handles classic notepad and Windows 11 UWP App Execution Alias)
+            if key == "notepad":
+                notepad_candidates = [
+                    "notepad.exe",
+                    shutil.which("notepad.exe") or "notepad.exe",
+                    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\notepad.exe"),
+                    r"C:\Windows\System32\notepad.exe",
+                    os.path.expandvars(r"%SystemRoot%\System32\notepad.exe"),
+                    r"C:\Windows\notepad.exe",
+                ]
+                for candidate in notepad_candidates:
+                    if candidate and (not os.path.isabs(candidate) or os.path.exists(candidate)):
+                        try:
+                            proc = subprocess.Popen(
+                                [candidate],
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL
+                            )
+                            return ToolResult(
+                                success=True,
+                                data={
+                                    "app_name": "notepad",
+                                    "executable": candidate,
+                                    "pid": proc.pid
+                                },
+                                message=f"Application 'notepad' launched successfully (PID: {proc.pid})."
+                            )
+                        except Exception:
+                            continue
+
+                # Windows 11 UWP App Execution Alias / AppsFolder fallback
+                uwp_notepad = self.APP_APPSFOLDER.get("notepad")
+                if uwp_notepad and os.name == "nt":
+                    try:
+                        proc = subprocess.Popen(["explorer.exe", uwp_notepad])
+                        return ToolResult(
+                            success=True,
+                            data={"app_name": "notepad", "uwp_alias": uwp_notepad, "pid": proc.pid},
+                            message="Application 'notepad' launched successfully via Windows 11 UWP App Execution Alias."
+                        )
+                    except Exception:
+                        pass
+
             # 1. Try Windows UWP protocol if registered (e.g. calculator:, ms-settings:)
             protocol = self.APP_PROTOCOLS.get(raw_key) or self.APP_PROTOCOLS.get(key)
             if protocol and os.name == "nt":
@@ -451,6 +509,113 @@ class OpenAppTool(BaseTool):
                     }
                 },
                 "required": ["app_name"]
+            }
+        }
+
+
+class OpenFileTool(BaseTool):
+    """Tool that opens a file, PDF, Word document, or presentation in its default Windows desktop application."""
+    name: str = "open_file"
+    description: str = (
+        "Opens a file, PDF, Word document, or presentation in its default Windows desktop application."
+    )
+
+    def run(
+        self,
+        file_path: str = "",
+        path: Optional[str] = None,
+        filepath: Optional[str] = None,
+        **kwargs: Any
+    ) -> ToolResult:
+        """Opens a file in its default Windows desktop application.
+
+        Args:
+            file_path: Relative or absolute path to the file to open (e.g. 'workspace/file.pdf').
+            path: Alias for file_path.
+            filepath: Alias for file_path.
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome indicating whether the file was opened.
+        """
+        try:
+            target_path = file_path or path or filepath
+            if not target_path or not isinstance(target_path, str) or not target_path.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="file_path must be a non-empty string."
+                )
+
+            clean_path = target_path.strip()
+
+            # Normalize user home and Desktop references
+            expanded_path = os.path.expanduser(clean_path)
+            clean_lower = clean_path.replace("\\", "/").lower()
+            if clean_lower.startswith("desktop/") or clean_lower == "desktop":
+                expanded_path = str(Path.home() / clean_path)
+
+            # Enforce path security isolation first
+            if not is_path_safe(expanded_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Permission Denied: Access to '{clean_path}' is not allowed."
+                )
+
+            resolved_path = os.path.realpath(expanded_path)
+            if not os.path.exists(resolved_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"File not found: '{clean_path}'."
+                )
+
+            if not os.path.isfile(resolved_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Path is not a regular file: '{clean_path}'."
+                )
+
+            if os.name == "nt":
+                os.startfile(resolved_path)
+            else:
+                subprocess.Popen(["xdg-open", resolved_path])
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": clean_path,
+                    "resolved_path": resolved_path
+                },
+                message=f"File '{clean_path}' opened in default application."
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to open file '{clean_path}': {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling.
+
+        Returns:
+            Dict[str, Any]: JSON schema specification.
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to open (e.g. 'workspace/file.pdf'). Must be inside workspace/ or allowed safe directories."
+                    }
+                },
+                "required": ["file_path"]
             }
         }
 
@@ -882,7 +1047,7 @@ class ClipboardWriteTool(BaseTool):
         "Copies the given text into the system clipboard so it can be pasted elsewhere."
     )
 
-    def run(self, text: str, **kwargs: Any) -> ToolResult:
+    def run(self, text: Optional[str] = None, **kwargs: Any) -> ToolResult:
         """Copies text to the system clipboard.
 
         Args:
@@ -898,6 +1063,13 @@ class ClipboardWriteTool(BaseTool):
                     success=False,
                     data=None,
                     message="text must be a string."
+                )
+
+            if not text.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="The clipboard text is empty. What text would you like me to copy to the clipboard?"
                 )
 
             import pyperclip
@@ -939,6 +1111,75 @@ class SetVolumeTool(BaseTool):
         "Sets the Windows master audio volume to a specified percentage between 0 and 100."
     )
 
+    @staticmethod
+    def _set_volume_powershell(vol_int: int) -> Optional[int]:
+        """Sets Windows master audio volume via PowerShell CoreAudio endpoint fallback."""
+        try:
+            scalar_val = float(vol_int) / 100.0
+            ps_script = f"""
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IAudioEndpointVolume {{
+    int RegisterControlChangeNotify(IntPtr pNotify);
+    int UnregisterControlChangeNotify(IntPtr pNotify);
+    int GetChannelCount(out int pnChannelCount);
+    int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
+    int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
+    int GetMasterVolumeLevel(out float pfLevelDB);
+    int GetMasterVolumeLevelScalar(out float pfLevel);
+}}
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMDevice {{
+    int Activate(ref Guid id, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+}}
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMDeviceEnumerator {{
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr ppDevices);
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
+}}
+
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+public class MMDeviceEnumeratorComObject {{ }}
+
+public class AudioHelper {{
+    public static float SetAndGetVolume(float level) {{
+        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+        IMMDevice dev;
+        enumerator.GetDefaultAudioEndpoint(0, 1, out dev);
+        var iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+        object ep;
+        dev.Activate(ref iid, 23, IntPtr.Zero, out ep);
+        var vol = (IAudioEndpointVolume)ep;
+        var guid = Guid.Empty;
+        vol.SetMasterVolumeLevelScalar(level, ref guid);
+        float current;
+        vol.GetMasterVolumeLevelScalar(out current);
+        return current;
+    }}
+}}
+'@
+[AudioHelper]::SetAndGetVolume({scalar_val})
+"""
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                timeout=8
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                try:
+                    return round(float(res.stdout.strip()) * 100)
+                except ValueError:
+                    return vol_int
+        except Exception:
+            pass
+        return None
+
     def run(self, level: int, **kwargs: Any) -> ToolResult:
         """Sets the system volume.
 
@@ -973,36 +1214,56 @@ class SetVolumeTool(BaseTool):
                     message=f"Volume level {vol_int} is out of bounds. Must be between 0 and 100."
                 )
 
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            from comtypes import CLSCTX_ALL
-            from ctypes import cast, POINTER
-
-            device = None
+            # 1. Primary audio control via pycaw
             try:
-                device = AudioUtilities.GetSpeakers()
-            except AttributeError:
-                device = AudioUtilities.get_speakers()
+                from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+                from comtypes import CLSCTX_ALL
+                from ctypes import cast, POINTER
 
-            if not device:
+                device = None
+                try:
+                    device = AudioUtilities.GetSpeakers()
+                except AttributeError:
+                    device = AudioUtilities.get_speakers()
+
+                if device:
+                    scalar_val = float(vol_int) / 100.0
+                    volume = None
+                    if hasattr(device, "EndpointVolume") and device.EndpointVolume:
+                        volume = device.EndpointVolume
+                    elif hasattr(device, "Activate"):
+                        interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                        volume = cast(interface, POINTER(IAudioEndpointVolume))
+                    elif hasattr(device, "_dev") and hasattr(device._dev, "Activate"):
+                        interface = device._dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                        volume = cast(interface, POINTER(IAudioEndpointVolume))
+
+                    if volume is not None:
+                        volume.SetMasterVolumeLevelScalar(scalar_val, None)
+                        current_scalar = volume.GetMasterVolumeLevelScalar()
+                        current_pct = round(current_scalar * 100)
+                        return ToolResult(
+                            success=True,
+                            data={"volume_level": current_pct},
+                            message=f"System volume set to {current_pct}%."
+                        )
+            except Exception:
+                # pycaw failed or unavailable, fallback to native PowerShell audio endpoint
+                pass
+
+            # 2. Resilient native PowerShell CoreAudio endpoint fallback
+            ps_pct = self._set_volume_powershell(vol_int)
+            if ps_pct is not None:
                 return ToolResult(
-                    success=False,
-                    data=None,
-                    message="No default audio playback device found."
+                    success=True,
+                    data={"volume_level": ps_pct},
+                    message=f"System volume set to {ps_pct}%."
                 )
 
-            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
-
-            scalar_val = float(vol_int) / 100.0
-            volume.SetMasterVolumeLevelScalar(scalar_val, None)
-
-            current_scalar = volume.GetMasterVolumeLevelScalar()
-            current_pct = round(current_scalar * 100)
-
             return ToolResult(
-                success=True,
-                data={"volume_level": current_pct},
-                message=f"System volume set to {current_pct}%."
+                success=False,
+                data=None,
+                message="Failed to set volume: audio endpoint unavailable."
             )
         except Exception as e:
             return ToolResult(

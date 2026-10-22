@@ -8,6 +8,10 @@ import os
 from unittest.mock import MagicMock, patch
 import pytest
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 from tools.base import ToolResult
 from tools.window_tools import ListWindowsTool, FocusWindowTool, MinimizeWindowTool
 from tools.system_tools import (
