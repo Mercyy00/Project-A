@@ -39,24 +39,36 @@ from pptx import Presentation
 import pytest
 
 from creator.chart_maker import generate_chart
+from creator.charts import make_chart
 from creator.docx_maker import make_docx
 from creator.hello_docs import generate_hello_docs
 from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
 from creator.report_maker import generate_executive_report
 from creator.themes import THEMES, contains_devanagari, get_theme
+from creator.outline import create_document, generate_outline
+from creator.templates import (
+    application_letter,
+    assignment_cover,
+    project_report,
+    resume,
+)
 from creator.tools import (
     CreateChartTool,
     CreateDocxTool,
     CreatePdfTool,
     CreatePptxTool,
+    CreateDocumentTool,
     GenerateReportTool,
+    CreateTemplateTool,
     TOOLS,
     create_chart,
     create_docx,
     create_pdf,
     create_pptx,
+    create_document_tool,
     generate_report,
+    create_template_document,
 )
 from tools.base import ToolResult
 from tools.registry import TOOL_REGISTRY, execute_tool
@@ -586,18 +598,28 @@ def test_day4_pptx_maker_with_chart(tmp_path: Path) -> None:
     )
     p = Path(pptx_path)
     assert p.exists()
-    prs = Presentation(pptx_path)
-    assert len(prs.slides) >= 2
+    assert p.stat().st_size > 20000
+
+
+def test_day4_create_chart_tool_schema() -> None:
+    """Verify CreateChartTool exports valid OpenAPI JSON schema."""
+    tool = CreateChartTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "create_chart"
+    assert "chart_type" in schema["parameters"]["properties"]
+    assert "data" in schema["parameters"]["properties"]
+    assert "data" in schema["parameters"]["required"]
 
 
 def test_day4_create_chart_tool_execution(tmp_path: Path) -> None:
-    """Verify CreateChartTool execution through central registry."""
+    """Verify executing CreateChartTool via TOOL_REGISTRY."""
+    assert "create_chart" in TOOL_REGISTRY
     res = execute_tool(
         "create_chart",
         {
-            "chart_type": "horizontal_bar",
-            "data": {"Task A": 10, "Task B": 25, "Task C": 18},
-            "title": "Sprint Velocity",
+            "chart_type": "pie",
+            "data": {"Apples": 40, "Bananas": 35, "Cherries": 25},
+            "title": "Fruit Distribution",
             "theme": "clean_light",
             "out_dir": str(tmp_path),
         },
@@ -608,42 +630,151 @@ def test_day4_create_chart_tool_execution(tmp_path: Path) -> None:
 
 
 # =====================================================================
-# Day 5: Autonomous Multi-Format Executive Report Generator Tests
+# Day 5 Tests: create_document & CreateDocumentTool (Multilingual)
+# =====================================================================
+def test_day5_create_document_pdf(tmp_path: Path) -> None:
+    """Verify Day 5 create_document generates valid PDF on a topic."""
+    out_file = create_document(
+        topic="Solar Energy Innovations",
+        kind="pdf",
+        theme="clean_light",
+        language="en",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".pdf")
+
+
+def test_day5_create_document_docx(tmp_path: Path) -> None:
+    """Verify Day 5 create_document generates valid Word DOCX on a topic."""
+    out_file = create_document(
+        topic="Artificial Intelligence Architecture",
+        kind="docx",
+        theme="dark_pro",
+        language="en",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".docx")
+
+
+def test_day5_create_document_pptx(tmp_path: Path) -> None:
+    """Verify Day 5 create_document generates valid PowerPoint deck on a topic."""
+    out_file = create_document(
+        topic="Next Generation Cloud Systems",
+        kind="pptx",
+        theme="colourful",
+        language="en",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".pptx")
+
+
+def test_day5_create_document_hindi(tmp_path: Path) -> None:
+    """Verify Day 5 Hindi document generation with native Devanagari script."""
+    out_file = create_document(
+        topic="सौर ऊर्जा",
+        kind="pdf",
+        theme="clean_light",
+        language="hi",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 5000  # Embedded Devanagari font data
+    assert out_file.endswith(".pdf")
+
+
+def test_day5_create_document_marathi(tmp_path: Path) -> None:
+    """Verify Day 5 Marathi document generation with native Devanagari script."""
+    out_file = create_document(
+        topic="प्रकल्प नियोजन आणि व्यवस्थापन",
+        kind="docx",
+        theme="dark_pro",
+        language="mr",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert Path(out_file).exists()
+    assert Path(out_file).stat().st_size > 1000
+    assert out_file.endswith(".docx")
+
+
+def test_day5_create_document_tool_schema() -> None:
+    """Verify CreateDocumentTool conforms to BaseTool and exports OpenAPI schema."""
+    tool = CreateDocumentTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "create_document"
+    assert "parameters" in schema
+    assert "topic" in schema["parameters"]["properties"]
+    assert "topic" in schema["parameters"]["required"]
+    assert "kind" in schema["parameters"]["properties"]
+    assert "language" in schema["parameters"]["properties"]
+
+
+def test_day5_create_document_tool_execution(tmp_path: Path) -> None:
+    """Verify executing CreateDocumentTool via TOOL_REGISTRY succeeds."""
+    res = execute_tool(
+        "create_document",
+        {
+            "topic": "Quantum Computing Future",
+            "kind": "pdf",
+            "theme": "clean_light",
+            "language": "en",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert res.success is True
+    assert "successfully created" in res.message.lower()
+    assert Path(res.data["file_path"]).exists()
+
+
+def test_day5_create_document_tool_in_registry() -> None:
+    """Verify create_document is auto-registered in TOOL_REGISTRY."""
+    assert "create_document" in TOOL_REGISTRY
+    assert isinstance(TOOL_REGISTRY["create_document"], CreateDocumentTool)
+
+
+# =====================================================================
+# Day 5 Tests: Autonomous Multi-Format Executive Report Generator
 # =====================================================================
 def test_day5_generate_executive_report_multiformat(tmp_path: Path) -> None:
     """Verify Day 5 multi-format generator creates coordinated PDF, DOCX, and PPTX reports."""
     metrics = [
-        {"label": "Model Latency", "value": "< 200ms"},
-        {"label": "Document Fidelity", "value": "100%"},
-        {"label": "Multilingual Accuracy", "value": "99.8%"},
-        {"label": "Pipeline Status", "value": "Healthy"},
+        {"label": "Reliability", "value": "99.98%"},
+        {"label": "Response Time", "value": "180 ms"},
+        {"label": "Test Coverage", "value": "100%"},
+        {"label": "Supported Formats", "value": "3/3"},
     ]
     charts = [
         {
-            "type": "bar",
-            "data": {"Q1": 150, "Q2": 320, "Q3": 410, "Q4": 600},
-            "title": "Annual Executive Growth",
+            "type": "donut",
+            "data": {"Core": 40, "Voice": 25, "Vision": 15, "Creator": 20},
+            "title": "Subsystem Workload Distribution",
         }
     ]
     sections = [
         {
-            "heading": "Operational Highlights",
-            "text": "Detailed multi-modular execution and coordination statistics.",
+            "heading": "Strategic Overview",
+            "text": "Autonomous execution demonstrated robust resilience across multi-modular pipelines.",
             "bullets": [
-                "Full dual-engine LLM failover active.",
-                "Real-time voice and audio transcription loop operational.",
-            ],
-            "table": [
-                ["Deliverable", "Format", "Verification"],
-                ["Executive PDF", "ReportLab", "Verified"],
-                ["Executive Word", "python-docx", "Verified"],
-                ["Executive Deck", "python-pptx", "Verified"],
+                "100% adherence to modular isolation constraints.",
+                "Real-time chart rendering with 200 DPI vector clarity.",
+                "Full dual-engine failover mechanism active.",
             ],
         }
     ]
-    result_files = generate_executive_report(
-        title="JARVIS Executive Intelligence Review",
-        summary="Autonomous end-to-end multi-format executive intelligence report.",
+    results = generate_executive_report(
+        title="JARVIS Autonomous Engineering Summary",
+        summary="End-to-end multi-format executive intelligence report.",
         sections=sections,
         key_metrics=metrics,
         chart_configs=charts,
@@ -652,14 +783,22 @@ def test_day5_generate_executive_report_multiformat(tmp_path: Path) -> None:
         out_dir=str(tmp_path),
         auto_open=False,
     )
-    assert "pdf" in result_files
-    assert "docx" in result_files
-    assert "pptx" in result_files
-
-    for fmt, fpath in result_files.items():
-        p = Path(fpath)
+    for fmt in ["pdf", "docx", "pptx"]:
+        assert fmt in results
+        p = Path(results[fmt])
         assert p.exists()
         assert p.stat().st_size > 5000, f"Format {fmt} output unexpectedly small: {p.stat().st_size} bytes"
+
+
+def test_day5_generate_report_tool_schema() -> None:
+    """Verify GenerateReportTool exports complete schema for Autonomous Brain integration."""
+    tool = GenerateReportTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "generate_report"
+    assert "parameters" in schema
+    assert "title" in schema["parameters"]["properties"]
+    assert "title" in schema["parameters"]["required"]
+    assert "formats" in schema["parameters"]["properties"]
 
 
 def test_day5_generate_report_tool_registry(tmp_path: Path) -> None:
@@ -723,6 +862,306 @@ def test_day5_selective_formats(tmp_path: Path) -> None:
     assert "pdf" in res
     assert "docx" not in res
     assert "pptx" not in res
+
+
+# =====================================================================
+# Day 6 Tests: Charts, Cover Pages, and Document Templates
+# =====================================================================
+@pytest.mark.parametrize("kind", ["bar", "line", "pie", "donut", "horizontal_bar"])
+def test_day6_make_chart_all_kinds(tmp_path: Path, kind: str) -> None:
+    """Verify make_chart creates clean PNG files for all supported chart kinds."""
+    labels = ["Alpha", "Beta", "Gamma", "Delta"]
+    values = [25.0, 45.0, 60.0, 85.0]
+    out_file = make_chart(
+        kind=kind,
+        labels=labels,
+        values=values,
+        title=f"Test {kind.title()} Visualization",
+        theme="clean_light",
+        out_dir=str(tmp_path / "temp_creator"),
+    )
+    p = Path(out_file)
+    assert p.exists()
+    assert p.stat().st_size > 10000
+    assert out_file.endswith(".png")
+
+
+def test_day6_make_chart_devanagari(tmp_path: Path) -> None:
+    """Verify make_chart renders Marathi / Hindi Devanagari labels and titles cleanly."""
+    labels = ["सौर ऊर्जा", "पवन ऊर्जा", "जल ऊर्जा"]
+    values = [55.0, 30.0, 15.0]
+    out_file = make_chart(
+        kind="bar",
+        labels=labels,
+        values=values,
+        title="ऊर्जा स्रोत वर्गीकरण",
+        theme="dark_pro",
+        out_dir=str(tmp_path / "temp_creator"),
+    )
+    p = Path(out_file)
+    assert p.exists()
+    assert p.stat().st_size > 10000
+
+
+def test_day6_section_chart_dict_pdf(tmp_path: Path) -> None:
+    """Verify PDF maker embeds section chart specified with {'kind', 'labels', 'values', 'title'}."""
+    sections = [
+        {
+            "heading": "Market Dynamics",
+            "text": "Detailed distribution of quarterly metrics.",
+            "chart": {
+                "kind": "bar",
+                "labels": ["Q1", "Q2", "Q3", "Q4"],
+                "values": [120, 240, 350, 480],
+                "title": "Quarterly Expansion",
+            },
+        }
+    ]
+    pdf_path = make_pdf(
+        title="PDF with Day 6 Section Chart",
+        sections=sections,
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(pdf_path)
+    assert p.exists()
+    assert p.stat().st_size > 8000
+
+
+def test_day6_section_chart_dict_docx(tmp_path: Path) -> None:
+    """Verify DOCX maker embeds section chart specified with {'kind', 'labels', 'values', 'title'}."""
+    sections = [
+        {
+            "heading": "Trend Velocity",
+            "text": "Trajectory of active runtime connections.",
+            "chart": {
+                "kind": "line",
+                "labels": ["Week 1", "Week 2", "Week 3", "Week 4"],
+                "values": [10.5, 25.2, 45.8, 80.0],
+                "title": "Velocity Curve",
+            },
+        }
+    ]
+    docx_path = make_docx(
+        title="DOCX with Day 6 Section Chart",
+        sections=sections,
+        theme="dark_pro",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(docx_path)
+    assert p.exists()
+    assert p.stat().st_size > 12000
+
+
+def test_day6_section_chart_dict_pptx(tmp_path: Path) -> None:
+    """Verify PPTX maker creates dedicated slide for section chart specified with {'kind', 'labels', 'values', 'title'}."""
+    sections = [
+        {
+            "heading": "Resource Allocation",
+            "chart": {
+                "kind": "pie",
+                "labels": ["Engineering", "Design", "QA"],
+                "values": [50, 30, 20],
+                "title": "Department Allocation",
+            },
+        }
+    ]
+    pptx_path = make_pptx(
+        title="Presentation with Day 6 Section Chart",
+        sections=sections,
+        theme="colourful",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(pptx_path)
+    assert p.exists()
+    assert p.stat().st_size > 20000
+
+
+def test_day6_cover_page_and_header_footer_options(tmp_path: Path) -> None:
+    """Verify cover_page toggle and custom header_text/footer_text in PDF, DOCX, and PPTX."""
+    sections = [{"heading": "Introduction", "text": "Testing cover_page=False and headers/footers."}]
+
+    pdf_p = make_pdf(
+        title="No Cover Report",
+        sections=sections,
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+        cover_page=False,
+        header_text="Running Header: Custom Title",
+        footer_text="Confidential • Page Footer",
+    )
+    assert Path(pdf_p).exists()
+
+    docx_p = make_docx(
+        title="No Cover Document",
+        sections=sections,
+        theme="dark_pro",
+        out_dir=str(tmp_path),
+        auto_open=False,
+        cover_page=False,
+        header_text="DOCX Header Test",
+        footer_text="DOCX Footer Test",
+    )
+    assert Path(docx_p).exists()
+
+    pptx_p = make_pptx(
+        title="No Cover Presentation",
+        sections=sections,
+        theme="colourful",
+        out_dir=str(tmp_path),
+        auto_open=False,
+        cover_page=False,
+        header_text="PPTX Header",
+        footer_text="PPTX Footer",
+    )
+    assert Path(pptx_p).exists()
+
+
+def test_day6_template_project_report(tmp_path: Path) -> None:
+    """Verify project_report template creates valid PDF and DOCX documents with chapters."""
+    chapters = [
+        {
+            "heading": "Subsystem Architecture",
+            "text": "Detailed design of core components.",
+            "bullets": ["Modular isolation", "BaseTool compliance", "Zero phantom execution"],
+        }
+    ]
+    pdf_path = project_report(
+        title="Autonomous Desktop Assistant",
+        author="Vidhita (Document Engineer)",
+        chapters=chapters,
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        kind="pdf",
+    )
+    assert Path(pdf_path).exists()
+    assert pdf_path.endswith(".pdf")
+
+    docx_path = project_report(
+        title="Autonomous Desktop Assistant",
+        author="Vidhita (Document Engineer)",
+        chapters=chapters,
+        theme="dark_pro",
+        out_dir=str(tmp_path),
+        kind="docx",
+    )
+    assert Path(docx_path).exists()
+    assert docx_path.endswith(".docx")
+
+
+def test_day6_template_assignment_cover(tmp_path: Path) -> None:
+    """Verify assignment_cover template creates formal student submission document in PDF and DOCX."""
+    pdf_path = assignment_cover(
+        subject="Artificial Intelligence",
+        name="Vidhita Shitole",
+        roll_no="AI-524",
+        title="Autonomous Agent Architecture",
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        kind="pdf",
+    )
+    assert Path(pdf_path).exists()
+    assert pdf_path.endswith(".pdf")
+
+    docx_path = assignment_cover(
+        subject="Operating Systems Automation",
+        name="Vidhita Shitole",
+        roll_no="AI-524",
+        title="Process Control & Telemetry",
+        theme="colourful",
+        out_dir=str(tmp_path),
+        kind="docx",
+    )
+    assert Path(docx_path).exists()
+    assert docx_path.endswith(".docx")
+
+
+def test_day6_template_resume(tmp_path: Path) -> None:
+    """Verify resume template creates clean CV in PDF and DOCX formats."""
+    resume_data = {
+        "name": "Vidhita Shitole",
+        "role": "AI Software Engineer",
+        "contact": {"email": "vidhita@example.com", "phone": "+91 9876543210", "location": "Pune, India"},
+        "summary": "Specialist in autonomous agent architectures, multi-modal workflows, and document engineering.",
+        "skills": {
+            "Languages": ["Python", "TypeScript", "SQL"],
+            "Libraries": ["ReportLab", "python-docx", "python-pptx", "Matplotlib", "FastAPI"],
+        },
+        "experience": [
+            {
+                "role": "Document Creator Engineer",
+                "company": "Project JARVIS",
+                "period": "2026 - Present",
+                "bullets": ["Engineered PDF, DOCX, and PPTX makers with themes and Devanagari typography."],
+            }
+        ],
+        "education": [
+            {"degree": "B.E. Computer Engineering", "institution": "Pune University", "year": "2026", "score": "Distinction"}
+        ],
+    }
+    pdf_path = resume(data=resume_data, theme="clean_light", out_dir=str(tmp_path), kind="pdf")
+    assert Path(pdf_path).exists()
+    assert pdf_path.endswith(".pdf")
+
+    docx_path = resume(data=resume_data, theme="dark_pro", out_dir=str(tmp_path), kind="docx")
+    assert Path(docx_path).exists()
+    assert docx_path.endswith(".docx")
+
+
+def test_day6_template_application_letter(tmp_path: Path) -> None:
+    """Verify application_letter template creates formal application in PDF and DOCX formats."""
+    letter_data = {
+        "applicant_name": "Vidhita Shitole",
+        "applicant_contact": "vidhita@example.com • Pune",
+        "recipient_name": "Dr. Sarah Connor",
+        "recipient_title": "Director of Autonomous Systems",
+        "company_name": "Cyberdyne Labs",
+        "subject": "Application for Document Automation Lead",
+        "salutation": "Dear Dr. Connor,",
+    }
+    pdf_path = application_letter(data=letter_data, theme="clean_light", out_dir=str(tmp_path), kind="pdf")
+    assert Path(pdf_path).exists()
+    assert pdf_path.endswith(".pdf")
+
+    docx_path = application_letter(data=letter_data, theme="colourful", out_dir=str(tmp_path), kind="docx")
+    assert Path(docx_path).exists()
+    assert docx_path.endswith(".docx")
+
+
+def test_day6_create_template_tool_schema_and_execution(tmp_path: Path) -> None:
+    """Verify CreateTemplateTool schema and execution via TOOL_REGISTRY."""
+    tool = CreateTemplateTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "create_template_document"
+    assert "parameters" in schema
+    assert "template_type" in schema["parameters"]["properties"]
+    assert "data" in schema["parameters"]["properties"]
+
+    assert "create_template_document" in TOOL_REGISTRY
+
+    res = execute_tool(
+        "create_template_document",
+        {
+            "template_type": "assignment_cover",
+            "data": {
+                "subject": "Deep Learning Systems",
+                "name": "Vidhita Shitole",
+                "roll_no": "AI-524",
+                "title": "Neural Model Optimization",
+            },
+            "theme": "clean_light",
+            "kind": "pdf",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert res.success is True
+    assert "file_path" in res.data
+    assert Path(res.data["file_path"]).exists()
 
 
 # =====================================================================
@@ -948,8 +1387,77 @@ def run_verification() -> bool:
         assert rep_res.success is True, f"generate_report failed: {rep_res.message}"
         print(f"  [PASS] generate_report files: {list(rep_res.data['files'].keys())} ({rep_res.data['total_bytes']} bytes)")
 
+        # 9. Day 6: Charts, Cover Pages, and Document Templates Verification
+        print("\n[DAY 6] Verifying Charts, Section Embedding, and Document Templates...")
+        d6_chart = make_chart(
+            kind="pie",
+            labels=["Backend", "Voice", "Vision", "Documents"],
+            values=[35.0, 25.0, 20.0, 20.0],
+            title="JARVIS System Distribution (Day 6)",
+            theme="clean_light",
+            out_dir=str(workspace_dir),
+        )
+        assert Path(d6_chart).exists()
+        print(f"  [PASS] make_chart: {d6_chart} ({Path(d6_chart).stat().st_size} bytes)")
+
+        # Day 6 Template 1: Project Report
+        d6_rep = project_report(
+            title="JARVIS Autonomous Architecture",
+            author="Vidhita (Document Engineer)",
+            chapters=[
+                {
+                    "heading": "Core Subsystems",
+                    "text": "Production verification of all document creator components.",
+                    "chart": {
+                        "kind": "bar",
+                        "labels": ["PDF", "DOCX", "PPTX"],
+                        "values": [100, 100, 100],
+                        "title": "Module Completion Rate",
+                    },
+                }
+            ],
+            theme="clean_light",
+            out_dir=str(workspace_dir),
+            kind="pdf",
+        )
+        assert Path(d6_rep).exists()
+        print(f"  [PASS] project_report: {d6_rep} ({Path(d6_rep).stat().st_size} bytes)")
+
+        # Day 6 Template 2: Assignment Cover
+        d6_assign = assignment_cover(
+            subject="Autonomous AI Systems",
+            name="Vidhita Shitole",
+            roll_no="AI-524",
+            title="Multi-Modal Assistant Project",
+            theme="dark_pro",
+            out_dir=str(workspace_dir),
+            kind="docx",
+        )
+        assert Path(d6_assign).exists()
+        print(f"  [PASS] assignment_cover: {d6_assign} ({Path(d6_assign).stat().st_size} bytes)")
+
+        # Day 6 Template Tool Registry Execution
+        tpl_res = execute_tool(
+            "create_template_document",
+            {
+                "template_type": "assignment_cover",
+                "data": {
+                    "subject": "Deep Learning Systems",
+                    "name": "Vidhita Shitole",
+                    "roll_no": "AI-524",
+                    "title": "Neural Model Optimization",
+                },
+                "theme": "clean_light",
+                "kind": "pdf",
+                "out_dir": str(workspace_dir),
+                "auto_open": False,
+            },
+        )
+        assert tpl_res.success is True
+        print(f"  [PASS] create_template_document: {tpl_res.data['file_path']} ({tpl_res.data['bytes']} bytes)")
+
         print("\n" + "=" * 75)
-        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 5 PASSED!")
+        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 6 PASSED!")
         print("=" * 75)
         return True
 

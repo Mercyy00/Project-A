@@ -81,6 +81,9 @@ def make_pptx(
     out_dir: str = "workspace",
     subtitle: Optional[str] = None,
     auto_open: bool = True,
+    cover_page: bool = True,
+    header_text: Optional[str] = None,
+    footer_text: Optional[str] = None,
 ) -> str:
     """Build a themed, Claude-quality PowerPoint presentation deck (16:9).
 
@@ -103,6 +106,9 @@ def make_pptx(
         out_dir: Target output directory.
         subtitle: Optional subtitle for title slide.
         auto_open: If True, opens the generated presentation automatically.
+        cover_page: Whether to include title cover slide (default: True).
+        header_text: Optional running header text.
+        footer_text: Optional running footer text.
 
     Returns:
         str: Absolute filesystem path to the created PPTX file.
@@ -131,63 +137,64 @@ def make_pptx(
         sub_rgb = RGBColor(*hex_to_rgb(theme_cfg.get("subtitle_color", "#64748B")))
 
         # -------------------------------------------------------------
-        # 1. Title Slide
+        # 1. Title Slide (Optional)
         # -------------------------------------------------------------
-        title_slide = prs.slides.add_slide(blank_layout)
-        _apply_slide_background(title_slide, bg_hex)
+        if cover_page:
+            title_slide = prs.slides.add_slide(blank_layout)
+            _apply_slide_background(title_slide, bg_hex)
 
-        # Full-bleed top accent stripe
-        top_stripe = title_slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,
-            Inches(0),
-            Inches(0),
-            Inches(13.333),
-            Inches(0.18),
-        )
-        top_stripe.fill.solid()
-        top_stripe.fill.fore_color.rgb = prim_rgb
-        top_stripe.line.fill.background()
+            # Full-bleed top accent stripe
+            top_stripe = title_slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                Inches(0),
+                Inches(0),
+                Inches(13.333),
+                Inches(0.18),
+            )
+            top_stripe.fill.solid()
+            top_stripe.fill.fore_color.rgb = prim_rgb
+            top_stripe.line.fill.background()
 
-        # Vertical decorative accent bar
-        accent_bar = title_slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,
-            Inches(1.2),
-            Inches(1.8),
-            Inches(0.15),
-            Inches(3.8),
-        )
-        accent_bar.fill.solid()
-        accent_bar.fill.fore_color.rgb = accent_rgb
-        accent_bar.line.fill.background()
+            # Vertical decorative accent bar
+            accent_bar = title_slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                Inches(1.2),
+                Inches(1.8),
+                Inches(0.15),
+                Inches(3.8),
+            )
+            accent_bar.fill.solid()
+            accent_bar.fill.fore_color.rgb = accent_rgb
+            accent_bar.line.fill.background()
 
-        # Title text frame
-        t_box = title_slide.shapes.add_textbox(
-            Inches(1.6), Inches(1.8), Inches(10.5), Inches(3.8)
-        )
-        tf = t_box.text_frame
-        tf.word_wrap = True
+            # Title text frame
+            t_box = title_slide.shapes.add_textbox(
+                Inches(1.6), Inches(1.8), Inches(10.5), Inches(3.8)
+            )
+            tf = t_box.text_frame
+            tf.word_wrap = True
 
-        p_main = tf.paragraphs[0]
-        p_main.text = title
-        p_main.font.name = _pick_font(title, font_name)
-        p_main.font.size = Pt(40)  # >= 28 pt
-        p_main.font.bold = True
-        p_main.font.color.rgb = prim_rgb
-        p_main.space_after = Pt(14)
+            p_main = tf.paragraphs[0]
+            p_main.text = title
+            p_main.font.name = _pick_font(title, font_name)
+            p_main.font.size = Pt(40)  # >= 28 pt
+            p_main.font.bold = True
+            p_main.font.color.rgb = prim_rgb
+            p_main.space_after = Pt(14)
 
-        sub_text = subtitle or f"JARVIS Presentation Suite  |  Theme: {theme_cfg['name'].replace('_', ' ').title()}"
-        p_sub = tf.add_paragraph()
-        p_sub.text = sub_text
-        p_sub.font.name = _pick_font(sub_text, font_name)
-        p_sub.font.size = Pt(20)  # >= 18 pt
-        p_sub.font.color.rgb = sec_rgb
-        p_sub.space_after = Pt(14)
+            sub_text = subtitle or f"JARVIS Presentation Suite  |  Theme: {theme_cfg['name'].replace('_', ' ').title()}"
+            p_sub = tf.add_paragraph()
+            p_sub.text = sub_text
+            p_sub.font.name = _pick_font(sub_text, font_name)
+            p_sub.font.size = Pt(20)  # >= 18 pt
+            p_sub.font.color.rgb = sec_rgb
+            p_sub.space_after = Pt(14)
 
-        p_author = tf.add_paragraph()
-        p_author.text = "Author: Vidhita (Document Engineer)  •  Project JARVIS"
-        p_author.font.name = font_name
-        p_author.font.size = Pt(18)  # >= 18 pt
-        p_author.font.color.rgb = text_rgb
+            p_author = tf.add_paragraph()
+            p_author.text = "Author: Vidhita (Document Engineer)  •  Project JARVIS"
+            p_author.font.name = font_name
+            p_author.font.size = Pt(18)  # >= 18 pt
+            p_author.font.color.rgb = text_rgb
 
         # -------------------------------------------------------------
         # 2. Section Slides
@@ -279,7 +286,7 @@ def make_pptx(
                 )
                 f_tf = f_box.text_frame
                 f_p = f_tf.paragraphs[0]
-                f_p.text = f"JARVIS  •  {title[:40]}"
+                f_p.text = footer_text or f"JARVIS  •  {title[:40]}"
                 f_p.font.name = font_name
                 f_p.font.size = Pt(11)
                 f_p.font.color.rgb = sec_rgb
@@ -394,28 +401,45 @@ def make_pptx(
                 tf_box = t_slide.shapes.add_textbox(Inches(1.0), Inches(6.8), Inches(11.333), Inches(0.4))
                 tf_tf = tf_box.text_frame
                 tf_p = tf_tf.paragraphs[0]
-                tf_p.text = f"JARVIS  •  {title[:40]}"
+                tf_p.text = footer_text or f"JARVIS  •  {title[:40]}"
                 tf_p.font.name = font_name
                 tf_p.font.size = Pt(11)
                 tf_p.font.color.rgb = sec_rgb
 
-            # Chart slide if section has a chart (Day 4 Deliverable)
+            # Chart slide if section has a chart (Days 4 & 6 Deliverable)
             chart_cfg = sec.get("chart")
             chart_path = sec.get("chart_path") or sec.get("image_path")
             if chart_cfg and isinstance(chart_cfg, dict):
                 try:
-                    c_type = chart_cfg.get("type", "bar")
-                    c_data = chart_cfg.get("data", {})
-                    c_title = chart_cfg.get("title", f"{heading} Visualisation")
-                    chart_path = generate_chart(
-                        chart_type=c_type,
-                        data=c_data,
-                        title=c_title,
-                        theme=theme,
-                        out_dir=out_dir,
-                    )
+                    if "labels" in chart_cfg and "values" in chart_cfg:
+                        from creator.charts import make_chart
+                        c_kind = chart_cfg.get("kind", chart_cfg.get("type", "bar"))
+                        c_labels = chart_cfg.get("labels", [])
+                        c_values = chart_cfg.get("values", [])
+                        c_title = chart_cfg.get("title", f"{heading} Visualisation")
+                        chart_path = make_chart(
+                            kind=c_kind,
+                            labels=c_labels,
+                            values=c_values,
+                            title=c_title,
+                            theme=theme,
+                            out_dir=out_dir,
+                        )
+                    else:
+                        c_type = chart_cfg.get("type", chart_cfg.get("kind", "bar"))
+                        c_data = chart_cfg.get("data", {})
+                        c_title = chart_cfg.get("title", f"{heading} Visualisation")
+                        chart_path = generate_chart(
+                            chart_type=c_type,
+                            data=c_data,
+                            title=c_title,
+                            theme=theme,
+                            out_dir=out_dir,
+                        )
                 except Exception:
                     chart_path = None
+            elif chart_cfg and isinstance(chart_cfg, str) and os.path.exists(chart_cfg):
+                chart_path = chart_cfg
 
             if chart_path and os.path.exists(chart_path):
                 c_slide = prs.slides.add_slide(blank_layout)
@@ -450,7 +474,7 @@ def make_pptx(
                 cf_box = c_slide.shapes.add_textbox(Inches(1.0), Inches(6.8), Inches(11.333), Inches(0.4))
                 cf_tf = cf_box.text_frame
                 cf_p = cf_tf.paragraphs[0]
-                cf_p.text = f"JARVIS  •  {title[:40]}"
+                cf_p.text = footer_text or f"JARVIS  •  {title[:40]}"
                 cf_p.font.name = font_name
                 cf_p.font.size = Pt(11)
                 cf_p.font.color.rgb = sec_rgb

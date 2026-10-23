@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from tools.base import BaseTool, ToolResult
@@ -754,13 +755,273 @@ def generate_report(title: str, summary: str = "", sections: Any = None, key_met
     return GenerateReportTool().run(title=title, summary=summary, sections=sections, key_metrics=key_metrics, chart_configs=chart_configs, theme=theme, **kwargs)
 
 
+class CreateDocumentTool(BaseTool):
+    """Tool that autonomously designs and generates a full document or slide deck from a topic prompt."""
+
+    name: str = "create_document"
+    description: str = (
+        "Generates a complete, professionally formatted PDF, Word document, or PowerPoint slide deck "
+        "from a single topic prompt. Formats 4-6 sections with headings, summaries, and bullet points. "
+        "Supports English, Hindi, and Marathi in native Devanagari script. "
+        "Arguments: topic (str, required), kind (optional: 'pdf', 'docx', 'pptx'), "
+        "language (optional: 'en', 'hi', 'mr'), theme (optional: 'clean_light', 'dark_pro', 'colourful'), "
+        "auto_open (optional bool, default True)."
+    )
+
+    def run(
+        self,
+        topic: str,
+        kind: str = "pdf",
+        language: str = "en",
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        auto_open: bool = True,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute document outline generation and binary rendering."""
+        clean_topic = (topic or "").strip()
+        if not clean_topic:
+            return ToolResult(success=False, message="Document topic cannot be empty.")
+
+        try:
+            from creator.outline import create_document as make_full_document
+            file_path = make_full_document(
+                topic=clean_topic,
+                kind=kind,
+                theme=theme,
+                language=language,
+                out_dir=out_dir,
+                auto_open=auto_open,
+            )
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            fmt = Path(file_path).suffix.lstrip(".").lower()
+
+            return ToolResult(
+                success=True,
+                message=f"Document '{clean_topic}' successfully created at: {file_path} ({file_size} bytes)",
+                data={
+                    "file_path": file_path,
+                    "format": fmt,
+                    "bytes": file_size,
+                    "topic": clean_topic,
+                    "language": language,
+                    "theme": theme,
+                },
+            )
+        except Exception as exc:
+            logger.error("CreateDocumentTool execution failed: %s", exc, exc_info=True)
+            return ToolResult(success=False, message=f"Failed to create document: {exc}")
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Return OpenAPI / Gemini function calling schema for CreateDocumentTool."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Topic or theme of the document (e.g. 'Solar Energy', 'AI in Education', 'प्रकल्प नियोजन').",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Document format to generate: 'pdf' (default), 'docx' (Word), or 'pptx' (PowerPoint).",
+                        "enum": ["pdf", "docx", "pptx"],
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Content language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi). Default is 'en'.",
+                        "enum": ["en", "hi", "mr"],
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Styling theme: 'clean_light' (default), 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to automatically open the document upon creation (default: True).",
+                    },
+                },
+                "required": ["topic"],
+            },
+        }
+
+
+def create_document_tool(
+    topic: str,
+    kind: str = "pdf",
+    language: str = "en",
+    theme: str = "clean_light",
+    auto_open: bool = True,
+    **kwargs: Any,
+) -> ToolResult:
+    """Convenience callable for CreateDocumentTool."""
+    return CreateDocumentTool().run(
+        topic=topic, kind=kind, language=language, theme=theme, auto_open=auto_open, **kwargs
+    )
+
+
+class CreateTemplateTool(BaseTool):
+    """Tool that generates formatted documents from standard professional templates."""
+
+    name: str = "create_template_document"
+    description: str = (
+        "Generates a complete document from pre-configured professional templates. "
+        "Templates: 'project_report' (academic/technical report with chapters), "
+        "'assignment_cover' (student submission cover sheet with declaration), "
+        "'resume' (curriculum vitae with skills, experience, education), or "
+        "'application_letter' (formal cover/application letter). "
+        "Arguments: template_type (str, required: 'project_report', 'assignment_cover', 'resume', 'application_letter'), "
+        "data (dict, required), theme (optional: 'clean_light', 'dark_pro', 'colourful'), "
+        "kind (optional: 'pdf' or 'docx'), auto_open (optional bool, default False)."
+    )
+
+    def run(
+        self,
+        template_type: str,
+        data: Dict[str, Any],
+        theme: str = "clean_light",
+        kind: str = "pdf",
+        out_dir: str = "workspace",
+        auto_open: bool = False,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute template document generation."""
+        ttype = (template_type or "").strip().lower()
+        if not ttype:
+            return ToolResult(success=False, message="template_type cannot be empty.")
+
+        try:
+            import creator.templates as tpls
+
+            if ttype in ("project_report", "report"):
+                title = data.get("title", "Technical Project Report")
+                author = data.get("author", "Lead Engineer")
+                chapters = data.get("chapters", [])
+                file_path = tpls.project_report(
+                    title=title,
+                    author=author,
+                    chapters=chapters,
+                    theme=theme,
+                    out_dir=out_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            elif ttype in ("assignment_cover", "assignment"):
+                subject = data.get("subject", "Engineering Course")
+                name = data.get("name", "Student")
+                roll_no = data.get("roll_no", "001")
+                title = data.get("title", "Assignment Submission")
+                file_path = tpls.assignment_cover(
+                    subject=subject,
+                    name=name,
+                    roll_no=roll_no,
+                    title=title,
+                    theme=theme,
+                    out_dir=out_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            elif ttype in ("resume", "cv"):
+                file_path = tpls.resume(
+                    data=data,
+                    theme=theme,
+                    out_dir=out_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            elif ttype in ("application_letter", "cover_letter", "letter"):
+                file_path = tpls.application_letter(
+                    data=data,
+                    theme=theme,
+                    out_dir=out_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    message=f"Unknown template_type '{template_type}'. Supported: 'project_report', 'assignment_cover', 'resume', 'application_letter'.",
+                )
+
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            return ToolResult(
+                success=True,
+                message=f"Template document '{ttype}' successfully created at: {file_path} ({file_size} bytes)",
+                data={
+                    "file_path": file_path,
+                    "template_type": ttype,
+                    "format": Path(file_path).suffix.lstrip(".").lower(),
+                    "bytes": file_size,
+                    "theme": theme,
+                },
+            )
+        except Exception as exc:
+            logger.error("CreateTemplateTool execution failed: %s", exc, exc_info=True)
+            return ToolResult(success=False, message=f"Failed to create template document: {exc}")
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Return OpenAPI / Gemini function calling schema for CreateTemplateTool."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "template_type": {
+                        "type": "string",
+                        "description": "Template kind to build: 'project_report', 'assignment_cover', 'resume', or 'application_letter'.",
+                        "enum": ["project_report", "assignment_cover", "resume", "application_letter"],
+                    },
+                    "data": {
+                        "type": "object",
+                        "description": "Content payload dictionary tailored for the chosen template.",
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Styling theme: 'clean_light', 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Output format: 'pdf' (default) or 'docx'.",
+                        "enum": ["pdf", "docx"],
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to launch the document upon creation (default: False).",
+                    },
+                },
+                "required": ["template_type", "data"],
+            },
+        }
+
+
+def create_template_document(
+    template_type: str,
+    data: Dict[str, Any],
+    theme: str = "clean_light",
+    kind: str = "pdf",
+    auto_open: bool = False,
+    **kwargs: Any,
+) -> ToolResult:
+    """Convenience callable for CreateTemplateTool."""
+    return CreateTemplateTool().run(
+        template_type=template_type, data=data, theme=theme, kind=kind, auto_open=auto_open, **kwargs
+    )
+
+
 # Canonical exported tools list for Abhijit's registry auto-loader (Catch-Up Plan Section 4 & 7)
 TOOLS: List[BaseTool] = [
     CreatePdfTool(),
     CreateDocxTool(),
     CreatePptxTool(),
     CreateChartTool(),
+    CreateDocumentTool(),
     GenerateReportTool(),
+    CreateTemplateTool(),
 ]
 
 # Auto-register all tools immediately into central registry
