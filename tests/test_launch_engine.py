@@ -81,3 +81,55 @@ def test_conversational_queries_not_hijacked():
     assert try_launch_system_app("I am Rohit") is None
     assert try_launch_system_app("What is the time?") is None
     assert try_launch_system_app("Check system specs") is None
+
+
+@pytest.mark.asyncio
+async def test_dynamic_multi_user_neutral_by_default():
+    from ui.server import _generate_response
+
+    # New guest user session (not Rohit)
+    guest_session = {"name": "User", "is_known": False}
+    resp = await _generate_response("Hey Jarvis", session_user=guest_session)
+    assert "Rohit" not in resp
+    assert "Greetings!" in resp or "Jarvis is online" in resp
+
+    resp_who = await _generate_response("Who am I?", session_user=guest_session)
+    assert "Rohit" not in resp_who
+    assert "Sir" in resp_who or "User" in resp_who
+
+
+@pytest.mark.asyncio
+async def test_dynamic_multi_user_introduction_and_reset():
+    from ui.server import _generate_response
+
+    session = {"name": "User", "is_known": False}
+    intro_resp = await _generate_response("Hey Jarvis, I am Shiv", session_user=session)
+    assert "Shiv" in intro_resp
+    assert session["name"] == "Shiv"
+    assert session["is_known"] is True
+
+    greet_resp = await _generate_response("Hey Jarvis", session_user=session)
+    assert "Shiv" in greet_resp
+
+    # Reset
+    reset_resp = await _generate_response("reset user", session_user=session)
+    assert "cleared" in reset_resp or "neutral" in reset_resp
+    assert session["is_known"] is False
+
+
+@pytest.mark.asyncio
+async def test_device_active_tasks_inspection():
+    from ui.server import _generate_response
+
+    resp = await _generate_response("show active tasks")
+    assert "Active PC Tasks" in resp or "Running Applications" in resp
+    assert "PID" in resp or "RAM" in resp
+
+
+@pytest.mark.asyncio
+async def test_device_deep_file_search():
+    from ui.server import _generate_response
+
+    resp = await _generate_response("search files for catchup")
+    assert "Device File Search Results" in resp or "Found" in resp
+    assert "Catchup_Plan" in resp or "pdf" in resp.lower()

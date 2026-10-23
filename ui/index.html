@@ -842,6 +842,15 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
         </select>
       </div>
       <div>
+        <label class="tiny mono" style="color:var(--accent); display:block; margin-bottom:6px;">USER PROFILE CONFIGURATION</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" class="modal-input" id="setting-user-input" placeholder="Enter user name (e.g. Shiv, Priya, Rohit)..." style="flex:1;" />
+          <button type="button" class="btn mono active" id="btn-save-user-profile" style="padding:6px 14px;">SAVE</button>
+          <button type="button" class="btn mono" id="btn-reset-user-profile" style="padding:6px 14px;" title="Reset to neutral guest">RESET</button>
+        </div>
+        <div class="note mono" id="current-user-badge" style="margin-top:6px; font-size:11px;">CURRENT USER: GUEST (NEUTRAL)</div>
+      </div>
+      <div>
         <label class="tiny mono" style="color:var(--accent); display:block; margin-bottom:4px;">ACTIVE ASSISTANT PERSONA</label>
         <div class="note mono">JARVIS 8.02 / MULTI-USER ADAPTIVE CORE</div>
       </div>
@@ -947,6 +956,10 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
         $('#ws-state').style.color = 'var(--accent)';
         log('WEBSOCKET CONNECTED TO CORE');
         if (reconnectTimer) clearInterval(reconnectTimer);
+        const storedUser = localStorage.getItem('jarvis_user_profile');
+        if (storedUser) {
+          socket.send(JSON.stringify({ action: "set_user", name: storedUser }));
+        }
       };
 
       socket.onmessage = (event) => {
@@ -1084,9 +1097,8 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
         removeThinkingBubble();
       }
     } else if (data.type === 'user_identified') {
-      activeUserName = data.name.toUpperCase();
-      $('#profile').textContent = 'USER PROFILE / ' + activeUserName;
-      log('USER IDENTIFIED: ' + activeUserName);
+      updateUserProfileUI(data.name);
+      log('USER IDENTIFIED: ' + data.name);
     } else if (data.type === 'response') {
       removeThinkingBubble();
       appendChatBubble('assistant', data.text);
@@ -1362,6 +1374,51 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       b.classList.toggle('active', b.dataset.lang === activeSpeechLang);
     });
     log(`VOICE LANG SET TO: ${activeSpeechLang}`);
+  });
+
+  // Dynamic Multi-User Profile Configuration
+  const userInput = $('#setting-user-input');
+  const userBadge = $('#current-user-badge');
+
+  function updateUserProfileUI(name) {
+    if (name && name.toUpperCase() !== 'GUEST' && name.toUpperCase() !== 'USER') {
+      activeUserName = name.toUpperCase();
+      $('#profile').textContent = 'USER PROFILE / ' + activeUserName;
+      if (userBadge) userBadge.textContent = 'CURRENT USER: ' + activeUserName;
+      if (userInput) userInput.value = name;
+    } else {
+      activeUserName = '';
+      $('#profile').textContent = '01 / STANDARD OPERATIONS';
+      if (userBadge) userBadge.textContent = 'CURRENT USER: GUEST (NEUTRAL)';
+      if (userInput) userInput.value = '';
+    }
+  }
+
+  // Restore stored user profile from browser localStorage on boot
+  const storedUserProfile = localStorage.getItem('jarvis_user_profile');
+  if (storedUserProfile) {
+    updateUserProfileUI(storedUserProfile);
+  }
+
+  $('#btn-save-user-profile')?.addEventListener('click', () => {
+    const name = (userInput?.value || '').trim();
+    if (name) {
+      localStorage.setItem('jarvis_user_profile', name);
+      updateUserProfileUI(name);
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: "set_user", name: name }));
+      }
+      log('USER PROFILE CONFIGURED: ' + name);
+    }
+  });
+
+  $('#btn-reset-user-profile')?.addEventListener('click', () => {
+    localStorage.removeItem('jarvis_user_profile');
+    updateUserProfileUI('');
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ action: "set_user", name: "" }));
+    }
+    log('USER PROFILE RESET TO GUEST');
   });
 
   // Confirmation Modal Listeners (Day 6)

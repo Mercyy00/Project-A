@@ -17,6 +17,7 @@ import re
 import shutil
 import socket
 import subprocess
+import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 import webbrowser
 
@@ -439,6 +440,9 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
         "system stats", "laptop specs", "my specs", "how much ram", "storage space",
         "what are my notes", "show my notes", "list notes", "my notes",
         "what are my reminders", "show reminders", "check reminders", "my reminders",
+        "what are my tasks", "show my tasks", "list tasks", "my tasks",
+        "show active tasks", "running apps", "what processes", "active tasks",
+        "search file", "search files", "find file", "find files", "search pc",
         "weather", "havaman"
     )
     if any(norm == g or norm.startswith(g) for g in non_app_triggers):
@@ -499,7 +503,14 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
 
     # Check for direct system folder match
     for f_key, (target_path, f_label) in system_folders.items():
-        if norm == f_key or norm == f"open {f_key}" or norm == f"launch {f_key}" or norm.startswith(f"open {f_key} ") or f_key in norm:
+        is_match = (
+            norm == f_key
+            or norm == f"open {f_key}"
+            or norm == f"launch {f_key}"
+            or norm.startswith(f"open {f_key} ")
+            or (len(f_key.split()) > 1 and f_key in norm)
+        )
+        if is_match:
             try:
                 if target_path.startswith("shell:") or target_path == "explorer.exe":
                     subprocess.Popen(f"explorer.exe {target_path}", shell=True)
@@ -728,10 +739,9 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
 # Dynamic User State & Deep Hardware Intelligence Engine
 # ---------------------------------------------------------------------------
 
-current_user_state: Dict[str, Any] = {
-    "name": "User",
-    "is_known": False,
-}
+# ---------------------------------------------------------------------------
+# Dynamic Multi-User Isolation & Deep Hardware / Device Intelligence Engine
+# ---------------------------------------------------------------------------
 
 
 def detect_user_intro(text: str) -> Optional[str]:
@@ -798,6 +808,84 @@ def get_deep_system_specs() -> str:
         return f"System Diagnostics: Active OS host nominal. CPU Load: {psutil.cpu_percent()}%, RAM: {psutil.virtual_memory().percent}%."
 
 
+def get_running_user_processes(limit: int = 10) -> List[Dict[str, Any]]:
+    """Inspect the host machine for active desktop applications and background tasks."""
+    processes = []
+    ignore_set = {"system idle process", "system", "registry", "smss.exe", "csrss.exe", "wininit.exe", "services.exe", "lsass.exe", "svchost.exe"}
+    for proc in psutil.process_iter(["pid", "name", "memory_info"]):
+        try:
+            p_name = proc.info["name"]
+            if not p_name or p_name.lower() in ignore_set:
+                continue
+            mem_mb = round(proc.info["memory_info"].rss / (1024 * 1024), 1) if proc.info.get("memory_info") else 0
+            processes.append({
+                "pid": proc.info["pid"],
+                "name": p_name,
+                "memory_mb": mem_mb,
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    processes.sort(key=lambda x: x["memory_mb"], reverse=True)
+    return processes[:limit]
+
+
+def deep_search_user_files(query: str, root_hint: Optional[str] = None, max_results: int = 8) -> List[Dict[str, Any]]:
+    """Deep search for files across PC user directories (Downloads, Desktop, Documents, Workspace)."""
+    search_dirs = []
+    if root_hint:
+        hint_lower = root_hint.lower()
+        if "download" in hint_lower:
+            search_dirs.append(Path(os.path.expandvars(r"%USERPROFILE%\Downloads")))
+        elif "document" in hint_lower:
+            search_dirs.append(Path(os.path.expandvars(r"%USERPROFILE%\Documents")))
+        elif "desktop" in hint_lower:
+            search_dirs.append(Path(os.path.expandvars(r"%USERPROFILE%\Desktop")))
+        elif "workspace" in hint_lower or "project" in hint_lower:
+            search_dirs.append(Path.cwd())
+    if not search_dirs:
+        search_dirs = [
+            Path(os.path.expandvars(r"%USERPROFILE%\Downloads")),
+            Path(os.path.expandvars(r"%USERPROFILE%\Desktop")),
+            Path(os.path.expandvars(r"%USERPROFILE%\Documents")),
+            Path.cwd(),
+        ]
+
+    matches = []
+    q_lower = query.lower().strip()
+    for sdir in search_dirs:
+        if not sdir.exists():
+            continue
+        try:
+            for item in sdir.glob("*"):
+                if not q_lower or q_lower in item.name.lower():
+                    is_dir = item.is_dir()
+                    size_kb = round(item.stat().st_size / 1024, 1) if not is_dir else 0
+                    matches.append({
+                        "name": item.name,
+                        "path": str(item.resolve()),
+                        "is_dir": is_dir,
+                        "size_kb": size_kb,
+                    })
+                    if len(matches) >= max_results:
+                        return matches
+            if len(matches) < max_results:
+                for item in sdir.glob("*/*"):
+                    if q_lower and q_lower in item.name.lower():
+                        is_dir = item.is_dir()
+                        size_kb = round(item.stat().st_size / 1024, 1) if not is_dir else 0
+                        matches.append({
+                            "name": item.name,
+                            "path": str(item.resolve()),
+                            "is_dir": is_dir,
+                            "size_kb": size_kb,
+                        })
+                        if len(matches) >= max_results:
+                            return matches
+        except Exception:
+            continue
+    return matches
+
+
 def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]]:
     """Parse notes or reminders dictated by the user via text or voice."""
     cleaned = user_text.lower().strip()
@@ -828,45 +916,56 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
     return (None, None)
 
 
-async def _generate_response(user_text: str) -> str:
+async def _generate_response(user_text: str, session_user: Optional[Dict[str, Any]] = None) -> str:
     """Intelligently process and answer user questions directly from UI backend,
-    supporting dynamic user personalization, deep system inspection, persistent notes/reminders,
-    and ultra-fast (<1.5s) AI query generation.
+    supporting connection-isolated dynamic user personalization, deep PC device access,
+    task inspection, file search, and ultra-fast (<1.5s) AI responses.
     """
+    if session_user is None:
+        session_user = {"name": "User", "is_known": False}
+
     cleaned = user_text.lower().strip()
     norm = normalize_command(user_text)
-    active_name = current_user_state["name"]
+    active_name = session_user["name"]
+    is_known = session_user.get("is_known", False)
+    address_str = f" {active_name}" if is_known else ""
 
     # 1. User Identity Introduction ("I am Shiv", "My name is Ram")
     detected_name = detect_user_intro(user_text)
     if detected_name:
-        current_user_state["name"] = detected_name
-        current_user_state["is_known"] = True
+        session_user["name"] = detected_name
+        session_user["is_known"] = True
         return f"Hello {detected_name}! I have updated my user registers. I am now configured specifically for you. How can I assist you today?"
 
-    # 2. User Identity Query ("Who am I?", "What is my name?")
+    # 2. User Identity Reset / Forget
+    if norm in ("reset user", "forget my name", "switch user", "change user", "who am i reset"):
+        session_user["name"] = "User"
+        session_user["is_known"] = False
+        return "User identity registers have been cleared. I am in neutral assistant mode. Tell me 'I am [name]' anytime to re-configure."
+
+    # 3. User Identity Query ("Who am I?", "What is my name?")
     if any(k in norm for k in ("who am i", "what is my name", "do you know my name", "whats my name", "what s my name", "maza naav kay")):
-        if current_user_state["is_known"]:
-            return f"You are recognized as {active_name} in my active session. All memory vaults and task logs are dedicated to you."
+        if is_known:
+            return f"You are recognized as {active_name} in this session. All memory vaults and task logs are dedicated to you."
         return "I currently address you as Sir. If you would like me to address you by your name, simply tell me 'I am [your name]' and I will remember it."
 
-    # 3. Fast-Path Conversational Greetings (<1ms latency)
+    # 4. Fast-Path Conversational Greetings (<1ms latency)
     greetings = (
         "heyy jarvis", "hey jarvis", "hi jarvis", "hello jarvis", "hi", "hello",
         "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon",
         "namaste", "namaskar"
     )
     if norm in greetings or any(norm == g for g in greetings):
-        return f"Greetings {active_name}! Jarvis is online, listening, and ready for your command."
+        return f"Greetings{address_str}! Jarvis is online, listening, and ready for your command."
 
-    # 4. Instant Assistant Self-Identity & Capabilities (<1ms latency)
+    # 5. Instant Assistant Self-Identity & Capabilities (<1ms latency)
     if norm in (
         "who are you", "what are you", "who r u", "tell me about yourself",
         "introduce yourself", "tu kon ahes", "tu kon aahes", "what is your name",
         "whats your name"
     ):
         return (
-            f"I am J.A.R.V.I.S., an autonomous desktop AI assistant configured for {active_name}. "
+            f"I am J.A.R.V.I.S., an autonomous desktop AI assistant{f' configured for {active_name}' if is_known else ''}. "
             "I manage your PC applications, hardware telemetry, notes & reminders, and answer questions with high-speed intelligence."
         )
 
@@ -876,16 +975,68 @@ async def _generate_response(user_text: str) -> str:
     ):
         return (
             "Here is what I can do for you:\n"
-            "• **Launch Apps:** 'Open Chrome', 'Open WhatsApp', 'Launch Calculator', 'Terminal'\n"
+            "• **Launch Apps & Files:** 'Open Chrome', 'Open File Manager', 'Open WhatsApp', 'Open catchup plan'\n"
+            "• **Device & PC Access:** 'Show active tasks', 'What processes are running', 'Search files for [name]'\n"
             "• **PC Diagnostics:** 'What are my system specs?', 'Check CPU & RAM usage'\n"
-            "• **Notes & Reminders:** 'Take a note: [text]', 'Remind me to [task]', 'What are my notes?'\n"
+            "• **Notes & Tasks:** 'Take a note: [text]', 'Remind me to [task]', 'What are my tasks?'\n"
             "• **AI Knowledge:** Ask me any technical, coding, or general knowledge question!"
         )
 
     if norm in ("how are you", "how are you doing", "how r u", "kasa ahes", "kasa ahes tu", "kase ahat"):
-        return f"All quantum registers and neural core systems are operating at peak efficiency, {active_name}. How may I serve you?"
+        return f"All quantum registers and neural core systems are operating at peak efficiency{address_str}. How may I serve you?"
 
-    # 5. Live Time / Date / Day (<1ms latency)
+    # 6. Device Access: Active Tasks & Running PC Processes Inspection
+    task_triggers = (
+        "show active tasks", "what tasks are running", "show running tasks",
+        "running apps", "what apps are running", "show running apps",
+        "active processes", "running processes", "what processes are running",
+        "running tasks", "task list", "pc tasks", "system processes", "tasks running"
+    )
+    if any(norm == t or norm.startswith(t) for t in task_triggers):
+        procs = get_running_user_processes(limit=10)
+        if not procs:
+            return "All background tasks nominal. No heavy desktop applications currently active."
+        lines = [f"• **{p['name']}** (PID: `{p['pid']}` | Memory: `{p['memory_mb']} MB`)" for p in procs]
+        return (
+            f"🖥️ **Active PC Tasks & Running Applications:**\n"
+            + "\n".join(lines)
+            + "\n\n*Say 'Open [App Name]' to bring any application to focus.*"
+        )
+
+    # 7. Device Access: Deep File & Directory Search on Host PC
+    file_search_match = None
+    patterns = [
+        r"(?:search|find)\s+(?:pc\s+|computer\s+|device\s+|disk\s+)?(?:files?\s+)?(?:for\s+)?(.+)",
+        r"(?:show|list)\s+(?:my\s+)?(?:files?\s+in\s+)?(downloads|documents|desktop|workspace|project)",
+        r"(?:what\s+is\s+in\s+)(?:my\s+)?(downloads|documents|desktop|workspace|project)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, cleaned, re.IGNORECASE)
+        if m:
+            query_arg = m.group(1).strip()
+            if query_arg.lower() in ("downloads", "documents", "desktop", "workspace", "project"):
+                file_search_match = ("", query_arg.lower())
+            elif len(query_arg) >= 2 and not any(query_arg.lower().startswith(x) for x in ("what", "who", "system", "time", "how", "is", "can")):
+                file_search_match = (query_arg, None)
+            break
+
+    if file_search_match:
+        search_q, root_hint = file_search_match
+        results = deep_search_user_files(search_q, root_hint=root_hint, max_results=8)
+        if results:
+            lines = []
+            for r in results:
+                icon = "📁" if r["is_dir"] else "📄"
+                size_str = f"({r['size_kb']} KB)" if not r["is_dir"] else "[DIR]"
+                lines.append(f"{icon} **{r['name']}** {size_str} — `{r['path']}`")
+            target_str = f"in {root_hint.title()}" if root_hint else f"matching '{search_q}'"
+            return (
+                f"📂 **Device File Search Results ({target_str}):**\n"
+                + "\n".join(lines)
+                + "\n\n*You can say 'Open [file name]' to open any of these immediately!*"
+            )
+
+    # 8. Live Time / Date / Day (<1ms latency)
     time_triggers = (
         "current time", "what time", "what is the time", "tell me the time",
         "tell me the current time", "clock", "date today", "what date",
@@ -897,7 +1048,7 @@ async def _generate_response(user_text: str) -> str:
         d = now.strftime("%A, %B %d, %Y")
         return f"The current time is {t} on {d}."
 
-    # 6. Deep Real-Time Host Machine Diagnostics (<50ms latency)
+    # 9. Deep Real-Time Host Machine Diagnostics (<50ms latency)
     sys_triggers = (
         "system info", "system stats", "laptop specs", "my specs",
         "tell me about my system", "tell me about the system", "hardware info",
@@ -908,7 +1059,7 @@ async def _generate_response(user_text: str) -> str:
     if any(k in norm for k in sys_triggers) or norm in ("specs", "system", "cpu", "ram"):
         return get_deep_system_specs()
 
-    # 7. Dynamic Notes & Reminders Parsing (Voice or Text)
+    # 10. Dynamic Notes & Reminders Parsing (Voice or Text)
     kind, item_content = parse_note_or_reminder(user_text)
     if kind == "reminder" and item_content:
         try:
@@ -929,7 +1080,7 @@ async def _generate_response(user_text: str) -> str:
         except Exception:
             return f"Saved note: '{item_content}'."
 
-    # 8. Querying Saved Notes & Reminders
+    # 11. Querying Saved Tasks, Notes & Reminders
     if any(k in norm for k in ("what are my notes", "show my notes", "list notes", "my notes", "what did i ask you to remember")):
         try:
             notes = await memory_manager.list_notes(limit=10)
@@ -940,6 +1091,17 @@ async def _generate_response(user_text: str) -> str:
             return f"Here are your saved notes from memory:\n{bullet_list}"
         except Exception as err:
             print(f"[WARN] Failed to read notes: {err}")
+
+    if any(k in norm for k in ("what are my tasks", "show my tasks", "list tasks", "my tasks", "pending tasks")):
+        try:
+            notes = await memory_manager.list_notes(limit=10)
+            tasks = [n for n in notes if n["title"].startswith("[TASK]")]
+            if not tasks:
+                return "You currently have no pending tasks in your memory vault."
+            bullet_list = "\n".join([f"⚡ **{n['title']}**: {n['content']}" for n in tasks])
+            return f"Here are your active recorded tasks:\n{bullet_list}"
+        except Exception as err:
+            print(f"[WARN] Failed to read tasks: {err}")
 
     if any(k in norm for k in ("what are my reminders", "show reminders", "check reminders", "my reminders")):
         try:
@@ -952,24 +1114,24 @@ async def _generate_response(user_text: str) -> str:
         except Exception as err:
             print(f"[WARN] Failed to read reminders: {err}")
 
-    # 9. Weather query
+    # 12. Weather query
     if "weather" in norm or "havaman" in norm:
         return (
             "Current weather conditions: Clear skies, approximately 26°C with 65% humidity. "
             "Optimal conditions for desktop operations."
         )
 
-    # 10. Check Fast In-Memory LRU Cache
-    if norm in _response_cache:
-        return _response_cache[norm]
+    # 13. Fast In-Memory LRU Cache
+    cache_key = f"{norm}_{active_name if is_known else 'anon'}"
+    if cache_key in _response_cache:
+        return _response_cache[cache_key]
 
-    # 11. Advanced AI Generative Response using Persistent GenAI SDK (with ultra-fast gemini-3.5-flash-lite)
+    # 14. Advanced AI Generative Response using Persistent GenAI SDK
     client = get_genai_client()
     if client:
         try:
             from google.genai import types
 
-            # Fetch recent conversation context (last 2 turns) for lightweight multi-turn awareness
             context_history = []
             try:
                 recent = await memory_manager.get_recent_history(limit=2)
@@ -986,7 +1148,12 @@ async def _generate_response(user_text: str) -> str:
                 else user_text
             )
 
-            # High-speed gemini-3.5-flash-lite with gemini-flash-lite-latest fallback
+            user_instruction_tag = (
+                f"The active user is {active_name}. Address them politely by name."
+                if is_known
+                else "The user has not introduced their name yet. Address them neutrally and respectfully as Sir or User (never assume their name is Rohit)."
+            )
+
             for model_candidate in ("gemini-3.5-flash-lite", "gemini-flash-lite-latest"):
                 try:
                     response = await client.aio.models.generate_content(
@@ -994,8 +1161,8 @@ async def _generate_response(user_text: str) -> str:
                         contents=prompt_content,
                         config=types.GenerateContentConfig(
                             system_instruction=(
-                                f"You are JARVIS, an autonomous AI desktop assistant. The active user is {active_name}. "
-                                "Address them politely. Provide concise, direct, intelligent, and helpful answers in 1-2 short paragraphs. "
+                                f"You are JARVIS, an autonomous AI desktop assistant. {user_instruction_tag} "
+                                "Provide concise, direct, intelligent, and helpful answers in 1-2 short paragraphs. "
                                 "If the user asks in Marathi or Hindi, feel free to respond in that language or English as appropriate."
                             ),
                             max_output_tokens=250,
@@ -1004,7 +1171,7 @@ async def _generate_response(user_text: str) -> str:
                     if response.text and response.text.strip():
                         ans = response.text.strip()
                         if len(_response_cache) < 150:
-                            _response_cache[norm] = ans
+                            _response_cache[cache_key] = ans
                         return ans
                 except Exception as model_err:
                     print(f"[INFO] Model {model_candidate} retry: {model_err}")
@@ -1013,7 +1180,7 @@ async def _generate_response(user_text: str) -> str:
         except Exception as exc:
             print(f"[WARN] GenAI chat generation error: {exc}")
 
-    # 12. Fallback if offline or network failure
+    # 15. Fallback
     return (
         f"Jarvis Core acknowledged your directive: '{user_text}'. "
         f"All local memory vaults and hardware telemetry are fully operational."
@@ -1024,6 +1191,13 @@ async def _generate_response(user_text: str) -> str:
 async def websocket_jarvis(websocket: WebSocket) -> None:
     """Real-time bi-directional WebSocket channel for HUD chat and telemetry."""
     await websocket.accept()
+
+    # Connection-scoped session state (each user/device gets its own isolated profile)
+    session_user: Dict[str, Any] = {
+        "name": "User",
+        "is_known": False,
+    }
+
     last_chat_msg = ""
     last_chat_time = 0.0
     try:
@@ -1036,25 +1210,45 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
             action = payload.get("action", "chat")
 
-            if action == "chat":
+            if action == "set_user":
+                user_name = payload.get("name", "").strip()
+                if user_name:
+                    session_user["name"] = user_name
+                    session_user["is_known"] = True
+                    await websocket.send_json({"type": "user_identified", "name": user_name})
+                    await websocket.send_json({"type": "response", "text": f"User profile configured for {user_name}. Jarvis is ready for your commands."})
+                else:
+                    session_user["name"] = "User"
+                    session_user["is_known"] = False
+                    await websocket.send_json({"type": "user_identified", "name": "GUEST"})
+                    await websocket.send_json({"type": "response", "text": "Switched to neutral Guest profile."})
+
+            elif action == "chat":
                 user_text = payload.get("text", "").strip()
                 if not user_text:
                     continue
 
-                import time
-
                 now_ts = time.time()
                 if user_text.lower() == last_chat_msg.lower() and (now_ts - last_chat_time) < 2.0:
-                    # Guard against rapid duplicate voice recognition bursts
                     continue
                 last_chat_msg = user_text
                 last_chat_time = now_ts
 
-                # Detect if user introduced their name dynamically
+                norm = normalize_command(user_text)
+
+                # Reset user request
+                if norm in ("reset user", "forget my name", "switch user", "change user", "reset profile"):
+                    session_user["name"] = "User"
+                    session_user["is_known"] = False
+                    await websocket.send_json({"type": "user_identified", "name": "GUEST"})
+                    await websocket.send_json({"type": "response", "text": "I have reset my user registers to default neutral mode. How may I assist you?"})
+                    continue
+
+                # Detect if user introduced their name dynamically in chat
                 detected_name = detect_user_intro(user_text)
                 if detected_name:
-                    current_user_state["name"] = detected_name
-                    current_user_state["is_known"] = True
+                    session_user["name"] = detected_name
+                    session_user["is_known"] = True
                     await websocket.send_json({"type": "user_identified", "name": detected_name})
 
                 # Launch desktop app, folder, file, or compound task if requested by user
@@ -1072,16 +1266,17 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 # 3. Generate response
                 if launch_info:
                     app_label, task_detail = launch_info
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ""
                     if task_detail:
-                        reply_text = f"Opening {app_label} for you now, {current_user_state['name']}. {task_detail}"
+                        reply_text = f"Opening {app_label} for you now{user_suffix}. {task_detail}"
                         try:
                             await memory_manager.add_note(title=f"[TASK] {app_label}", content=task_detail)
                         except Exception:
                             pass
                     else:
-                        reply_text = f"Opening {app_label} for you now, {current_user_state['name']}."
+                        reply_text = f"Opening {app_label} for you now{user_suffix}."
                 else:
-                    reply_text = await _generate_response(user_text)
+                    reply_text = await _generate_response(user_text, session_user=session_user)
 
                 # 4. Persist assistant turn
                 try:
