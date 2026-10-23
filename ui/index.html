@@ -1072,7 +1072,8 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       console.warn('WS Init error:', e);
     }
   }
-  // connectWS will be triggered once neural core is engaged
+  connectWS();
+
   function sendDirective(text) {
     if (!text || !text.trim()) return;
     const clean = text.trim();
@@ -1100,12 +1101,32 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ action: 'chat', text: clean, mode: payloadMode }));
     } else {
-      setTimeout(() => {
-        const fallback = `Directive acknowledged: "${clean}". Subsystems nominal.`;
-        appendFeedMessage('jarvis', fallback);
-        setCoreState('speaking');
-        speakText(fallback);
-      }, 700);
+      // Robust HTTP fallback directly to Core Brain Engine
+      log('WS STANDBY: ROUTING DIRECTIVE VIA HTTP FALLBACK');
+      (async () => {
+        try {
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: clean, mode: payloadMode }),
+          });
+          const data = await res.json();
+          if (data.tool_steps && Array.isArray(data.tool_steps)) {
+            data.tool_steps.forEach(step => {
+              appendFeedMessage('tool', `⚡ ${step}`);
+              log(`TOOL: ${step.substring(0, 32)}`);
+            });
+          }
+          const reply = data.text || 'Directive acknowledged, sir.';
+          appendFeedMessage('jarvis', reply);
+          setCoreState('speaking');
+          speakText(reply);
+        } catch (err) {
+          const errMsg = `System execution error: ${err.message}`;
+          appendFeedMessage('jarvis', errMsg);
+          setCoreState('idle');
+        }
+      })();
     }
   }
 

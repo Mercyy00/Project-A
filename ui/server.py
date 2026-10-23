@@ -357,6 +357,19 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
 # Dynamic Neural Core API Key Configuration Endpoints
 # ---------------------------------------------------------------------------
 
+class ChatPayload(BaseModel):
+    """Payload for HTTP chat directive fallback."""
+    text: str = Field(..., min_length=1, description="Directive text")
+    mode: str = Field("normal", description="Operating mode")
+
+
+@app.post("/api/chat")
+async def http_chat(payload: ChatPayload) -> Dict[str, Any]:
+    """Execute chat directive via HTTP fallback when WebSocket is offline."""
+    from core.service import handle_text
+    return await handle_text(payload.text, source="ui_http", mode=payload.mode)
+
+
 class KeyConfigRequest(BaseModel):
     """Payload schema for setting or updating API keys from the Web HUD."""
     gemini_api_key: str = Field(..., min_length=8, description="Google Gemini API Key")
