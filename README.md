@@ -27,7 +27,7 @@ writes documents, keeps notes and answers in English, Hindi and Marathi.
 
 ## Contents
 
-[Features](#features) · [Screenshots](#screenshots) · [How it is built](#how-it-is-built) · [Quick start](#quick-start) · [Running JARVIS](#running-jarvis) · [Testing](#testing) · [Project structure](#project-structure) · [Team](#team)
+[Features](#features) · [Screenshots](#screenshots) · [How it is built](#how-it-is-built) · [Quick start](#quick-start) · [Running JARVIS](#running-jarvis) · [Demo Script](docs/DAY_7_DEMO_SCRIPT.md) · [Testing](#testing) · [Project structure](#project-structure) · [Team](#team)
 
 <br>
 
@@ -149,13 +149,18 @@ Never commit `.env`. It is already in `.gitignore`.
 
 ## Running JARVIS
 
+> For the comprehensive 2-minute video recording guide and technical viva script, see [docs/DAY_7_DEMO_SCRIPT.md](docs/DAY_7_DEMO_SCRIPT.md).
+
+`main.py` is the unified application entrypoint:
+
 | Interface | Command | Notes |
 | :-- | :-- | :-- |
-| **Web HUD** (recommended) | `python -m uvicorn ui.server:app --host 127.0.0.1 --port 8000` | Then open <http://127.0.0.1:8000> |
-| **Voice loop** | `python main_voice.py` | Or double-click `run_jarvis_voice.bat` |
-| **Terminal** | `python main_cli.py` | Plain text conversation with the brain |
-
-<br>
+| **Web HUD** (recommended) | `python main.py` (or `python main.py --ui`) | Opens browser at <http://127.0.0.1:8000> automatically |
+| **Spoken Voice Loop** | `python main.py --voice` | Real-time multilingual voice loop (`--auto` for continuous) |
+| **Terminal Command Center** | `python main.py --cli` | Interactive REPL with slash commands (`/doctor`, `/stats`, `/tools`, `/mode`) |
+| **Telegram Remote Bridge** | `python main.py --telegram` | Owner-authorized remote assistant |
+| **Full Stack (Concurrent)** | `python main.py --all` | Launches FastAPI Web HUD backend and background services simultaneously |
+| **System Diagnostic Doctor** | `python main.py --check` | Pre-flight diagnostics across LLM, 39 tools, memory, audio & sandbox (`--live-ping` for network test) |
 
 ## Testing
 

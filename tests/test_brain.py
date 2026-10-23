@@ -99,6 +99,19 @@ class TestJarvisBrain(unittest.TestCase):
                 load_api_key()
             self.assertIn("GEMINI_API_KEY is missing", str(ctx.exception))
 
+    def test_compact_history(self) -> None:
+        """Verify context compaction prunes older turns and maintains sliding window."""
+        brain = JarvisBrain()
+        for i in range(25):
+            brain.history.append({"role": "user", "content": f"msg {i}"})
+            brain.history.append({"role": "model", "content": f"reply {i}"})
+        self.assertEqual(len(brain.history), 50)
+
+        pruned = brain.compact_history(max_entries=10)
+        self.assertEqual(pruned, 40)
+        self.assertEqual(len(brain.history), 10)
+        self.assertEqual(brain.history[-1]["content"], "reply 24")
+
 
 if __name__ == "__main__":
     unittest.main()
