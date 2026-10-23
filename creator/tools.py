@@ -20,6 +20,7 @@ from tools.base import BaseTool, ToolResult
 from creator.docx_maker import make_docx
 from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
+from creator.web_maker import make_website
 
 logger = logging.getLogger(__name__)
 
@@ -508,15 +509,150 @@ def create_pptx(title: str, sections: Any, theme: str = "clean_light", auto_open
     return CreatePptxTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
 
 
+
+
+class CreateWebsiteTool(BaseTool):
+    """Tool that generates publication-grade, responsive website artifacts with Claude-level frontend design."""
+
+    name: str = "create_website"
+    description: str = (
+        "Creates a responsive, beautifully styled, single-file HTML website or web dashboard artifact "
+        "using Claude-quality design principles, custom color themes, bento metric grids, "
+        "interactive data tables, and modern typography. "
+        "Arguments: title (str), sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
+        "theme (optional: 'clean_light', 'dark_pro', 'colourful', 'tech_innovation', 'ocean_depths', 'forest_moss', "
+        "'midnight_executive', 'warm_terracotta', 'modern_minimalist', 'sunset_boulevard'), "
+        "auto_open (optional bool, default True)."
+    )
+
+    def run(
+        self,
+        title: str,
+        sections: Any,
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        auto_open: bool = True,
+        filename: Optional[str] = None,
+        hero_tagline: Optional[str] = None,
+        language: str = "en",
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Executes website / web artifact creation."""
+        clean_title = (title or "Website Artifact").strip()
+        if not clean_title:
+            return ToolResult(success=False, data=None, message="Title cannot be empty.")
+
+        try:
+            norm_sections = _normalize_sections(sections)
+            out_file = make_website(
+                title=clean_title,
+                sections=norm_sections,
+                theme=theme,
+                out_dir=out_dir,
+                auto_open=auto_open,
+                filename=filename,
+                hero_tagline=hero_tagline,
+                language=language,
+            )
+            file_size = os.path.getsize(out_file) if os.path.exists(out_file) else 0
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": out_file,
+                    "format": "html",
+                    "bytes": file_size,
+                    "title": clean_title,
+                    "theme": theme,
+                    "section_count": len(norm_sections),
+                },
+                message=f"Website artifact '{clean_title}' successfully generated at: {out_file} ({file_size} bytes)",
+            )
+        except Exception as exc:
+            logger.error("CreateWebsiteTool execution failed: %s", exc, exc_info=True)
+            return ToolResult(success=False, data=None, message=f"Failed to generate website artifact: {exc}")
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Return OpenAPI / Gemini function calling schema for CreateWebsiteTool."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "The title of the website or web dashboard artifact.",
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "List of document sections with heading, text, bullets, metrics, or table.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "heading": {"type": "string", "description": "Section title."},
+                                "text": {"type": "string", "description": "Body paragraph narrative for this section."},
+                                "bullets": {"type": "array", "items": {"type": "string"}, "description": "Bullet points for this section."},
+                                "metrics": {
+                                    "type": "array",
+                                    "description": "Key metric cards for Bento Grid (e.g. [{'label': 'Uptime', 'value': '99.9%'}]).",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "value": {"type": "string"},
+                                        },
+                                        "required": ["label", "value"],
+                                    },
+                                },
+                                "table": {
+                                    "type": "array",
+                                    "description": "2D array of rows for a data table (first row is header).",
+                                    "items": {"type": "array", "items": {"type": "string"}},
+                                },
+                            },
+                            "required": ["heading"],
+                        },
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light', 'dark_pro', 'colourful', 'tech_innovation', 'ocean_depths', 'forest_moss', 'midnight_executive', 'warm_terracotta', 'modern_minimalist', 'sunset_boulevard'.",
+                        "enum": [
+                            "clean_light",
+                            "dark_pro",
+                            "colourful",
+                            "tech_innovation",
+                            "ocean_depths",
+                            "forest_moss",
+                            "midnight_executive",
+                            "warm_terracotta",
+                            "modern_minimalist",
+                            "sunset_boulevard",
+                        ],
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to automatically launch the generated website in the default browser (default: True).",
+                    },
+                },
+                "required": ["title", "sections"],
+            },
+        }
+
+
+def create_website(title: str, sections: Any, theme: str = "clean_light", auto_open: bool = True, **kwargs: Any) -> ToolResult:
+    """Convenience callable for CreateWebsiteTool."""
+    return CreateWebsiteTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
+
 class CreateDocumentTool(BaseTool):
     """Tool that autonomously designs and generates a full document or slide deck from a topic prompt."""
 
     name: str = "create_document"
     description: str = (
-        "Generates a complete, professionally formatted PDF, Word document, or PowerPoint slide deck "
+        "Generates a complete, professionally formatted PDF, Word document, PowerPoint slide deck, or HTML website "
         "from a single topic prompt. Formats 4-6 sections with headings, summaries, and bullet points. "
         "Supports English, Hindi, and Marathi in native Devanagari script. "
-        "Arguments: topic (str, required), kind (optional: 'pdf', 'docx', 'pptx'), "
+        "Arguments: topic (str, required), kind (optional: 'pdf', 'docx', 'pptx', 'web'), "
         "language (optional: 'en', 'hi', 'mr'), theme (optional: 'clean_light', 'dark_pro', 'colourful'), "
         "auto_open (optional bool, default True)."
     )
@@ -580,7 +716,7 @@ class CreateDocumentTool(BaseTool):
                     "kind": {
                         "type": "string",
                         "description": "Document format to generate: 'pdf' (default), 'docx' (Word), or 'pptx' (PowerPoint).",
-                        "enum": ["pdf", "docx", "pptx"],
+                        "enum": ["pdf", "docx", "pptx", "web"],
                     },
                     "language": {
                         "type": "string",
@@ -622,6 +758,7 @@ TOOLS: List[BaseTool] = [
     CreateDocxTool(),
     CreatePptxTool(),
     CreateDocumentTool(),
+    CreateWebsiteTool(),
 ]
 
 # Auto-register all tools immediately into central registry
