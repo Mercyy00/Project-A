@@ -23,7 +23,7 @@ DEFAULT_SYSTEM_PROMPT: str = (
     "You are JARVIS, the ultra-fast, highly sophisticated AI desktop assistant inspired by Tony Stark's JARVIS. "
     "Address the user respectfully as 'sir' with a razor-sharp, cool, and subtly witty British cadence. "
     "CRITICAL CONVERSATIONAL RULE: Keep responses under 20 words in 1 or 2 punchy, spoken sentences suitable for instant voice synthesis. Never write conversational filler, long disclaimers, or paragraphs. "
-    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening an app, setting volume or brightness, locking screen, managing windows, running commands, reading/writing files, taking screenshots, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
+    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening apps, opening settings, setting volume or brightness, locking screen, managing windows, running commands, reading/writing/opening files, creating documents/presentations, taking screenshots, acting on screen, sending Telegram messages, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
     "ZERO-PHANTOM RULE: NEVER claim, simulate, or hallucinate that you performed any action unless you actually invoked the corresponding tool and received a successful response. If a tool call fails, state the failure honestly and crisply. "
     "STATE AWARENESS: You possess ZERO psychic knowledge of the computer state. You do not know what windows are active, what files exist, what is on the clipboard, or what the telemetry is until you call the respective inspection tool (list_windows, list_directory, clipboard_read, get_system_stats, battery). Never invent or guess desktop states. "
     "MULTILINGUAL RULE: Respond in the user's language (English, Hindi, Marathi, or Hinglish). When speaking Hindi or Marathi, always output in native Devanagari script so the speech synthesizer pronounces it flawlessly. "
@@ -544,6 +544,198 @@ class JarvisBrain:
                 return f"[FAILED] Failed to click element: {exc}"
 
         discovered.append(click_element)
+
+        def open_file(file_path: str) -> str:
+            """Opens a document, image, or file using its default associated desktop application.
+
+            Args:
+                file_path: Path to the file to open (e.g. 'workspace/report.pdf'). Must be inside workspace/ or allowed safe directories.
+            """
+            self.last_tool_steps.append(f"open_file('{file_path}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("open_file", {"file_path": file_path}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to open file '{file_path}': {exc}"
+
+        discovered.append(open_file)
+
+        def open_settings_page(page: str) -> str:
+            """Opens a specific Windows Settings page (e.g. 'display', 'sound', 'bluetooth', 'wifi', 'network', 'battery', 'apps').
+
+            Args:
+                page: Name of the settings page to open.
+            """
+            self.last_tool_steps.append(f"open_settings_page('{page}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("open_settings_page", {"page": page}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to open settings page '{page}': {exc}"
+
+        discovered.append(open_settings_page)
+
+        def do_on_screen(goal: str, max_steps: int = 5) -> str:
+            """Autonomously performs a multi-step task on the desktop screen using the Look-Decide-Act agent loop.
+
+            Args:
+                goal: The goal or task to achieve on screen (e.g. 'open the File menu in Notepad', 'scroll down').
+                max_steps: Maximum number of visual action steps to attempt (default: 5).
+            """
+            self.last_tool_steps.append(f"do_on_screen('{goal}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("do_on_screen", {"goal": goal, "max_steps": max_steps}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to execute task on screen: {exc}"
+
+        discovered.append(do_on_screen)
+
+        def explain_code_on_screen(task: str = "explain", active_window: bool = True) -> str:
+            """Analyzes source code or terminal output visible on the screen, providing explanations or bug fixes.
+
+            Args:
+                task: Action type: 'explain' to explain the code, or 'fix' to diagnose and provide corrected code.
+                active_window: Whether to crop capture to the active editor window (default: True).
+            """
+            self.last_tool_steps.append(f"explain_code_on_screen(task='{task}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("explain_code_on_screen", {"task": task, "active_window": active_window}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to explain code on screen: {exc}"
+
+        discovered.append(explain_code_on_screen)
+
+        def create_pdf(
+            title: str,
+            sections: List[Dict[str, Any]],
+            theme: str = "clean_light",
+            auto_open: bool = True,
+        ) -> str:
+            """Generates a professionally styled PDF document with cover page, bento grids, and typography.
+
+            Args:
+                title: Title of the PDF document.
+                sections: List of sections, each a dict with 'heading' and optional 'text', 'bullets', 'metrics', or 'table'.
+                theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
+                auto_open: Whether to automatically launch the generated PDF in the default viewer.
+            """
+            self.last_tool_steps.append(f"create_pdf('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("create_pdf", {
+                    "title": title,
+                    "sections": sections,
+                    "theme": theme,
+                    "auto_open": auto_open,
+                }).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to create PDF '{title}': {exc}"
+
+        discovered.append(create_pdf)
+
+        def create_docx(
+            title: str,
+            sections: List[Dict[str, Any]],
+            theme: str = "clean_light",
+            auto_open: bool = True,
+        ) -> str:
+            """Generates an executive Word document (.docx) with structured tables, callouts, and typography.
+
+            Args:
+                title: Title of the Word document.
+                sections: List of sections with 'heading' and optional 'text', 'bullets', 'metrics', or 'table'.
+                theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
+                auto_open: Whether to automatically open the generated document in Microsoft Word.
+            """
+            self.last_tool_steps.append(f"create_docx('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("create_docx", {
+                    "title": title,
+                    "sections": sections,
+                    "theme": theme,
+                    "auto_open": auto_open,
+                }).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to create Word document '{title}': {exc}"
+
+        discovered.append(create_docx)
+
+        def create_pptx(
+            title: str,
+            sections: List[Dict[str, Any]],
+            theme: str = "clean_light",
+            auto_open: bool = True,
+        ) -> str:
+            """Generates a high-impact PowerPoint presentation deck (.pptx) with modern layout and slides.
+
+            Args:
+                title: Title of the presentation.
+                sections: List of slide sections with 'heading' and optional 'text', 'bullets', 'metrics', or 'table'.
+                theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
+                auto_open: Whether to automatically open the generated deck in PowerPoint.
+            """
+            self.last_tool_steps.append(f"create_pptx('{title}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("create_pptx", {
+                    "title": title,
+                    "sections": sections,
+                    "theme": theme,
+                    "auto_open": auto_open,
+                }).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to create PowerPoint presentation '{title}': {exc}"
+
+        discovered.append(create_pptx)
+
+        def create_document(
+            topic: str,
+            kind: str = "pdf",
+            language: str = "en",
+            theme: str = "clean_light",
+            auto_open: bool = True,
+        ) -> str:
+            """Generates a complete, multi-section document (PDF, DOCX, or PPTX) from a high-level topic or prompt.
+
+            Args:
+                topic: Topic or theme of the document (e.g. 'Quantum Computing Applications', 'AI Agents').
+                kind: Document format to generate: 'pdf', 'docx', or 'pptx'.
+                language: Language code: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi).
+                theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
+                auto_open: Whether to automatically open the document upon creation.
+            """
+            self.last_tool_steps.append(f"create_document('{topic}', kind='{kind}')")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("create_document", {
+                    "topic": topic,
+                    "kind": kind,
+                    "language": language,
+                    "theme": theme,
+                    "auto_open": auto_open,
+                }).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to create document for '{topic}': {exc}"
+
+        discovered.append(create_document)
+
+        def send_telegram(text: str) -> str:
+            """Sends an instant message notification or status alert to the owner's phone via Telegram.
+
+            Args:
+                text: The message content to send to the owner.
+            """
+            self.last_tool_steps.append("send_telegram")
+            try:
+                from tools.registry import execute_tool
+                return execute_tool("send_telegram", {"text": text}).to_llm_string()
+            except Exception as exc:
+                return f"[FAILED] Failed to send Telegram message: {exc}"
+
+        discovered.append(send_telegram)
 
         return discovered
 

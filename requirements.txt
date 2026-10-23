@@ -19,6 +19,7 @@ pygetwindow>=0.0.9
 pyperclip>=1.8.2
 comtypes>=1.2.0
 screen-brightness-control>=0.23.0
+pynput>=1.7.6
 
 # Memory & Storage (Rohit)
 aiosqlite>=0.20.0

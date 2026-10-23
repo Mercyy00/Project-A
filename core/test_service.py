@@ -18,10 +18,19 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         reset_brain()
 
     def test_tool_discovery_count(self) -> None:
-        """Verify that all 29 tools are discovered and registered in the brain."""
+        """Verify that all 38 tools are discovered and registered in the brain."""
         brain = get_brain()
-        self.assertGreaterEqual(len(brain.tools), 29)
+        self.assertGreaterEqual(len(brain.tools), 38)
         tool_names = [t.__name__ for t in brain.tools]
+        self.assertIn("open_file", tool_names)
+        self.assertIn("open_settings_page", tool_names)
+        self.assertIn("do_on_screen", tool_names)
+        self.assertIn("explain_code_on_screen", tool_names)
+        self.assertIn("create_document", tool_names)
+        self.assertIn("create_pdf", tool_names)
+        self.assertIn("create_docx", tool_names)
+        self.assertIn("create_pptx", tool_names)
+        self.assertIn("send_telegram", tool_names)
         self.assertIn("set_volume", tool_names)
         self.assertIn("set_brightness", tool_names)
         self.assertIn("lock_screen", tool_names)
