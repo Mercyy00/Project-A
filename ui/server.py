@@ -512,7 +512,9 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
         )
         if is_match:
             try:
-                if target_path.startswith("shell:") or target_path == "explorer.exe":
+                if target_path == "explorer.exe":
+                    subprocess.Popen(["explorer.exe", os.path.expandvars(r"%USERPROFILE%")])
+                elif target_path.startswith("shell:"):
                     subprocess.Popen(f"explorer.exe {target_path}", shell=True)
                 else:
                     subprocess.Popen(["explorer.exe", target_path])
@@ -531,25 +533,28 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
         "windows settings": ("cmd.exe /c start ms-settings:", "Windows Settings"),
         "store": ("cmd.exe /c start ms-windows-store:", "Microsoft Store"),
         "microsoft store": ("cmd.exe /c start ms-windows-store:", "Microsoft Store"),
-        "calculator": ("calc", "Calculator"),
-        "calc": ("calc", "Calculator"),
-        "notepad": ("notepad", "Notepad"),
-        "paint": ("mspaint", "Paint"),
-        "mspaint": ("mspaint", "Paint"),
-        "snipping tool": ("snippingtool", "Snipping Tool"),
-        "snip": ("snippingtool", "Snipping Tool"),
-        "screenshot": ("snippingtool", "Snipping Tool"),
-        "task manager": ("taskmgr", "Task Manager"),
-        "taskmgr": ("taskmgr", "Task Manager"),
-        "cmd": ("cmd", "Command Prompt"),
-        "command prompt": ("cmd", "Command Prompt"),
-        "terminal": ("wt", "Windows Terminal"),
-        "powershell": ("powershell", "PowerShell"),
+        "calculator": ("cmd.exe /c start calc:", "Calculator"),
+        "calc": ("cmd.exe /c start calc:", "Calculator"),
+        "notepad": ("notepad.exe", "Notepad"),
+        "paint": ("cmd.exe /c start mspaint", "Paint"),
+        "mspaint": ("cmd.exe /c start mspaint", "Paint"),
+        "snipping tool": ("cmd.exe /c start snippingtool", "Snipping Tool"),
+        "snip": ("cmd.exe /c start snippingtool", "Snipping Tool"),
+        "screenshot": ("cmd.exe /c start snippingtool", "Snipping Tool"),
+        "task manager": ("cmd.exe /c start taskmgr", "Task Manager"),
+        "taskmgr": ("cmd.exe /c start taskmgr", "Task Manager"),
+        "cmd": ("cmd.exe /c start cmd", "Command Prompt"),
+        "command prompt": ("cmd.exe /c start cmd", "Command Prompt"),
+        "terminal": ("cmd.exe /c start wt", "Windows Terminal"),
+        "powershell": ("cmd.exe /c start powershell", "PowerShell"),
     }
     for p_key, (cmd, p_label) in protocol_apps.items():
         if norm == p_key or norm == f"open {p_key}" or norm == f"launch {p_key}" or norm.startswith(f"open {p_key} ") or (f"open {p_key}" in norm):
             try:
-                subprocess.Popen(f"cmd.exe /c start {cmd}", shell=True)
+                if cmd.endswith(".exe"):
+                    subprocess.Popen([cmd])
+                else:
+                    subprocess.Popen(cmd, shell=True)
                 return (p_label, None)
             except Exception as e:
                 print(f"[WARN] Error opening protocol {p_key}: {e}")
@@ -571,13 +576,8 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
 
         launched = False
         try:
-            dyn = find_dynamic_app_in_system("whatsapp")
-            if dyn:
-                os.startfile(dyn[0])
-                launched = True
-            else:
-                subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
-                launched = True
+            subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
+            launched = True
         except Exception:
             pass
 
@@ -588,6 +588,11 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
 
     # B. Chrome with optional Google Search task
     if "chrome" in norm:
+        chrome_candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]
         search_query = None
         m = re.search(r"(?:search|google|find)\s+(?:for\s+)?(.+)", user_text, re.IGNORECASE)
         if m and "chrome" not in m.group(1).lower():
@@ -596,18 +601,27 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
         if search_query:
             import urllib.parse
             url = f"https://www.google.com/search?q={urllib.parse.quote_plus(search_query)}"
-            subprocess.Popen(f'cmd.exe /c start chrome "{url}"', shell=True)
+            for c_path in chrome_candidates:
+                if os.path.exists(c_path):
+                    subprocess.Popen([c_path, "--new-window", url])
+                    return ("Google Chrome", f"Executed Google search for '{search_query}'.")
+            subprocess.Popen(f'cmd.exe /c start chrome --new-window "{url}"', shell=True)
             return ("Google Chrome", f"Executed Google search for '{search_query}'.")
         else:
-            try:
-                from tools.system_tools import OpenAppTool
-                OpenAppTool().run(app_name="chrome")
-            except Exception:
-                subprocess.Popen("cmd.exe /c start chrome", shell=True)
+            for c_path in chrome_candidates:
+                if os.path.exists(c_path):
+                    subprocess.Popen([c_path, "--new-window"])
+                    return ("Google Chrome", None)
+            subprocess.Popen("cmd.exe /c start chrome --new-window", shell=True)
             return ("Google Chrome", None)
 
     # C. Brave Browser
     if "brave" in norm:
+        brave_candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+        ]
         search_query = None
         m = re.search(r"(?:search|find)\s+(?:for\s+)?(.+)", user_text, re.IGNORECASE)
         if m and "brave" not in m.group(1).lower():
@@ -616,27 +630,28 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
         if search_query:
             import urllib.parse
             url = f"https://www.google.com/search?q={urllib.parse.quote_plus(search_query)}"
-            subprocess.Popen(f'cmd.exe /c start brave "{url}"', shell=True)
+            for b_path in brave_candidates:
+                if os.path.exists(b_path):
+                    subprocess.Popen([b_path, "--new-window", url])
+                    return ("Brave Browser", f"Executed search for '{search_query}'.")
+            subprocess.Popen(f'cmd.exe /c start brave --new-window "{url}"', shell=True)
             return ("Brave Browser", f"Executed search for '{search_query}'.")
         else:
-            dyn = find_dynamic_app_in_system("brave")
-            if dyn:
-                try:
-                    os.startfile(dyn[0])
+            for b_path in brave_candidates:
+                if os.path.exists(b_path):
+                    subprocess.Popen([b_path, "--new-window"])
                     return ("Brave Browser", None)
-                except Exception:
-                    pass
-            subprocess.Popen("cmd.exe /c start brave", shell=True)
+            subprocess.Popen("cmd.exe /c start brave --new-window", shell=True)
             return ("Brave Browser", None)
 
     # D. Edge Browser
     if "edge" in norm:
-        subprocess.Popen("cmd.exe /c start msedge", shell=True)
+        subprocess.Popen("cmd.exe /c start msedge --new-window", shell=True)
         return ("Microsoft Edge", None)
 
     # E. Firefox Browser
     if "firefox" in norm:
-        subprocess.Popen("cmd.exe /c start firefox", shell=True)
+        subprocess.Popen("cmd.exe /c start firefox --new-window", shell=True)
         return ("Mozilla Firefox", None)
 
     # F. YouTube with optional search/play
@@ -653,11 +668,16 @@ def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]
 
     # G. VS Code / Code
     if norm == "code" or norm == "vscode" or "vs code" in norm or "open code" in norm:
-        try:
-            from tools.system_tools import OpenAppTool
-            OpenAppTool().run(app_name="code")
-        except Exception:
-            subprocess.Popen("cmd.exe /c start code", shell=True)
+        vscode_candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),
+            r"C:\Program Files\Microsoft VS Code\Code.exe",
+        ]
+        for v_path in vscode_candidates:
+            if os.path.exists(v_path):
+                subprocess.Popen([v_path])
+                return ("VS Code", None)
+        subprocess.Popen("cmd.exe /c code", shell=True)
+        return ("VS Code", None)
         return ("VS Code", None)
 
     # H. Spotify

@@ -15,8 +15,8 @@ if exist "venv\Scripts\python.exe" (
     set "PYTHON_EXE=python"
 )
 
-echo [3/3] Starting Jarvis Backend Server on http://127.0.0.1:8000 ...
-start "" /B "%PYTHON_EXE%" -m uvicorn ui.server:app --port 8000 --host 127.0.0.1
+echo [3/3] Starting Jarvis Backend Server on http://0.0.0.0:8000 ...
+start "JARVIS SERVER CORE" "%PYTHON_EXE%" -m uvicorn ui.server:app --port 8000 --host 0.0.0.0
 
 echo.
 echo Waiting for server initialization...
