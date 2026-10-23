@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import subprocess
 import urllib.parse
@@ -345,7 +346,7 @@ class OpenAppTool(BaseTool):
                 ["powershell", "-NoProfile", "-Command", "Get-StartApps | ConvertTo-Json"],
                 capture_output=True,
                 text=True,
-                timeout=4,
+                timeout=6,
             )
             if res.returncode == 0 and res.stdout.strip():
                 items = json.loads(res.stdout)
