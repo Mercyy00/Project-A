@@ -27,7 +27,7 @@ writes documents, keeps notes and answers in English, Hindi and Marathi.
 
 ## Contents
 
-[Features](#features) · [Screenshots](#screenshots) · [How it is built](#how-it-is-built) · [Quick start](#quick-start) · [Running JARVIS](#running-jarvis) · [Testing](#testing) · [Project structure](#project-structure) · [Team](#team)
+[Features](#features) · [Screenshots](#screenshots) · [How it is built](#how-it-is-built) · [Quick start](#quick-start) · [Running JARVIS](#running-jarvis) · [Demo Script](docs/DAY_7_DEMO_SCRIPT.md) · [Testing](#testing) · [Project structure](#project-structure) · [Team](#team)
 
 <br>
 
@@ -148,6 +148,8 @@ Never commit `.env`. It is already in `.gitignore`.
 <br>
 
 ## Running JARVIS
+
+> For the comprehensive 2-minute video recording guide and technical viva script, see [docs/DAY_7_DEMO_SCRIPT.md](docs/DAY_7_DEMO_SCRIPT.md).
 
 `main.py` is the unified application entrypoint:
 
