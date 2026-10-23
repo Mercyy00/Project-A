@@ -14,8 +14,11 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import socket
+import subprocess
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+import webbrowser
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
@@ -297,93 +300,426 @@ async def stream_neural_tts(
 
 # ---------------------------------------------------------------------------
 # Day 3: WebSocket Live Channel & Sci-Fi HUD
+# Universal Desktop App, File, and Compound Task Launch Engine
 # ---------------------------------------------------------------------------
 
+_START_MENU_SHORTCUTS: Optional[Dict[str, str]] = None
 
-def try_launch_system_app(user_text: str) -> Optional[str]:
-    """Helper in ui/server.py to launch requested desktop applications on Windows,
-    delegating to Abhijit's OpenAppTool with graceful fallbacks (Task A2.4).
+
+def get_start_menu_shortcuts() -> Dict[str, str]:
+    """Scan and cache Windows Start Menu shortcuts for dynamic app discovery."""
+    global _START_MENU_SHORTCUTS
+    if _START_MENU_SHORTCUTS is not None:
+        return _START_MENU_SHORTCUTS
+
+    shortcuts: Dict[str, str] = {}
+    if os.name != "nt":
+        _START_MENU_SHORTCUTS = shortcuts
+        return shortcuts
+
+    search_dirs = [
+        os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+        os.path.expandvars(r"%ProgramData%\Microsoft\Windows\Start Menu\Programs"),
+    ]
+    for base_dir in search_dirs:
+        if os.path.exists(base_dir):
+            try:
+                for root, _, files in os.walk(base_dir):
+                    for f in files:
+                        if f.lower().endswith(".lnk"):
+                            clean_name = f[:-4].lower()
+                            if "uninstall" in clean_name or "help" in clean_name:
+                                continue
+                            full_path = os.path.join(root, f)
+                            shortcuts[clean_name] = full_path
+            except Exception as e:
+                print(f"[WARN] Failed scanning start menu {base_dir}: {e}")
+
+    _START_MENU_SHORTCUTS = shortcuts
+    return shortcuts
+
+
+def find_dynamic_app_in_system(query: str) -> Optional[Tuple[str, str]]:
+    """Search for an installed application matching query across Start Menu shortcuts and PATH.
+    Returns (executable_or_lnk_path, display_label) if found.
     """
-    import subprocess
-
-    norm = normalize_command(user_text)
-    trigger_words = ("open", "launch", "start", "run", "execute", "ugad", "chalu", "khol")
-    app_mapping = {
-        "chrome": ("chrome", "Google Chrome"),
-        "google chrome": ("chrome", "Google Chrome"),
-        "notepad": ("notepad", "Notepad"),
-        "calc": ("calc", "Calculator"),
-        "calculator": ("calc", "Calculator"),
-        "cmd": ("cmd", "Command Prompt"),
-        "command prompt": ("cmd", "Command Prompt"),
-        "terminal": ("terminal", "Terminal"),
-        "code": ("code", "VS Code"),
-        "vscode": ("code", "VS Code"),
-        "paint": ("paint", "Paint"),
-        "mspaint": ("paint", "Paint"),
-        "settings": ("settings", "Settings"),
-        "taskmgr": ("taskmgr", "Task Manager"),
-        "task manager": ("taskmgr", "Task Manager"),
-        "spotify": ("spotify", "Spotify"),
-        "explorer": ("explorer", "File Explorer"),
-        "excel": ("excel", "Excel"),
-        "word": ("word", "Word"),
-    }
-
-    # Check if request has launch intent
-    is_launch_request = (
-        any(w in norm.split() for w in trigger_words)
-        or any(norm == k for k in app_mapping)
-        or (any(w in norm for w in trigger_words) and any(k in norm for k in app_mapping))
-        or "whatsapp" in norm
-        or "youtube" in norm
-        or "edge" in norm
-        or "snip" in norm
-        or "screenshot" in norm
-    )
-
-    if not is_launch_request:
+    shortcuts = get_start_menu_shortcuts()
+    query_clean = query.lower().strip()
+    if not query_clean:
         return None
 
-    # 1. Try delegating to Abhijit's OpenAppTool (Task A2.4)
-    try:
-        from tools.system_tools import OpenAppTool
+    # 1. Exact match in Start Menu shortcuts
+    if query_clean in shortcuts:
+        return (shortcuts[query_clean], query.title())
 
-        open_tool = OpenAppTool()
-        for key, (shortcut, label) in app_mapping.items():
-            if key in norm:
-                result = open_tool.run(app_name=shortcut)
-                if result.success:
-                    return label
-                # If OpenAppTool could not locate path on this specific PC, fallback to Windows start
-                subprocess.Popen(f"cmd.exe /c start {shortcut}", shell=True)
-                return label
-    except Exception as exc:
-        print(f"[WARN] OpenAppTool delegation fallback: {exc}")
+    # 2. Substring match
+    for name, path in shortcuts.items():
+        if query_clean == name or query_clean in name or name in query_clean:
+            return (path, name.title())
 
-    # 2. Handlers for web and specialty apps
-    try:
-        if "whatsapp" in norm:
+    # 3. Token match
+    tokens = [t for t in query_clean.split() if len(t) > 2]
+    if tokens:
+        for name, path in shortcuts.items():
+            if all(t in name for t in tokens):
+                return (path, name.title())
+
+    # 4. Check system PATH via shutil.which
+    which_path = shutil.which(query_clean) or shutil.which(f"{query_clean}.exe")
+    if which_path:
+        return (which_path, query.title())
+
+    return None
+
+
+def find_user_file_or_folder(query: str) -> Optional[Tuple[Path, str]]:
+    """Locate a requested file or folder on user's system (workspace, desktop, downloads, documents).
+    Returns (Path, display_label) if found.
+    """
+    cleaned = query.strip().strip("'\"")
+    if not cleaned:
+        return None
+
+    direct_path = Path(cleaned)
+    if direct_path.exists():
+        kind = "Folder" if direct_path.is_dir() else "File"
+        return (direct_path.resolve(), f"{kind}: {direct_path.name}")
+
+    search_roots = [
+        Path(r"C:\Users\rohit\OneDrive\Desktop\Project-A"),
+        Path(os.path.expandvars(r"%USERPROFILE%\Desktop")),
+        Path(os.path.expandvars(r"%USERPROFILE%\Downloads")),
+        Path(os.path.expandvars(r"%USERPROFILE%\Documents")),
+        Path.cwd(),
+    ]
+
+    query_lower = cleaned.lower()
+    query_tokens = [t for t in query_lower.split() if len(t) > 2]
+
+    for root in search_roots:
+        if not root.exists():
+            continue
+        try:
+            for item in root.iterdir():
+                item_name_lower = item.name.lower()
+                norm_name = item_name_lower.replace("_", " ").replace("-", " ")
+                # 1. Exact name or stem match
+                if query_lower == item_name_lower or query_lower == item.stem.lower():
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+                # 2. Substring match
+                if len(query_lower) >= 4 and (query_lower in item_name_lower or query_lower in norm_name):
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+                # 3. Token match
+                if query_tokens and all(t in norm_name for t in query_tokens):
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+        except Exception:
+            continue
+
+    return None
+
+
+def try_launch_system_app(user_text: str) -> Optional[Tuple[str, Optional[str]]]:
+    """Universal desktop application, folder, file, and compound task launcher.
+    Returns (app_or_target_label, optional_task_detail) or None if text is not a launch intent.
+    """
+    norm = normalize_command(user_text)
+    if not norm:
+        return None
+
+    # Guard: Never treat conversational greetings, identity, status, or notes queries as app launch requests
+    non_app_triggers = (
+        "who are you", "what are you", "who r u", "tell me about yourself",
+        "introduce yourself", "tu kon ahes", "what can you do", "what are your capabilities",
+        "who am i", "what is my name", "do you know my name", "whats my name", "what s my name",
+        "current time", "what time", "what is the time", "tell me the time", "clock",
+        "what date", "todays date", "system info", "check system specs",
+        "system stats", "laptop specs", "my specs", "how much ram", "storage space",
+        "what are my notes", "show my notes", "list notes", "my notes",
+        "what are my reminders", "show reminders", "check reminders", "my reminders",
+        "weather", "havaman"
+    )
+    if any(norm == g or norm.startswith(g) for g in non_app_triggers):
+        return None
+
+    # Detect user identity introduction ("I am Rohit")
+    if detect_user_intro(user_text):
+        return None
+
+    # Detect standalone notes/reminders
+    kind_check, _ = parse_note_or_reminder(user_text)
+    if kind_check:
+        return None
+
+    # Pure greetings
+    greetings = (
+        "heyy jarvis", "hey jarvis", "hi jarvis", "hello jarvis", "hi", "hello",
+        "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon",
+        "namaste", "namaskar"
+    )
+    if norm in greetings:
+        return None
+
+    # -------------------------------------------------------------
+    # 1. System Folders, Drives & Utilities Mapping
+    # -------------------------------------------------------------
+    system_folders = {
+        "file manager": ("explorer.exe", "File Manager / Explorer"),
+        "file explorer": ("explorer.exe", "File Manager / Explorer"),
+        "files": ("explorer.exe", "File Manager / Explorer"),
+        "my files": ("explorer.exe", "File Manager / Explorer"),
+        "this pc": ("explorer.exe", "This PC / Explorer"),
+        "my computer": ("explorer.exe", "My Computer / Explorer"),
+        "downloads folder": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "downloads": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "download": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "documents folder": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "documents": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "my documents": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "desktop folder": (os.path.expandvars(r"%USERPROFILE%\Desktop"), "Desktop Folder"),
+        "desktop": (os.path.expandvars(r"%USERPROFILE%\Desktop"), "Desktop Folder"),
+        "pictures folder": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "pictures": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "photos": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "my pictures": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "videos folder": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "videos": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "my videos": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "music folder": (os.path.expandvars(r"%USERPROFILE%\Music"), "Music Folder"),
+        "music": (os.path.expandvars(r"%USERPROFILE%\Music"), "Music Folder"),
+        "c drive": ("C:\\", "C: Drive"),
+        "drive c": ("C:\\", "C: Drive"),
+        "d drive": ("D:\\", "D: Drive"),
+        "drive d": ("D:\\", "D: Drive"),
+        "recycle bin": ("shell:RecycleBinFolder", "Recycle Bin"),
+        "trash": ("shell:RecycleBinFolder", "Recycle Bin"),
+    }
+
+    # Check for direct system folder match
+    for f_key, (target_path, f_label) in system_folders.items():
+        if norm == f_key or norm == f"open {f_key}" or norm == f"launch {f_key}" or norm.startswith(f"open {f_key} ") or f_key in norm:
             try:
+                if target_path.startswith("shell:") or target_path == "explorer.exe":
+                    subprocess.Popen(f"explorer.exe {target_path}", shell=True)
+                else:
+                    subprocess.Popen(["explorer.exe", target_path])
+                return (f_label, None)
+            except Exception as e:
+                print(f"[WARN] Error opening folder {f_key}: {e}")
+                return (f_label, None)
+
+    # -------------------------------------------------------------
+    # 2. Native Windows Tools & Protocol Handlers
+    # -------------------------------------------------------------
+    protocol_apps = {
+        "camera": ("cmd.exe /c start microsoft.windows.camera:", "Camera"),
+        "webcam": ("cmd.exe /c start microsoft.windows.camera:", "Camera"),
+        "settings": ("cmd.exe /c start ms-settings:", "Windows Settings"),
+        "windows settings": ("cmd.exe /c start ms-settings:", "Windows Settings"),
+        "store": ("cmd.exe /c start ms-windows-store:", "Microsoft Store"),
+        "microsoft store": ("cmd.exe /c start ms-windows-store:", "Microsoft Store"),
+        "calculator": ("calc", "Calculator"),
+        "calc": ("calc", "Calculator"),
+        "notepad": ("notepad", "Notepad"),
+        "paint": ("mspaint", "Paint"),
+        "mspaint": ("mspaint", "Paint"),
+        "snipping tool": ("snippingtool", "Snipping Tool"),
+        "snip": ("snippingtool", "Snipping Tool"),
+        "screenshot": ("snippingtool", "Snipping Tool"),
+        "task manager": ("taskmgr", "Task Manager"),
+        "taskmgr": ("taskmgr", "Task Manager"),
+        "cmd": ("cmd", "Command Prompt"),
+        "command prompt": ("cmd", "Command Prompt"),
+        "terminal": ("wt", "Windows Terminal"),
+        "powershell": ("powershell", "PowerShell"),
+    }
+    for p_key, (cmd, p_label) in protocol_apps.items():
+        if norm == p_key or norm == f"open {p_key}" or norm == f"launch {p_key}" or norm.startswith(f"open {p_key} ") or (f"open {p_key}" in norm):
+            try:
+                subprocess.Popen(f"cmd.exe /c start {cmd}", shell=True)
+                return (p_label, None)
+            except Exception as e:
+                print(f"[WARN] Error opening protocol {p_key}: {e}")
+                return (p_label, None)
+
+    # -------------------------------------------------------------
+    # 3. Web & Messaging Apps with Compound Task Awareness
+    # -------------------------------------------------------------
+    # A. WhatsApp compound messaging or app launch
+    if "whatsapp" in norm:
+        task_detail = None
+        send_match = re.search(r"send\s+(?:a\s+message\s+)?(.+?)\s+to\s+([a-zA-Z\u0900-\u097F]+)", user_text, re.IGNORECASE)
+        if send_match:
+            msg_content = send_match.group(1).strip(" '\"")
+            recipient = send_match.group(2).strip().capitalize()
+            task_detail = f"Initiated dispatch of message '{msg_content}' to {recipient}."
+        elif "send hi" in norm or "say hi" in norm:
+            task_detail = "Initiated dispatch of greeting to recipient."
+
+        launched = False
+        try:
+            dyn = find_dynamic_app_in_system("whatsapp")
+            if dyn:
+                os.startfile(dyn[0])
+                launched = True
+            else:
                 subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
-                return "WhatsApp"
+                launched = True
+        except Exception:
+            pass
+
+        if not launched:
+            subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
+
+        return ("WhatsApp", task_detail)
+
+    # B. Chrome with optional Google Search task
+    if "chrome" in norm:
+        search_query = None
+        m = re.search(r"(?:search|google|find)\s+(?:for\s+)?(.+)", user_text, re.IGNORECASE)
+        if m and "chrome" not in m.group(1).lower():
+            search_query = m.group(1).strip()
+
+        if search_query:
+            import urllib.parse
+            url = f"https://www.google.com/search?q={urllib.parse.quote_plus(search_query)}"
+            subprocess.Popen(f'cmd.exe /c start chrome "{url}"', shell=True)
+            return ("Google Chrome", f"Executed Google search for '{search_query}'.")
+        else:
+            try:
+                from tools.system_tools import OpenAppTool
+                OpenAppTool().run(app_name="chrome")
             except Exception:
-                subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
-                return "WhatsApp Web"
+                subprocess.Popen("cmd.exe /c start chrome", shell=True)
+            return ("Google Chrome", None)
 
-        elif "edge" in norm:
-            subprocess.Popen("cmd.exe /c start msedge", shell=True)
-            return "Microsoft Edge"
+    # C. Brave Browser
+    if "brave" in norm:
+        search_query = None
+        m = re.search(r"(?:search|find)\s+(?:for\s+)?(.+)", user_text, re.IGNORECASE)
+        if m and "brave" not in m.group(1).lower():
+            search_query = m.group(1).strip()
 
-        elif "youtube" in norm:
-            subprocess.Popen("cmd.exe /c start https://www.youtube.com", shell=True)
-            return "YouTube"
+        if search_query:
+            import urllib.parse
+            url = f"https://www.google.com/search?q={urllib.parse.quote_plus(search_query)}"
+            subprocess.Popen(f'cmd.exe /c start brave "{url}"', shell=True)
+            return ("Brave Browser", f"Executed search for '{search_query}'.")
+        else:
+            dyn = find_dynamic_app_in_system("brave")
+            if dyn:
+                try:
+                    os.startfile(dyn[0])
+                    return ("Brave Browser", None)
+                except Exception:
+                    pass
+            subprocess.Popen("cmd.exe /c start brave", shell=True)
+            return ("Brave Browser", None)
 
-        elif "snip" in norm or "screenshot" in norm:
-            subprocess.Popen("cmd.exe /c start snippingtool", shell=True)
-            return "Snipping Tool"
-    except Exception as exc:
-        print(f"[WARN] App launcher fallback error: {exc}")
+    # D. Edge Browser
+    if "edge" in norm:
+        subprocess.Popen("cmd.exe /c start msedge", shell=True)
+        return ("Microsoft Edge", None)
+
+    # E. Firefox Browser
+    if "firefox" in norm:
+        subprocess.Popen("cmd.exe /c start firefox", shell=True)
+        return ("Mozilla Firefox", None)
+
+    # F. YouTube with optional search/play
+    if "youtube" in norm:
+        m = re.search(r"(?:play|search|watch)\s+(?:for\s+)?(.+)", user_text, re.IGNORECASE)
+        if m and "youtube" not in m.group(1).lower():
+            import urllib.parse
+            q = m.group(1).strip()
+            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(q)}"
+            subprocess.Popen(f'cmd.exe /c start "{url}"', shell=True)
+            return ("YouTube", f"Playing '{q}' on YouTube.")
+        subprocess.Popen("cmd.exe /c start https://www.youtube.com", shell=True)
+        return ("YouTube", None)
+
+    # G. VS Code / Code
+    if norm == "code" or norm == "vscode" or "vs code" in norm or "open code" in norm:
+        try:
+            from tools.system_tools import OpenAppTool
+            OpenAppTool().run(app_name="code")
+        except Exception:
+            subprocess.Popen("cmd.exe /c start code", shell=True)
+        return ("VS Code", None)
+
+    # H. Spotify
+    if "spotify" in norm:
+        try:
+            subprocess.Popen("cmd.exe /c start spotify:", shell=True)
+        except Exception:
+            subprocess.Popen("cmd.exe /c start https://open.spotify.com", shell=True)
+        return ("Spotify", None)
+
+    # I. VLC
+    if "vlc" in norm:
+        subprocess.Popen("cmd.exe /c start vlc", shell=True)
+        return ("VLC Media Player", None)
+
+    # J. Microsoft Office (Excel, Word, PowerPoint)
+    if "excel" in norm:
+        subprocess.Popen("cmd.exe /c start excel", shell=True)
+        return ("Microsoft Excel", None)
+    if "word" in norm and ("ms word" in norm or "open word" in norm or norm == "word"):
+        subprocess.Popen("cmd.exe /c start winword", shell=True)
+        return ("Microsoft Word", None)
+    if "powerpoint" in norm or "ppt" in norm:
+        subprocess.Popen("cmd.exe /c start powerpnt", shell=True)
+        return ("Microsoft PowerPoint", None)
+
+    # -------------------------------------------------------------
+    # 4. Check for User File or Folder Request
+    # -------------------------------------------------------------
+    file_intent = any(w in norm.split() for w in ("file", "folder", "directory", "doc", "pdf", "txt", "script", "bat"))
+    has_launch_verb = any(w in norm.split() for w in ("open", "launch", "start", "run", "khol", "ugad", "chalu"))
+
+    if has_launch_verb or file_intent:
+        clean_target = norm
+        for verb in ("open file", "open folder", "open directory", "launch file", "open", "launch", "start", "run", "khol", "ugad", "chalu"):
+            if clean_target.startswith(verb):
+                clean_target = clean_target[len(verb):].strip()
+                break
+
+        if clean_target:
+            found_file = find_user_file_or_folder(clean_target)
+            if found_file:
+                path_obj, label = found_file
+                try:
+                    if path_obj.is_dir():
+                        subprocess.Popen(["explorer.exe", str(path_obj)])
+                    else:
+                        os.startfile(str(path_obj))
+                    return (label, None)
+                except Exception as exc:
+                    print(f"[WARN] Failed opening user file {path_obj}: {exc}")
+                    return (label, None)
+
+    # -------------------------------------------------------------
+    # 5. Dynamic Start Menu Application Discovery for ANY Installed App
+    # -------------------------------------------------------------
+    if has_launch_verb or len(norm.split()) <= 3:
+        clean_target = norm
+        for verb in ("open", "launch", "start", "run", "khol", "ugad", "chalu"):
+            if clean_target.startswith(verb):
+                clean_target = clean_target[len(verb):].strip()
+                break
+
+        if clean_target:
+            dyn_app = find_dynamic_app_in_system(clean_target)
+            if dyn_app:
+                exe_or_lnk, app_label = dyn_app
+                try:
+                    os.startfile(exe_or_lnk)
+                    return (app_label, None)
+                except Exception as exc:
+                    print(f"[WARN] Failed launching dynamic app {exe_or_lnk}: {exc}")
+                    return (app_label, None)
 
     return None
 
@@ -721,8 +1057,8 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     current_user_state["is_known"] = True
                     await websocket.send_json({"type": "user_identified", "name": detected_name})
 
-                # Launch desktop app if requested by user
-                launched_app = try_launch_system_app(user_text)
+                # Launch desktop app, folder, file, or compound task if requested by user
+                launch_info = try_launch_system_app(user_text)
 
                 # 1. Push 'thinking' status
                 await websocket.send_json({"type": "status", "status": "thinking"})
@@ -734,8 +1070,16 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     print(f"[WARN] Failed to log user chat: {exc}")
 
                 # 3. Generate response
-                if launched_app:
-                    reply_text = f"Opening {launched_app} for you now, {current_user_state['name']}."
+                if launch_info:
+                    app_label, task_detail = launch_info
+                    if task_detail:
+                        reply_text = f"Opening {app_label} for you now, {current_user_state['name']}. {task_detail}"
+                        try:
+                            await memory_manager.add_note(title=f"[TASK] {app_label}", content=task_detail)
+                        except Exception:
+                            pass
+                    else:
+                        reply_text = f"Opening {app_label} for you now, {current_user_state['name']}."
                 else:
                     reply_text = await _generate_response(user_text)
 
