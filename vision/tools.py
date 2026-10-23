@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from tools.base import BaseTool, ToolResult
 from vision.screen import (
     describe_screen,
+    do_on_screen,
     explain_screen_error,
     locate_element,
     take_screenshot,
@@ -430,10 +431,93 @@ class ClickElementTool(BaseTool):
         }
 
 
+class DoOnScreenTool(BaseTool):
+    """Tool for running an autonomous look-decide-act visual loop on screen to achieve a goal."""
+
+    name: str = "do_on_screen"
+    description: str = (
+        "Executes an autonomous visual look-decide-act loop up to 5 steps to accomplish a screen goal. "
+        "Captures the screen, uses Gemini to determine the single next action (click, type, hotkey, scroll, or done), "
+        "executes it through the system tool registry, and stops on completion or emergency kill switch."
+    )
+
+    def run(
+        self,
+        goal: str = "",
+        max_steps: int = 5,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Run autonomous look-decide-act loop on screen.
+
+        Args:
+            goal: Natural language goal (e.g. 'open the File menu in Notepad').
+            max_steps: Maximum loop iterations (default: 5).
+            **kwargs: Extra parameters (ignored).
+
+        Returns:
+            ToolResult containing summary of steps executed.
+        """
+        try:
+            if not goal or not str(goal).strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Parameter 'goal' is required and cannot be empty.",
+                )
+
+            summary = do_on_screen(goal=str(goal).strip(), max_steps=int(max_steps))
+            return ToolResult(
+                success=True,
+                data={"goal": goal, "summary": summary, "max_steps": max_steps},
+                message=summary,
+            )
+        except PermissionError as pe:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=str(pe),
+            )
+        except ValueError as ve:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Configuration error: {ve}",
+            )
+        except Exception as exc:
+            logger.exception("DoOnScreenTool execution failed: %s", exc)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to execute look-decide-act loop: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": "The goal or task to achieve on screen (e.g., 'open the File menu in Notepad', 'scroll down the page').",
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "Maximum number of steps to attempt toward the goal (default: 5).",
+                    },
+                },
+                "required": ["goal"],
+            },
+        }
+
+
 # Expose TOOLS list for automatic auto-loading by tools/registry.py
 TOOLS: List[BaseTool] = [
     ScreenshotTool(),
     DescribeScreenTool(),
     ExplainScreenErrorTool(),
     ClickElementTool(),
+    DoOnScreenTool(),
 ]

@@ -2,6 +2,7 @@
 
 Captures desktop screen using mss, optimizes size for AI models,
 provides Gemini multimodal screen understanding, error explanation, UI element location,
+autonomous look-decide-act loop,
 and respects privacy switches.
 """
 from __future__ import annotations
@@ -13,7 +14,8 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from dotenv import load_dotenv
 from google import genai
@@ -24,15 +26,6 @@ from PIL import Image
 load_dotenv()
 
 logger = logging.getLogger(__name__)
-
-# Set Process DPI Awareness on Windows at import time
-if os.name == "nt":
-    try:
-        import ctypes
-        # 2 = PROCESS_PER_MONITOR_DPI_AWARE_V2
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception as _dpi_exc:
-        logger.debug("Could not set process DPI awareness: %s", _dpi_exc)
 
 TEMP_VISION_DIR = Path("temp_vision")
 TEMP_VISION_DIR.mkdir(parents=True, exist_ok=True)
@@ -454,3 +447,160 @@ def locate_element(
         raise
     except Exception as exc:
         raise RuntimeError(f"Failed to locate UI element '{description}': {exc}") from exc
+
+
+def do_on_screen(goal: str, max_steps: int = 5) -> str:
+    """Execute an autonomous look-decide-act loop on screen to achieve a goal.
+
+    Repeats up to max_steps times:
+    1. Checks the emergency kill-switch (tools.guard.is_stopped()).
+    2. Takes a screenshot.
+    3. Prompts Gemini for the single next action as JSON:
+       {'action': 'click'|'type'|'hotkey'|'scroll'|'done', ...}
+    4. Executes the action through tools.registry.execute_tool using registered tool names:
+       'click', 'type_text', 'press_keys', 'scroll'.
+    5. Waits 1 second.
+    6. Stops when Gemini returns 'done' or when the kill-switch is triggered.
+
+    Args:
+        goal: Description of the goal to achieve on screen (e.g., 'open the File menu in Notepad').
+        max_steps: Maximum number of action iterations (default: 5).
+
+    Returns:
+        Summary of the steps taken and final status.
+
+    Raises:
+        PermissionError: If VISION_PAUSED=1 privacy mode is active.
+        ValueError: If goal is empty or GEMINI_API_KEY is missing.
+    """
+    if os.getenv("VISION_PAUSED", "0") == "1":
+        raise PermissionError(
+            "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
+        )
+
+    if not goal or not str(goal).strip():
+        raise ValueError("Goal must be a non-empty string.")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key.strip() in ("", "your_gemini_api_key_here"):
+        raise ValueError(
+            "GEMINI_API_KEY is missing or invalid. Please configure GEMINI_API_KEY in .env."
+        )
+
+    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+
+    # Access tool registry safely
+    try:
+        import tools.registry as registry
+    except Exception as reg_err:
+        raise RuntimeError(f"Failed to access tool registry: {reg_err}") from reg_err
+
+    steps_taken: List[str] = []
+
+    for step in range(1, max_steps + 1):
+        # 1. Emergency stop check
+        try:
+            from tools.guard import is_stopped
+            if is_stopped():
+                steps_taken.append(
+                    f"Step {step}: Emergency stop triggered by kill-switch (tools.guard.is_stopped() is True)."
+                )
+                break
+        except (ImportError, AttributeError):
+            pass
+
+        # 2. Capture current state
+        shot_path = take_screenshot()
+
+        # 3. Determine screen bounds for coordinate scaling
+        orig_width, orig_height = 1920, 1080
+        orig_left, orig_top = 0, 0
+        try:
+            with mss.MSS() as sct:
+                m = sct.monitors[1]
+                orig_left, orig_top = m["left"], m["top"]
+                orig_width, orig_height = m["width"], m["height"]
+        except Exception:
+            pass
+
+        # 4. Prompt Gemini for next action
+        try:
+            with Image.open(shot_path) as img:
+                img_w, img_h = img.size
+                prompt = (
+                    f"You are an autonomous desktop automation agent. The user's goal is: '{goal.strip()}'.\n"
+                    f"Previous actions taken:\n" + ("\n".join(steps_taken) if steps_taken else "None") + "\n\n"
+                    f"Analyze this screenshot ({img_w}x{img_h} px). Choose the SINGLE next action.\n"
+                    "Return ONLY a valid JSON object with one of the following structures:\n"
+                    "- Click: {\"action\": \"click\", \"x\": <int_x>, \"y\": <int_y>, \"button\": \"left\", \"thought\": \"<brief>\"}\n"
+                    "- Type: {\"action\": \"type\", \"text\": \"<string>\", \"thought\": \"<brief>\"}\n"
+                    "- Hotkey: {\"action\": \"hotkey\", \"keys\": [\"ctrl\", \"s\"], \"thought\": \"<brief>\"}\n"
+                    "- Scroll: {\"action\": \"scroll\", \"amount\": <int>, \"thought\": \"<brief>\"}\n"
+                    "- Done: {\"action\": \"done\", \"thought\": \"<brief reason>\"}\n\n"
+                    "Output ONLY the JSON object with no markdown formatting."
+                )
+
+                client = genai.Client(api_key=api_key.strip())
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[img, prompt],
+                )
+                raw_text = (response.text or "").strip()
+
+                if raw_text.startswith("```"):
+                    lines = raw_text.splitlines()
+                    if lines and lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    raw_text = "\n".join(lines).strip()
+
+                match = re.search(r"\{.*?\}", raw_text, re.DOTALL)
+                decision = json.loads(match.group(0)) if match else json.loads(raw_text)
+
+        except Exception as api_err:
+            steps_taken.append(f"Step {step}: Error evaluating next action: {api_err}")
+            break
+
+        action = str(decision.get("action", "")).strip().lower()
+        thought = decision.get("thought", "")
+
+        if action == "done":
+            steps_taken.append(f"Step {step}: Goal completed. {thought}")
+            break
+
+        elif action == "click":
+            raw_x = int(decision.get("x", 0))
+            raw_y = int(decision.get("y", 0))
+            scale_x = orig_width / float(img_w) if img_w > 0 else 1.0
+            scale_y = orig_height / float(img_h) if img_h > 0 else 1.0
+            real_x = int(orig_left + (raw_x * scale_x))
+            real_y = int(orig_top + (raw_y * scale_y))
+            btn = str(decision.get("button", "left"))
+            res = registry.execute_tool("click", {"x": real_x, "y": real_y, "button": btn})
+            steps_taken.append(f"Step {step}: Click at ({real_x}, {real_y}) - {res.message}")
+
+        elif action == "type":
+            txt = str(decision.get("text", ""))
+            res = registry.execute_tool("type_text", {"text": txt})
+            steps_taken.append(f"Step {step}: Type '{txt}' - {res.message}")
+
+        elif action == "hotkey":
+            keys = decision.get("keys", [])
+            if isinstance(keys, str):
+                keys = [keys]
+            res = registry.execute_tool("press_keys", {"keys": keys})
+            steps_taken.append(f"Step {step}: Hotkey {keys} - {res.message}")
+
+        elif action == "scroll":
+            amt = int(decision.get("amount", -200))
+            res = registry.execute_tool("scroll", {"amount": amt})
+            steps_taken.append(f"Step {step}: Scroll {amt} - {res.message}")
+
+        else:
+            steps_taken.append(f"Step {step}: Unknown action '{action}'")
+
+        # 5. Wait 1 second between actions
+        time.sleep(1.0)
+
+    return "\n".join(steps_taken) if steps_taken else "No actions performed."
