@@ -86,6 +86,7 @@ class JarvisBrain:
         self.system_prompt: str = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.enable_tools: bool = enable_tools
         self.history: List[Dict[str, str]] = []
+        self.max_history_entries: int = int(os.getenv("MAX_HISTORY_ENTRIES", "20"))
         self.last_tool_steps: List[str] = []
 
         self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
@@ -1070,6 +1071,7 @@ class JarvisBrain:
 
             self.history.append({"role": "user", "content": user_message})
             self.history.append({"role": "model", "content": final_text})
+            self.compact_history()
 
         except Exception as exc:
             if not is_failover:
@@ -1113,6 +1115,7 @@ class JarvisBrain:
                     response_text = "".join(chunks).strip()
                     self.history.append({"role": "user", "content": cleaned_input})
                     self.history.append({"role": "model", "content": response_text})
+                    self.compact_history()
                     return
 
                 # Fallback to send_message if streaming produced no chunks or send_message was mocked
@@ -1120,6 +1123,7 @@ class JarvisBrain:
                 response_text = response.text.strip() if hasattr(response, "text") and response.text else ""
                 self.history.append({"role": "user", "content": cleaned_input})
                 self.history.append({"role": "model", "content": response_text})
+                self.compact_history()
                 if response_text:
                     yield response_text
                 return
@@ -1172,6 +1176,26 @@ class JarvisBrain:
         """
         return self.chat(text)
 
+    def compact_history(self, max_entries: Optional[int] = None) -> int:
+        """Compact conversation history buffer using a sliding window.
+
+        Retains the most recent N message entries to prevent context overflow
+        and preserve sub-second response latency.
+
+        Args:
+            max_entries: Maximum number of message dictionaries to retain.
+                Defaults to self.max_history_entries.
+
+        Returns:
+            int: Number of older turns pruned from history buffer.
+        """
+        limit = max_entries if max_entries is not None else self.max_history_entries
+        if len(self.history) <= limit:
+            return 0
+        pruned = len(self.history) - limit
+        self.history = self.history[-limit:]
+        return pruned
+
     def reset(self) -> None:
         """Clear conversation history and reinitialize the chat session."""
         self.history.clear()
@@ -1193,10 +1217,11 @@ def run_interactive_cli() -> None:
             sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
-    print("=" * 60)
-    print(" PROJECT JARVIS - TERMINAL COMMAND CENTER")
-    print(" Type your command, or type 'exit' or 'quit' to end session.")
-    print("=" * 60)
+    print("=" * 68)
+    print("       PROJECT JARVIS - TACTICAL TERMINAL COMMAND CENTER")
+    print(" Type a command or question. Enter '/help' for slash commands.")
+    print(" Type 'exit' or 'quit' to terminate session.")
+    print("=" * 68)
 
     try:
         brain: JarvisBrain = JarvisBrain()
@@ -1207,25 +1232,114 @@ def run_interactive_cli() -> None:
         print(f"\n[!] Unexpected Error: {err}\n", file=sys.stderr)
         sys.exit(1)
 
-    print("[*] Jarvis Core online. Ready for directives.\n")
+    current_mode: str = "normal"
+    print(f"[*] Jarvis Core online (mode: {current_mode.upper()}). Ready for directives.\n")
 
     while True:
         try:
-            user_input: str = input("Jay > ").strip()
+            prompt_str = f"Jay [{current_mode}] > " if current_mode != "normal" else "Jay > "
+            user_input: str = input(prompt_str).strip()
             if not user_input:
                 continue
 
-            if user_input.lower() in ("exit", "quit", "q"):
+            lowered = user_input.lower()
+            if lowered in ("exit", "quit", "q", "/exit", "/quit", "/q"):
                 print("Jarvis > Powering down. Have a productive day, Jay.")
                 break
 
-            if user_input.lower() == "reset":
+            if lowered in ("reset", "/reset", "/clear"):
                 brain.reset()
-                print("Jarvis > Conversation history cleared.")
+                print("Jarvis > Conversation history cleared and session reinitialized.")
                 continue
 
+            if lowered in ("/help", "/h", "help"):
+                print("\n" + "=" * 58)
+                print("           JARVIS TERMINAL COMMAND DIRECTORY")
+                print("=" * 58)
+                print(" /help, /h               - Display this command directory")
+                print(" /doctor, /check         - Run full pre-flight system diagnostics")
+                print(" /mode <normal|combat>   - Transition operational persona")
+                print(" /tools                  - List all registered autonomous tools")
+                print(" /stats                  - View CPU, RAM, battery & session stats")
+                print(" /history                - View active conversation history buffer")
+                print(" /compact                - Compact conversation context window")
+                print(" /clear, /reset          - Reset conversation memory buffer")
+                print(" /quit, /exit, q         - Shutdown terminal session")
+                print("=" * 58 + "\n")
+                continue
+
+            if lowered in ("/doctor", "/check"):
+                from core.doctor import run_doctor
+                print("\n[*] Initializing system diagnostic sequence...")
+                run_doctor(verbose=True, run_live_llm_ping=False)
+                continue
+
+            if lowered.startswith("/mode"):
+                parts = user_input.split()
+                if len(parts) > 1 and parts[1].lower() in ("normal", "stealth", "combat"):
+                    current_mode = parts[1].lower()
+                    print(f"Jarvis > Mode transitioned to {current_mode.upper()}. Protocol updated.")
+                else:
+                    print(f"Jarvis > Current mode: {current_mode.upper()}. Available: normal, stealth, combat.")
+                continue
+
+            if lowered == "/tools":
+                try:
+                    from tools.registry import get_registered_tools
+                    tools = get_registered_tools()
+                    print(f"\n[*] Registered Autonomous Tools ({len(tools)} active):")
+                    print("-" * 68)
+                    for idx, tool in enumerate(sorted(tools, key=lambda t: t.name), start=1):
+                        desc = (tool.description or "").split(".")[0]
+                        print(f" {idx:2d}. {tool.name:<26} | {desc[:36]}")
+                    print("-" * 68 + "\n")
+                except Exception as exc:
+                    print(f"Jarvis > Error querying tool registry: {exc}")
+                continue
+
+            if lowered == "/stats":
+                try:
+                    import psutil
+                    cpu = psutil.cpu_percent(interval=0.1)
+                    ram = psutil.virtual_memory().percent
+                    battery = psutil.sensors_battery()
+                    batt_info = f"{battery.percent}%" if battery else "N/A (Desktop/AC)"
+                    print("\n" + "-" * 52)
+                    print("           LIVE SYSTEM TELEMETRY & STATS")
+                    print("-" * 52)
+                    print(f" CPU Load:        {cpu}%")
+                    print(f" Memory Usage:    {ram}%")
+                    print(f" Battery Level:   {batt_info}")
+                    print(f" Operating Mode:  {current_mode.upper()}")
+                    print(f" LLM Provider:    {brain.llm_provider.upper()} ({brain.model_name})")
+                    print(f" History Turns:   {len(brain.history)} entries")
+                    print("-" * 52 + "\n")
+                except Exception as exc:
+                    print(f"Jarvis > Telemetry query failed: {exc}")
+                continue
+
+            if lowered == "/history":
+                hist = brain.get_history()
+                if not hist:
+                    print("Jarvis > Conversation history buffer is currently empty.")
+                else:
+                    print(f"\n[*] Conversation History ({len(hist)} entries):")
+                    print("-" * 60)
+                    for idx, msg in enumerate(hist, start=1):
+                        role = "Jay" if msg.get("role") == "user" else "Jarvis"
+                        content = msg.get("content", "")
+                        print(f"[{idx:2d}] {role}: {content[:80]}{'...' if len(content) > 80 else ''}")
+                    print("-" * 60 + "\n")
+                continue
+
+            if lowered == "/compact":
+                pruned = brain.compact_history(max_entries=10)
+                print(f"Jarvis > Context buffer compacted. Pruned {pruned} older turns. Retained {len(brain.history)} active entries.")
+                continue
+
+            # Standard chat directive streaming
             print("Jarvis > ", end="", flush=True)
-            for chunk in brain.chat_stream(user_input):
+            for chunk in brain.chat_stream(user_input, mode=current_mode):
                 sys.stdout.write(chunk)
                 sys.stdout.flush()
             print("\n")
