@@ -169,8 +169,12 @@ def _build_bento_grid(metrics: List[Dict[str, Any]], theme_cfg: Dict[str, Any], 
 
     card_cells = []
     for item in metrics:
-        val = str(item.get("value", ""))
-        lbl = str(item.get("label", item.get("title", "")))
+        if isinstance(item, dict):
+            val = str(item.get("value", item.get("val", "")))
+            lbl = str(item.get("label", item.get("title", item.get("key", "Metric"))))
+        else:
+            val = str(item)
+            lbl = "Metric" 
 
         # Handle Devanagari in metric labels
         c_val_font = theme_cfg.get("devanagari_bold_font", head_font) if contains_devanagari(val) else head_font
@@ -244,7 +248,11 @@ def make_pdf(
         dev_registered = register_devanagari_fonts()
 
         theme_cfg = get_theme(theme)
-        target_dir = Path(out_dir)
+        norm_dir_lower = str(out_dir).replace("\\", "/").lower()
+        if norm_dir_lower == "desktop" or norm_dir_lower.startswith("desktop/") or "desktop" in norm_dir_lower:
+            target_dir = Path.home() / "Desktop"
+        else:
+            target_dir = Path(out_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
 
         safe_name = _sanitize_filename(title)
@@ -468,20 +476,24 @@ def make_pdf(
                 story.append(Spacer(1, 8))
 
             bullets = sec.get("bullets", [])
-            if bullets:
+            if isinstance(bullets, str):
+                bullets = [b.strip("-*• 0123456789.") for b in bullets.splitlines() if b.strip()]
+            if bullets and isinstance(bullets, (list, tuple)):
                 for bullet in bullets:
-                    bullet_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(bullet) and dev_registered) else body_font
+                    bullet_str = str(bullet)
+                    bullet_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(bullet_str) and dev_registered) else body_font
                     cur_bl_style = ParagraphStyle("SecBl", parent=bullet_style, fontName=bullet_font)
-                    bullet_text = f"&bull; &nbsp; {bullet}"
+                    bullet_text = f"&bull; &nbsp; {bullet_str}"
                     story.append(Paragraph(bullet_text, cur_bl_style))
                 story.append(Spacer(1, 8))
 
             table_data = sec.get("table")
-            if table_data and isinstance(table_data, list):
+            if table_data and isinstance(table_data, (list, tuple)):
                 flowable_table_data = []
                 for row_idx, row in enumerate(table_data):
                     styled_row = []
-                    for cell in row:
+                    row_cells = row if isinstance(row, (list, tuple)) else [row]
+                    for cell in row_cells:
                         c_str = str(cell)
                         c_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(c_str) and dev_registered) else body_font
                         if row_idx == 0:
@@ -491,7 +503,8 @@ def make_pdf(
                         else:
                             c_style = ParagraphStyle("TDC", parent=table_cell_style, fontName=c_font)
                             styled_row.append(Paragraph(c_str, c_style))
-                    flowable_table_data.append(styled_row)
+                    if styled_row:
+                        flowable_table_data.append(styled_row)
 
                 tbl = Table(flowable_table_data, colWidths=None)
                 tbl.setStyle(

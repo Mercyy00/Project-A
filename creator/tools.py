@@ -25,43 +25,136 @@ from creator.web_maker import make_website
 logger = logging.getLogger(__name__)
 
 
+def _normalize_out_dir(out_dir: Optional[str]) -> str:
+    """Normalize output directory so 'desktop', 'Desktop', or '~/Desktop' maps to user desktop."""
+    if not out_dir or not str(out_dir).strip():
+        return "workspace"
+    clean = str(out_dir).strip()
+    norm_lower = clean.replace("\\", "/").lower()
+    if norm_lower == "desktop" or norm_lower.startswith("desktop/") or "desktop" in norm_lower:
+        return str(Path.home() / "Desktop")
+    if norm_lower == "documents" or "documents" in norm_lower:
+        return str(Path.home() / "Documents")
+    if norm_lower == "downloads" or "downloads" in norm_lower:
+        return str(Path.home() / "Downloads")
+    return clean
+
+
+def _normalize_single_section(item: Any, default_idx: int = 1) -> Dict[str, Any]:
+    """Ensure a single section dictionary conforms strictly to expected schema."""
+    if not isinstance(item, dict):
+        return {"heading": f"Section {default_idx}", "text": str(item)}
+
+    heading = (
+        item.get("heading")
+        or item.get("title")
+        or item.get("header")
+        or item.get("name")
+        or item.get("section")
+        or f"Section {default_idx}"
+    )
+    text = (
+        item.get("text")
+        or item.get("content")
+        or item.get("body")
+        or item.get("summary")
+        or item.get("description")
+        or ""
+    )
+
+    bullets = item.get("bullets") or item.get("points") or item.get("items")
+    norm_bullets: List[str] = []
+    if isinstance(bullets, str):
+        norm_bullets = [b.strip("-*• 0123456789.") for b in bullets.splitlines() if b.strip()]
+    elif isinstance(bullets, (list, tuple)):
+        for b in bullets:
+            if isinstance(b, dict):
+                norm_bullets.append(str(b.get("text", b.get("point", b.get("value", str(b))))))
+            else:
+                norm_bullets.append(str(b))
+
+    metrics = item.get("metrics") or item.get("bento_cards")
+    norm_metrics: List[Dict[str, str]] = []
+    if isinstance(metrics, dict):
+        norm_metrics = [{"label": str(metrics.get("label", "Metric")), "value": str(metrics.get("value", ""))}]
+    elif isinstance(metrics, (list, tuple)):
+        for m in metrics:
+            if isinstance(m, dict):
+                norm_metrics.append({
+                    "label": str(m.get("label", m.get("title", m.get("key", "Metric")))),
+                    "value": str(m.get("value", m.get("val", ""))),
+                })
+            else:
+                norm_metrics.append({"label": "Metric", "value": str(m)})
+
+    table = item.get("table") or item.get("data")
+    norm_table: Optional[List[List[str]]] = None
+    if isinstance(table, (list, tuple)) and len(table) > 0:
+        norm_table = []
+        for row in table:
+            if isinstance(row, (list, tuple)):
+                norm_table.append([str(c) for c in row])
+            elif isinstance(row, dict):
+                norm_table.append([str(v) for v in row.values()])
+            else:
+                norm_table.append([str(row)])
+
+    sec_out: Dict[str, Any] = {
+        "heading": str(heading),
+        "text": str(text),
+    }
+    if norm_bullets:
+        sec_out["bullets"] = norm_bullets
+    if norm_metrics:
+        sec_out["metrics"] = norm_metrics
+    if norm_table:
+        sec_out["table"] = norm_table
+    if item.get("page_break_after"):
+        sec_out["page_break_after"] = True
+
+    return sec_out
+
+
 def _normalize_sections(sections: Union[str, List[Dict[str, Any]], Dict[str, Any], None]) -> List[Dict[str, Any]]:
-    """Ensure sections input is safely parsed into a list of section dictionaries.
-
-    Handles LLM quirks where JSON-encoded strings or single dictionaries are passed.
-
-    Args:
-        sections: Raw sections parameter from LLM tool call.
-
-    Returns:
-        List[Dict[str, Any]]: Structured list of section dictionaries.
-    """
+    """Ensure sections input is safely parsed into a list of section dictionaries."""
     if sections is None:
         return [{"heading": "Overview", "text": "Generated document."}]
 
     if isinstance(sections, str):
         cleaned = sections.strip()
-        # Attempt to parse JSON string
         try:
             parsed = json.loads(cleaned)
-            if isinstance(parsed, list):
-                return parsed
-            if isinstance(parsed, dict):
-                return [parsed]
+            return _normalize_sections(parsed)
         except Exception:
-            # Fall back to narrative paragraph if not valid JSON
+            # Fall back to splitting markdown headers if present
+            if "\n#" in cleaned or cleaned.startswith("#"):
+                md_sections = []
+                cur_heading = "Overview"
+                cur_lines = []
+                for line in cleaned.splitlines():
+                    if line.startswith("#"):
+                        if cur_lines or cur_heading != "Overview":
+                            md_sections.append({"heading": cur_heading, "text": "\n".join(cur_lines).strip()})
+                            cur_lines = []
+                        cur_heading = line.lstrip("#").strip()
+                    else:
+                        cur_lines.append(line)
+                if cur_lines:
+                    md_sections.append({"heading": cur_heading, "text": "\n".join(cur_lines).strip()})
+                if md_sections:
+                    return [_normalize_single_section(s, idx + 1) for idx, s in enumerate(md_sections)]
+
             return [{"heading": "Overview", "text": cleaned}]
 
     if isinstance(sections, dict):
-        return [sections]
+        if "sections" in sections and isinstance(sections["sections"], (list, dict)):
+            return _normalize_sections(sections["sections"])
+        return [_normalize_single_section(sections, 1)]
 
-    if isinstance(sections, list):
+    if isinstance(sections, (list, tuple)):
         normalized: List[Dict[str, Any]] = []
         for idx, item in enumerate(sections):
-            if isinstance(item, dict):
-                normalized.append(item)
-            elif isinstance(item, str):
-                normalized.append({"heading": f"Section {idx + 1}", "text": item})
+            normalized.append(_normalize_single_section(item, idx + 1))
         return normalized if normalized else [{"heading": "Overview", "text": "No content provided."}]
 
     return [{"heading": "Overview", "text": str(sections)}]
@@ -108,12 +201,15 @@ class CreatePdfTool(BaseTool):
                     message="Document title cannot be empty.",
                 )
 
+            effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
+            if "desktop" in str(title).lower() and effective_dir == "workspace":
+                effective_dir = str(Path.home() / "Desktop")
             norm_sections = _normalize_sections(sections)
             pdf_path = make_pdf(
                 title=str(title).strip(),
                 sections=norm_sections,
                 theme=theme,
-                out_dir=out_dir,
+                out_dir=effective_dir,
                 auto_open=auto_open,
             )
 
@@ -199,6 +295,10 @@ class CreatePdfTool(BaseTool):
                         "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
                         "enum": ["clean_light", "dark_pro", "colourful"],
                     },
+                    "out_dir": {
+                        "type": "string",
+                        "description": "Target output directory. Use 'Desktop' to save directly to user's desktop, or 'workspace' (default).",
+                    },
                     "auto_open": {
                         "type": "boolean",
                         "description": "Whether to automatically open the generated document in the desktop viewer (default: True).",
@@ -250,12 +350,15 @@ class CreateDocxTool(BaseTool):
                     message="Document title cannot be empty.",
                 )
 
+            effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
+            if "desktop" in str(title).lower() and effective_dir == "workspace":
+                effective_dir = str(Path.home() / "Desktop")
             norm_sections = _normalize_sections(sections)
             docx_path = make_docx(
                 title=str(title).strip(),
                 sections=norm_sections,
                 theme=theme,
-                out_dir=out_dir,
+                out_dir=effective_dir,
                 auto_open=auto_open,
             )
 
@@ -341,6 +444,10 @@ class CreateDocxTool(BaseTool):
                         "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
                         "enum": ["clean_light", "dark_pro", "colourful"],
                     },
+                    "out_dir": {
+                        "type": "string",
+                        "description": "Target output directory. Use 'Desktop' to save directly to user's desktop, or 'workspace' (default).",
+                    },
                     "auto_open": {
                         "type": "boolean",
                         "description": "Whether to automatically open the generated document in Microsoft Word (default: True).",
@@ -392,12 +499,15 @@ class CreatePptxTool(BaseTool):
                     message="Presentation title cannot be empty.",
                 )
 
+            effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
+            if "desktop" in str(title).lower() and effective_dir == "workspace":
+                effective_dir = str(Path.home() / "Desktop")
             norm_sections = _normalize_sections(sections)
             pptx_path = make_pptx(
                 title=str(title).strip(),
                 sections=norm_sections,
                 theme=theme,
-                out_dir=out_dir,
+                out_dir=effective_dir,
                 auto_open=auto_open,
             )
 
@@ -482,6 +592,10 @@ class CreatePptxTool(BaseTool):
                         "type": "string",
                         "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
                         "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "out_dir": {
+                        "type": "string",
+                        "description": "Target output directory. Use 'Desktop' to save directly to user's desktop, or 'workspace' (default).",
                     },
                     "auto_open": {
                         "type": "boolean",
@@ -630,6 +744,10 @@ class CreateWebsiteTool(BaseTool):
                             "sunset_boulevard",
                         ],
                     },
+                    "out_dir": {
+                        "type": "string",
+                        "description": "Target output directory. Use 'Desktop' to save directly to user's desktop, or 'workspace' (default).",
+                    },
                     "auto_open": {
                         "type": "boolean",
                         "description": "Whether to automatically launch the generated website in the default browser (default: True).",
@@ -659,7 +777,7 @@ class CreateDocumentTool(BaseTool):
 
     def run(
         self,
-        topic: str,
+        topic: str = "",
         kind: str = "pdf",
         language: str = "en",
         theme: str = "clean_light",
@@ -668,9 +786,13 @@ class CreateDocumentTool(BaseTool):
         **kwargs: Any,
     ) -> ToolResult:
         """Execute document outline generation and binary rendering."""
-        clean_topic = (topic or "").strip()
+        clean_topic = (topic or kwargs.get("title") or kwargs.get("prompt") or kwargs.get("subject") or "").strip()
         if not clean_topic:
             return ToolResult(success=False, message="Document topic cannot be empty.")
+
+        effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
+        if "desktop" in clean_topic.lower() and effective_dir == "workspace":
+            effective_dir = str(Path.home() / "Desktop")
 
         try:
             from creator.outline import create_document as make_full_document
@@ -679,7 +801,7 @@ class CreateDocumentTool(BaseTool):
                 kind=kind,
                 theme=theme,
                 language=language,
-                out_dir=out_dir,
+                out_dir=effective_dir,
                 auto_open=auto_open,
             )
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
@@ -727,6 +849,10 @@ class CreateDocumentTool(BaseTool):
                         "type": "string",
                         "description": "Styling theme: 'clean_light' (default), 'dark_pro', or 'colourful'.",
                         "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "out_dir": {
+                        "type": "string",
+                        "description": "Target output directory. Use 'Desktop' to save directly to user's desktop, or 'workspace' (default).",
                     },
                     "auto_open": {
                         "type": "boolean",

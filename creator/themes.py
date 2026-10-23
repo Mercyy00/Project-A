@@ -105,18 +105,19 @@ def register_devanagari_fonts() -> bool:
     return len(names) > 0
 
 
-def contains_devanagari(text: str | None) -> bool:
+def contains_devanagari(text: Any) -> bool:
     """Detect whether a string contains Devanagari characters (Hindi or Marathi).
 
     Args:
-        text: Input string to test.
+        text: Input string or value to test.
 
     Returns:
         bool: True if any character falls in the Devanagari Unicode block (U+0900 - U+097F).
     """
     if not text:
         return False
-    return any("\u0900" <= ch <= "\u097f" for ch in text)
+    s = str(text)
+    return any("\u0900" <= ch <= "\u097f" for ch in s)
 
 
 THEMES: Dict[str, Dict[str, Any]] = {

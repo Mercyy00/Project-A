@@ -90,7 +90,7 @@ class JarvisBrain:
         self.last_tool_steps: List[str] = []
 
         self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
-        self.groq_model: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+        self.groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
 
         self.client: genai.Client = genai.Client(api_key=api_key)
@@ -231,10 +231,10 @@ class JarvisBrain:
         discovered.append(read_file)
 
         def write_file(file_path: str, content: str) -> str:
-            """Writes text content to a file inside workspace/ or temp_ directories.
+            """Writes text content to a file inside Desktop, Documents, Downloads, workspace/, or temp_ directories.
 
             Args:
-                file_path: Target file path to write to.
+                file_path: Target file path to write to (e.g. 'Desktop/note.txt', 'workspace/file.txt').
                 content: Text content to write into the file.
             """
             self.last_tool_steps.append(f"write_file({file_path})")
@@ -613,6 +613,8 @@ class JarvisBrain:
             sections: List[Dict[str, Any]],
             theme: str = "clean_light",
             auto_open: bool = True,
+            out_dir: str = "workspace",
+            **kwargs: Any,
         ) -> str:
             """Generates a professionally styled PDF document with cover page, bento grids, and typography.
 
@@ -621,16 +623,20 @@ class JarvisBrain:
                 sections: List of sections, each a dict with 'heading' and optional 'text', 'bullets', 'metrics', or 'table'.
                 theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
                 auto_open: Whether to automatically launch the generated PDF in the default viewer.
+                out_dir: Output directory (e.g. 'Desktop' to save directly to user's desktop, or 'workspace').
             """
             self.last_tool_steps.append(f"create_pdf('{title}')")
             try:
                 from tools.registry import execute_tool
-                return execute_tool("create_pdf", {
+                args = {
                     "title": title,
                     "sections": sections,
                     "theme": theme,
                     "auto_open": auto_open,
-                }).to_llm_string()
+                    "out_dir": out_dir,
+                }
+                args.update(kwargs)
+                return execute_tool("create_pdf", args).to_llm_string()
             except Exception as exc:
                 return f"[FAILED] Failed to create PDF '{title}': {exc}"
 
@@ -641,6 +647,8 @@ class JarvisBrain:
             sections: List[Dict[str, Any]],
             theme: str = "clean_light",
             auto_open: bool = True,
+            out_dir: str = "workspace",
+            **kwargs: Any,
         ) -> str:
             """Generates an executive Word document (.docx) with structured tables, callouts, and typography.
 
@@ -649,16 +657,20 @@ class JarvisBrain:
                 sections: List of sections with 'heading' and optional 'text', 'bullets', 'metrics', or 'table'.
                 theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
                 auto_open: Whether to automatically open the generated document in Microsoft Word.
+                out_dir: Output directory (e.g. 'Desktop' to save directly to user's desktop, or 'workspace').
             """
             self.last_tool_steps.append(f"create_docx('{title}')")
             try:
                 from tools.registry import execute_tool
-                return execute_tool("create_docx", {
+                args = {
                     "title": title,
                     "sections": sections,
                     "theme": theme,
                     "auto_open": auto_open,
-                }).to_llm_string()
+                    "out_dir": out_dir,
+                }
+                args.update(kwargs)
+                return execute_tool("create_docx", args).to_llm_string()
             except Exception as exc:
                 return f"[FAILED] Failed to create Word document '{title}': {exc}"
 
@@ -669,6 +681,8 @@ class JarvisBrain:
             sections: List[Dict[str, Any]],
             theme: str = "clean_light",
             auto_open: bool = True,
+            out_dir: str = "workspace",
+            **kwargs: Any,
         ) -> str:
             """Generates a high-impact PowerPoint presentation deck (.pptx) with modern layout and slides.
 
@@ -677,49 +691,60 @@ class JarvisBrain:
                 sections: List of slide sections with 'heading' and optional 'text', 'bullets', 'metrics', or 'table'.
                 theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
                 auto_open: Whether to automatically open the generated deck in PowerPoint.
+                out_dir: Output directory (e.g. 'Desktop' to save directly to user's desktop, or 'workspace').
             """
             self.last_tool_steps.append(f"create_pptx('{title}')")
             try:
                 from tools.registry import execute_tool
-                return execute_tool("create_pptx", {
+                args = {
                     "title": title,
                     "sections": sections,
                     "theme": theme,
                     "auto_open": auto_open,
-                }).to_llm_string()
+                    "out_dir": out_dir,
+                }
+                args.update(kwargs)
+                return execute_tool("create_pptx", args).to_llm_string()
             except Exception as exc:
                 return f"[FAILED] Failed to create PowerPoint presentation '{title}': {exc}"
 
         discovered.append(create_pptx)
 
         def create_document(
-            topic: str,
+            topic: str = "",
             kind: str = "pdf",
             language: str = "en",
             theme: str = "clean_light",
             auto_open: bool = True,
+            out_dir: str = "workspace",
+            **kwargs: Any,
         ) -> str:
-            """Generates a complete, multi-section document (PDF, DOCX, or PPTX) from a high-level topic or prompt.
+            """Generates a complete, multi-section document (PDF, DOCX, PPTX, or Web) from a high-level topic or prompt.
 
             Args:
-                topic: Topic or theme of the document (e.g. 'Quantum Computing Applications', 'AI Agents').
-                kind: Document format to generate: 'pdf', 'docx', or 'pptx'.
+                topic: Topic or theme of the document (e.g. 'Core Java Important Concepts', 'AI in Education').
+                kind: Document format to generate: 'pdf', 'docx', 'pptx', or 'web'.
                 language: Language code: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi).
                 theme: Visual theme: 'clean_light', 'dark_pro', or 'colourful'.
                 auto_open: Whether to automatically open the document upon creation.
+                out_dir: Output directory (e.g. 'Desktop' to save directly to user's desktop, or 'workspace').
             """
-            self.last_tool_steps.append(f"create_document('{topic}', kind='{kind}')")
+            clean_t = (topic or kwargs.get("title") or kwargs.get("prompt") or "").strip()
+            self.last_tool_steps.append(f"create_document('{clean_t}', kind='{kind}')")
             try:
                 from tools.registry import execute_tool
-                return execute_tool("create_document", {
-                    "topic": topic,
+                args = {
+                    "topic": clean_t,
                     "kind": kind,
                     "language": language,
                     "theme": theme,
                     "auto_open": auto_open,
-                }).to_llm_string()
+                    "out_dir": out_dir,
+                }
+                args.update(kwargs)
+                return execute_tool("create_document", args).to_llm_string()
             except Exception as exc:
-                return f"[FAILED] Failed to create document for '{topic}': {exc}"
+                return f"[FAILED] Failed to create document for '{clean_t}': {exc}"
 
         discovered.append(create_document)
 
@@ -977,7 +1002,7 @@ class JarvisBrain:
                         if idx not in tool_calls_map:
                             tool_calls_map[idx] = {
                                 "id": tc.id or "",
-                                "name": tc.function.name if tc.function and tc.function.name else "",
+                                "name": "",
                                 "arguments": "",
                             }
                         if tc.id:
@@ -1105,9 +1130,18 @@ class JarvisBrain:
                     try:
                         response_stream = self.chat_session.send_message_stream(cleaned_input)
                         for chunk in response_stream:
-                            if hasattr(chunk, "text") and chunk.text:
-                                chunks.append(chunk.text)
-                                yield chunk.text
+                            chunk_text = ""
+                            if hasattr(chunk, "candidates") and chunk.candidates:
+                                for cand in chunk.candidates:
+                                    if hasattr(cand, "content") and cand.content and hasattr(cand.content, "parts"):
+                                        for p in cand.content.parts:
+                                            if hasattr(p, "text") and p.text:
+                                                chunk_text += p.text
+                            elif hasattr(chunk, "text") and chunk.text:
+                                chunk_text = chunk.text
+                            if chunk_text:
+                                chunks.append(chunk_text)
+                                yield chunk_text
                     except (TypeError, AttributeError):
                         chunks = []
 

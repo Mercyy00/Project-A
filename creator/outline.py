@@ -238,7 +238,9 @@ def _request_gemini_outline(topic: str, language: str) -> Optional[Dict[str, Any
                 parsed = json.loads(cleaned)
 
                 if isinstance(parsed, dict) and "title" in parsed and "sections" in parsed:
-                    if isinstance(parsed["sections"], list) and len(parsed["sections"]) >= 3:
+                    if isinstance(parsed["sections"], (list, tuple)) and len(parsed["sections"]) >= 1:
+                        from creator.tools import _normalize_sections
+                        parsed["sections"] = _normalize_sections(parsed["sections"])
                         return parsed
             except Exception as parse_err:
                 logger.warning("Gemini outline parse attempt %d failed: %s", attempt + 1, parse_err)
@@ -366,13 +368,21 @@ def create_document(
         doc_title = fallback["title"]
         sections = fallback["sections"]
 
+    norm_dir_lower = str(out_dir).replace("\\", "/").lower()
+    if norm_dir_lower == "desktop" or norm_dir_lower.startswith("desktop/") or "desktop" in norm_dir_lower:
+        effective_dir = str(Path.home() / "Desktop")
+    elif "desktop" in clean_topic.lower() and norm_dir_lower == "workspace":
+        effective_dir = str(Path.home() / "Desktop")
+    else:
+        effective_dir = out_dir
+
     # Dispatch to appropriate format maker
     if clean_kind == "pdf":
         return make_pdf(
             title=doc_title,
             sections=sections,
             theme=theme,
-            out_dir=out_dir,
+            out_dir=effective_dir,
             auto_open=auto_open,
         )
     elif clean_kind == "docx":
@@ -380,7 +390,7 @@ def create_document(
             title=doc_title,
             sections=sections,
             theme=theme,
-            out_dir=out_dir,
+            out_dir=effective_dir,
             auto_open=auto_open,
         )
     elif clean_kind == "web":
@@ -389,7 +399,7 @@ def create_document(
             title=doc_title,
             sections=sections,
             theme=theme,
-            out_dir=out_dir,
+            out_dir=effective_dir,
             auto_open=auto_open,
             language=language,
         )
@@ -398,6 +408,6 @@ def create_document(
             title=doc_title,
             sections=sections,
             theme=theme,
-            out_dir=out_dir,
+            out_dir=effective_dir,
             auto_open=auto_open,
         )
