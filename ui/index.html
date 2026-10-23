@@ -304,7 +304,79 @@ h1 { font-weight: 500; letter-spacing: .28em; font-size: 26px; margin: 0; }
   align-items: center;
   border-top: 1px solid rgba(var(--rgb), .18);
   padding-top: 9px;
+  flex-wrap: nowrap;
 }
+.lang-chips-group {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.chip-lang {
+  background: rgba(var(--rgb), .08);
+  border: 1px solid rgba(var(--rgb), .28);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 5px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.chip-lang:hover {
+  background: rgba(var(--rgb), .2);
+  border-color: var(--accent);
+}
+.chip-lang.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--rgb), .35);
+}
+.listening-countdown {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--accent);
+  padding: 4px 8px;
+  margin-top: 6px;
+  background: rgba(var(--rgb), .06);
+  border: 1px solid rgba(var(--rgb), .2);
+  border-radius: 3px;
+}
+.listening-countdown.active { display: flex; }
+.countdown-progress {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, .1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.countdown-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 100%;
+  transition: width .1s linear;
+}
+.doc-card {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(var(--rgb), .08);
+  border: 1px solid rgba(var(--rgb), .3);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.doc-card a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 11px;
+}
+.doc-card a:hover { text-decoration: underline; }
 .chat-input {
   flex: 1;
   background: rgba(5, 13, 20, .9);
@@ -460,22 +532,28 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
 @keyframes wave { from { transform: scaleY(.2); } to { transform: scaleY(1); } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-/* Responsive */
+/* Responsive (Desktop, Tablet, Mobile) */
 @media(max-width: 1080px) {
   .dashboard { grid-template-columns: 1fr; }
   .stack { grid-template-columns: repeat(3, 1fr); }
-  .chat-panel { height: 320px; }
+  .chat-panel { height: 350px; }
   .core-area { padding: 10px 0 20px; }
 }
-@media(max-width: 650px) {
-  .shell { padding: 14px 10px; }
-  .top { align-items: flex-start; }
-  .modes { gap: 6px; }
-  .mode { padding: 8px; }
+@media(max-width: 768px) {
+  body { overflow-x: hidden; }
+  .shell { padding: 10px 8px; }
+  .top { flex-direction: column; gap: 8px; align-items: stretch; }
+  .clock { text-align: left; }
+  .dashboard { display: flex; flex-direction: column; }
   .stack { grid-template-columns: 1fr; }
-  .footer-stats { grid-template-columns: 1fr 1fr; }
+  .core-area { order: 2; padding: 15px 0; }
+  .chat-panel { order: 1; height: 380px; }
+  .chat-form { flex-wrap: wrap; }
+  .lang-chips-group { width: 100%; justify-content: flex-start; margin-bottom: 4px; }
+  .footer-stats { grid-template-columns: repeat(2, 1fr); gap: 6px; }
   .actions { flex-direction: column; align-items: stretch; }
-  .action-buttons > * { flex: 1; }
+  .action-buttons { flex-direction: column; }
+  .icon-btn { min-width: 38px; min-height: 38px; }
 }
 </style>
 </head>
@@ -633,10 +711,22 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
 
       <!-- INPUT BAR -->
       <form class="chat-form" id="chat-form">
-        <input type="text" class="chat-input" id="chat-input" placeholder="Type command, question, or note (e.g. 'I am Shiv', 'Remind me...')..." autocomplete="off" />
+        <!-- Quick Language Chips (Task A2.2) -->
+        <div class="lang-chips-group" id="lang-chips" title="Switch Voice Recognition Language">
+          <button type="button" class="chip-lang active" data-lang="en-IN" title="English (India)">EN</button>
+          <button type="button" class="chip-lang" data-lang="hi-IN" title="Hindi (India)">HI</button>
+          <button type="button" class="chip-lang" data-lang="mr-IN" title="Marathi (India)">MR</button>
+        </div>
+        <input type="text" class="chat-input" id="chat-input" placeholder="Type command, question, or speak..." autocomplete="off" />
         <button type="button" class="icon-btn" id="mic-btn" title="Speak to Jarvis">🎤</button>
         <button type="submit" class="icon-btn" id="send-btn" title="Send to Jarvis">➤</button>
       </form>
+
+      <!-- Visual Listening Countdown (Task A2.1) -->
+      <div class="listening-countdown" id="listening-countdown">
+        <span class="mono" id="countdown-label">◉ LISTENING... (2.2s PAUSE)</span>
+        <div class="countdown-progress"><div class="countdown-fill" id="countdown-fill"></div></div>
+      </div>
     </article>
 
     <!-- SYSTEM LOG STREAM -->
@@ -679,6 +769,7 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
   <div class="action-buttons">
     <button class="btn mono" id="diagnostic">RUN DIAGNOSTIC</button>
     <button class="btn mono" id="btn-notes-vault">NOTES VAULT</button>
+    <button class="btn mono" id="btn-settings">SETTINGS</button>
     <button class="btn mono" id="reset">RESET SYSTEM</button>
   </div>
 </footer>
@@ -702,6 +793,57 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       <input type="text" class="modal-input" id="search-notes-input" placeholder="🔍 Search saved notes in database..." style="margin-top:8px;" />
       <div class="notes-list" id="notes-list-container">
         <!-- Dynamically loaded -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RISK CONFIRMATION MODAL (DAY 6) -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal-box" style="max-width: 440px;">
+    <div class="modal-header">
+      <h3 class="mono" style="color:#ef4444;">⚠️ ACTION CONFIRMATION REQUIRED</h3>
+      <button class="modal-close" id="close-confirm-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-message" style="font-size:12px; line-height:1.6; color:#fff; margin:6px 0 16px;">
+        This action involves system modifications or irreversible execution. Confirm to execute.
+      </p>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn mono" id="confirm-cancel-btn" style="border-color:#64748b; color:#94a3b8;">CANCEL</button>
+        <button type="button" class="btn mono" id="confirm-yes-btn" style="background:#ef4444; border-color:#ef4444; color:#fff;">CONFIRM (YES)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL (DAY 8) -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal-box" style="max-width: 480px;">
+    <div class="modal-header">
+      <h3 class="mono">SYSTEM PREFERENCES & SETTINGS</h3>
+      <button class="modal-close" id="close-settings-modal">✕</button>
+    </div>
+    <div class="modal-body" style="gap:14px;">
+      <div>
+        <label class="tiny mono" style="color:var(--accent); display:block; margin-bottom:6px;">NEURAL VOICE AUDIO (EDGE-TTS)</label>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn mono active" id="setting-voice-on">ON (STREAM AUDIO)</button>
+          <button type="button" class="btn mono" id="setting-voice-off">MUTED</button>
+        </div>
+      </div>
+      <div>
+        <label class="tiny mono" style="color:var(--accent); display:block; margin-bottom:6px;">SPEECH RECOGNITION LANGUAGE</label>
+        <select class="modal-input" id="setting-lang-select" style="cursor:pointer;">
+          <option value="en-IN">English (India) - en-IN</option>
+          <option value="hi-IN">Hindi (India) - hi-IN</option>
+          <option value="mr-IN">Marathi (India) - mr-IN</option>
+          <option value="en-US">English (US) - en-US</option>
+        </select>
+      </div>
+      <div>
+        <label class="tiny mono" style="color:var(--accent); display:block; margin-bottom:4px;">ACTIVE ASSISTANT PERSONA</label>
+        <div class="note mono">JARVIS 8.02 / MULTI-USER ADAPTIVE CORE</div>
       </div>
     </div>
   </div>
@@ -851,6 +993,22 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
     contentDiv.textContent = text;
     bubble.appendChild(contentDiv);
 
+    // Day 7: Interactive Document download card & Screenshot thumbnail
+    if (text.includes(".pdf") || text.includes(".docx") || text.includes(".pptx") || text.includes(".png") || text.includes(".jpg")) {
+      const match = text.match(/[\w\-_\/.]+\.(pdf|docx|pptx|png|jpg)/i);
+      if (match) {
+        const filePath = match[0];
+        const fileName = filePath.split('/').pop().split('\\').pop();
+        const card = document.createElement('div');
+        card.className = 'doc-card mono tiny';
+        card.innerHTML = `
+          <span>📄 ${fileName}</span>
+          <a href="#" onclick="alert('File available in workspace/${fileName}'); return false;">DOWNLOAD / VIEW</a>
+        `;
+        bubble.appendChild(card);
+      }
+    }
+
     const meta = document.createElement('div');
     meta.className = 'meta mono';
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -950,43 +1108,136 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
   // 4. SPEECH SYNTHESIS & SPEECH RECOGNITION (VOICE)
   // -------------------------------------------------------------
   const ttsBtn = $('#tts-toggle');
+  let currentAudio = null;
+
   ttsBtn.addEventListener('click', () => {
     ttsEnabled = !ttsEnabled;
     ttsBtn.textContent = ttsEnabled ? '🔊' : '🔇';
     log('TTS VOICE AUDIO ' + (ttsEnabled ? 'ENABLED' : 'MUTED'));
-    if (!ttsEnabled && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+    if (!ttsEnabled && currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
     }
   });
 
+  // Task A2.3: Edge-TTS Neural Audio Priority (No robotic David voice)
   function speakText(text) {
-    if (!ttsEnabled || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const clean = text.replace(/[*#`_•]/g, ' ');
-    const utterance = new SpeechSynthesisUtterance(clean);
-    utterance.rate = 1.05;
-    utterance.pitch = 0.95;
-    utterance.onstart = () => {
-      updateStatus('SPEAKING...');
+    if (!ttsEnabled) return;
+    if (currentAudio) {
+      try { currentAudio.pause(); currentAudio = null; } catch (e) {}
+    }
+    const clean = text.replace(/[*#`_•]/g, ' ').trim();
+    if (!clean) return;
+
+    // Detect language
+    let langCode = 'en';
+    const hasDevanagari = /[\u0900-\u097F]/.test(clean);
+    if (hasDevanagari) {
+      langCode = activeSpeechLang.startsWith('mr') ? 'mr' : 'hi';
+    } else if (activeSpeechLang.startsWith('hi')) {
+      langCode = 'hi';
+    } else if (activeSpeechLang.startsWith('mr')) {
+      langCode = 'mr';
+    }
+
+    updateStatus('STREAMING NEURAL VOICE...');
+
+    // Priority 1: High-fidelity Edge-TTS Neural Audio
+    const url = `/api/tts?text=${encodeURIComponent(clean.substring(0, 450))}&lang=${langCode}`;
+    const audio = new Audio(url);
+    currentAudio = audio;
+
+    audio.onplay = () => {
+      updateStatus('SPEAKING (NEURAL)...');
     };
-    utterance.onend = () => {
+    audio.onended = () => {
+      currentAudio = null;
       updateStatus(modes[activeMode].status);
     };
-    window.speechSynthesis.speak(utterance);
+    audio.onerror = () => {
+      // Deprecated SAPI fallback only if network fails for English
+      if (!hasDevanagari && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(clean);
+        u.rate = 1.05;
+        u.onend = () => updateStatus(modes[activeMode].status);
+        window.speechSynthesis.speak(u);
+      } else {
+        updateStatus(modes[activeMode].status);
+      }
+    };
+    audio.play().catch(() => {});
   }
 
-  // Voice Link Mic
+  // Voice Link Mic & Regional Speech Recognition (Tasks A2.1 & A2.2)
   const voiceBtn = $('#voice');
   const micBtn = $('#mic-btn');
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+  let activeSpeechLang = 'en-IN'; // Task A2.2: Default to English (India)
   let currentVoiceText = '';
+  let speechSilenceTimer = null;
+  let countdownTimer = null;
+  const SILENCE_DEBOUNCE_MS = 2200; // Task A2.1: 2200ms silence debounce
+  let silenceStartTime = 0;
+
+  const countdownContainer = $('#listening-countdown');
+  const countdownLabel = $('#countdown-label');
+  const countdownFill = $('#countdown-fill');
+
+  function showCountdownUI(remainingMs) {
+    if (countdownContainer) countdownContainer.classList.add('active');
+    const sec = (remainingMs / 1000).toFixed(1);
+    if (countdownLabel) countdownLabel.textContent = `◉ LISTENING... (${sec}s PAUSE)`;
+    if (countdownFill) {
+      const pct = Math.max(0, Math.min(100, (remainingMs / SILENCE_DEBOUNCE_MS) * 100));
+      countdownFill.style.width = pct + '%';
+    }
+    updateStatus(`ACOUSTIC LISTENING (${sec}s)...`);
+  }
+
+  function hideCountdownUI() {
+    if (countdownContainer) countdownContainer.classList.remove('active');
+    if (countdownTimer) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }
+
+  function resetSilenceDebounceTimer() {
+    if (speechSilenceTimer) clearTimeout(speechSilenceTimer);
+    if (countdownTimer) clearInterval(countdownTimer);
+
+    silenceStartTime = Date.now();
+    showCountdownUI(SILENCE_DEBOUNCE_MS);
+
+    countdownTimer = setInterval(() => {
+      const elapsed = Date.now() - silenceStartTime;
+      const remaining = Math.max(0, SILENCE_DEBOUNCE_MS - elapsed);
+      showCountdownUI(remaining);
+      if (remaining <= 0) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+    }, 100);
+
+    speechSilenceTimer = setTimeout(() => {
+      hideCountdownUI();
+      try { recognition.stop(); } catch (err) {}
+      const toSend = currentVoiceText.trim();
+      currentVoiceText = '';
+      if (toSend) {
+        log('VOICE COMPLETE: ' + toSend);
+        sendChatMessage(toSend);
+      }
+    }, SILENCE_DEBOUNCE_MS);
+  }
 
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true; // Stay active to allow natural pauses
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = activeSpeechLang; // Task A2.2
 
     recognition.onstart = () => {
       voiceListening = true;
@@ -996,7 +1247,7 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       micBtn.classList.add('active');
       waveEl.classList.add('listening');
       updateStatus('ACOUSTIC LISTENING...');
-      log('VOICE RECOGNITION ACTIVE');
+      log(`VOICE RECOGNITION ACTIVE (${activeSpeechLang})`);
     };
 
     recognition.onresult = (e) => {
@@ -1012,7 +1263,9 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       const recognized = (final || interim).trim();
       if (recognized) {
         currentVoiceText = recognized;
-        chatInput.value = recognized; // Real-time preview in input box only (no chat spam!)
+        chatInput.value = recognized; // Live visual typing in input bar
+        // User spoke: reset silence debounce countdown (Task A2.1)
+        resetSilenceDebounceTimer();
       }
     };
 
@@ -1027,13 +1280,17 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       voiceBtn.classList.remove('active');
       micBtn.classList.remove('active');
       waveEl.classList.remove('listening');
+      hideCountdownUI();
       updateStatus(modes[activeMode].status);
 
-      // SEND EXACTLY ONCE AFTER USER HAS FINISHED SPEAKING
+      if (speechSilenceTimer) {
+        clearTimeout(speechSilenceTimer);
+        speechSilenceTimer = null;
+      }
       const textToSend = currentVoiceText.trim();
       currentVoiceText = '';
       if (textToSend) {
-        log('VOICE COMPLETE: ' + textToSend);
+        log('VOICE DISPATCH: ' + textToSend);
         sendChatMessage(textToSend);
       }
     };
@@ -1045,21 +1302,72 @@ body[data-mode="stealth"] .reverse { animation-duration: 82s; }
       return;
     }
     if (voiceListening) {
+      if (speechSilenceTimer) clearTimeout(speechSilenceTimer);
+      hideCountdownUI();
       recognition.stop();
     } else {
       try {
         currentVoiceText = '';
+        recognition.lang = activeSpeechLang;
         recognition.start();
       } catch (e) {
-        try {
-          recognition.stop();
-        } catch (err) {}
+        try { recognition.stop(); } catch (err) {}
       }
     }
   }
 
   voiceBtn.addEventListener('click', toggleVoiceListening);
   micBtn.addEventListener('click', toggleVoiceListening);
+
+  // Task A2.2: Language Chips Selector Listeners (EN / HI / MR)
+  document.querySelectorAll('.chip-lang').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.chip-lang').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeSpeechLang = btn.dataset.lang;
+      if (recognition) {
+        recognition.lang = activeSpeechLang;
+      }
+      log(`LANGUAGE SWITCHED: ${btn.textContent} (${activeSpeechLang})`);
+      const sel = $('#setting-lang-select');
+      if (sel) sel.value = activeSpeechLang;
+    });
+  });
+
+  // Settings Modal Listeners (Day 8)
+  const settingsModal = $('#settings-modal');
+  $('#btn-settings')?.addEventListener('click', () => settingsModal?.classList.add('open'));
+  $('#close-settings-modal')?.addEventListener('click', () => settingsModal?.classList.remove('open'));
+
+  $('#setting-voice-on')?.addEventListener('click', () => {
+    ttsEnabled = true;
+    $('#tts-toggle').textContent = '🔊';
+    $('#setting-voice-on').classList.add('active');
+    $('#setting-voice-off').classList.remove('active');
+    log('NEURAL VOICE ENABLED');
+  });
+  $('#setting-voice-off')?.addEventListener('click', () => {
+    ttsEnabled = false;
+    $('#tts-toggle').textContent = '🔇';
+    $('#setting-voice-off').classList.add('active');
+    $('#setting-voice-on').classList.remove('active');
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    log('NEURAL VOICE MUTED');
+  });
+
+  $('#setting-lang-select')?.addEventListener('change', (e) => {
+    activeSpeechLang = e.target.value;
+    if (recognition) recognition.lang = activeSpeechLang;
+    document.querySelectorAll('.chip-lang').forEach(b => {
+      b.classList.toggle('active', b.dataset.lang === activeSpeechLang);
+    });
+    log(`VOICE LANG SET TO: ${activeSpeechLang}`);
+  });
+
+  // Confirmation Modal Listeners (Day 6)
+  const confirmModal = $('#confirm-modal');
+  $('#close-confirm-modal')?.addEventListener('click', () => confirmModal?.classList.remove('open'));
+  $('#confirm-cancel-btn')?.addEventListener('click', () => confirmModal?.classList.remove('open'));
 
   // -------------------------------------------------------------
   // 5. LIVE TELEMETRY ENGINE

@@ -18,7 +18,7 @@ import socket
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -253,32 +253,115 @@ async def get_tools() -> List[Dict[str, Any]]:
     ]
 
 
+@app.get("/api/tts")
+async def stream_neural_tts(
+    text: str = Query(..., min_length=1, description="Text to speak"),
+    lang: str = Query("en", description="Language code: en, hi, mr"),
+) -> Response:
+    """Stream high-fidelity Edge-TTS neural speech audio for Web HUD (Task A2.3)."""
+    clean_text = re.sub(r"[*#`_•]", " ", text).strip()
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Empty text for speech synthesis")
+
+    # Select high-quality neural voice based on language code
+    voice_map = {
+        "en": os.getenv("TTS_VOICE_EN", "en-US-GuyNeural"),
+        "hi": os.getenv("TTS_VOICE_HI", "hi-IN-MadhurNeural"),
+        "mr": os.getenv("TTS_VOICE_MR", "mr-IN-ManoharNeural"),
+    }
+    voice = voice_map.get(lang.lower(), voice_map["en"])
+
+    # Auto-detect Devanagari script for Marathi/Hindi if lang was en
+    has_devanagari = any("\u0900" <= ch <= "\u097F" for ch in clean_text)
+    if has_devanagari and lang.lower() == "en":
+        voice = voice_map["mr"]
+
+    try:
+        import edge_tts
+
+        communicate = edge_tts.Communicate(clean_text, voice)
+        chunks = []
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                chunks.append(chunk["data"])
+
+        audio_bytes = b"".join(chunks)
+        if not audio_bytes:
+            raise HTTPException(status_code=500, detail="Failed to synthesize audio")
+
+        return Response(content=audio_bytes, media_type="audio/mpeg")
+    except Exception as exc:
+        print(f"[WARN] Edge-TTS error: {exc}")
+        raise HTTPException(status_code=500, detail=f"TTS generation failed: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Day 3: WebSocket Live Channel & Sci-Fi HUD
 # ---------------------------------------------------------------------------
 
 
 def try_launch_system_app(user_text: str) -> Optional[str]:
-    """Helper in ui/server.py to reliably launch requested desktop applications on Windows.
-    
-    Ensures that when a user requests to open Chrome, WhatsApp, Command Prompt, etc.,
-    the actual Windows application process is launched to the foreground.
+    """Helper in ui/server.py to launch requested desktop applications on Windows,
+    delegating to Abhijit's OpenAppTool with graceful fallbacks (Task A2.4).
     """
     import subprocess
 
     norm = normalize_command(user_text)
     trigger_words = ("open", "launch", "start", "run", "execute", "ugad", "chalu", "khol")
-    app_keywords = ("whatsapp", "chrome", "cmd", "command prompt", "terminal", "notepad", "calc", "calculator", "edge", "youtube", "vscode", "spotify", "snippingtool", "screenshot")
-    
+    app_mapping = {
+        "chrome": ("chrome", "Google Chrome"),
+        "google chrome": ("chrome", "Google Chrome"),
+        "notepad": ("notepad", "Notepad"),
+        "calc": ("calc", "Calculator"),
+        "calculator": ("calc", "Calculator"),
+        "cmd": ("cmd", "Command Prompt"),
+        "command prompt": ("cmd", "Command Prompt"),
+        "terminal": ("terminal", "Terminal"),
+        "code": ("code", "VS Code"),
+        "vscode": ("code", "VS Code"),
+        "paint": ("paint", "Paint"),
+        "mspaint": ("paint", "Paint"),
+        "settings": ("settings", "Settings"),
+        "taskmgr": ("taskmgr", "Task Manager"),
+        "task manager": ("taskmgr", "Task Manager"),
+        "spotify": ("spotify", "Spotify"),
+        "explorer": ("explorer", "File Explorer"),
+        "excel": ("excel", "Excel"),
+        "word": ("word", "Word"),
+    }
+
+    # Check if request has launch intent
     is_launch_request = (
         any(w in norm.split() for w in trigger_words)
-        or any(norm == k for k in app_keywords)
-        or (any(w in norm for w in trigger_words) and any(k in norm for k in app_keywords))
+        or any(norm == k for k in app_mapping)
+        or (any(w in norm for w in trigger_words) and any(k in norm for k in app_mapping))
+        or "whatsapp" in norm
+        or "youtube" in norm
+        or "edge" in norm
+        or "snip" in norm
+        or "screenshot" in norm
     )
 
     if not is_launch_request:
         return None
 
+    # 1. Try delegating to Abhijit's OpenAppTool (Task A2.4)
+    try:
+        from tools.system_tools import OpenAppTool
+
+        open_tool = OpenAppTool()
+        for key, (shortcut, label) in app_mapping.items():
+            if key in norm:
+                result = open_tool.run(app_name=shortcut)
+                if result.success:
+                    return label
+                # If OpenAppTool could not locate path on this specific PC, fallback to Windows start
+                subprocess.Popen(f"cmd.exe /c start {shortcut}", shell=True)
+                return label
+    except Exception as exc:
+        print(f"[WARN] OpenAppTool delegation fallback: {exc}")
+
+    # 2. Handlers for web and specialty apps
     try:
         if "whatsapp" in norm:
             try:
@@ -288,10 +371,6 @@ def try_launch_system_app(user_text: str) -> Optional[str]:
                 subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
                 return "WhatsApp Web"
 
-        elif "chrome" in norm or "google chrome" in norm:
-            subprocess.Popen("cmd.exe /c start chrome", shell=True)
-            return "Google Chrome"
-
         elif "edge" in norm:
             subprocess.Popen("cmd.exe /c start msedge", shell=True)
             return "Microsoft Edge"
@@ -300,31 +379,11 @@ def try_launch_system_app(user_text: str) -> Optional[str]:
             subprocess.Popen("cmd.exe /c start https://www.youtube.com", shell=True)
             return "YouTube"
 
-        elif "cmd" in norm or "command prompt" in norm or "terminal" in norm:
-            subprocess.Popen("cmd.exe /c start cmd.exe", shell=True)
-            return "Command Prompt"
-
         elif "snip" in norm or "screenshot" in norm:
             subprocess.Popen("cmd.exe /c start snippingtool", shell=True)
             return "Snipping Tool"
-
-        elif "notepad" in norm:
-            subprocess.Popen("cmd.exe /c start notepad", shell=True)
-            return "Notepad"
-
-        elif "calc" in norm or "calculator" in norm:
-            subprocess.Popen("cmd.exe /c start calc", shell=True)
-            return "Calculator"
-
-        elif "code" in norm or "vscode" in norm:
-            subprocess.Popen("cmd.exe /c start code", shell=True)
-            return "VS Code"
-
-        elif "spotify" in norm or "music" in norm:
-            subprocess.Popen("cmd.exe /c start spotify:", shell=True)
-            return "Spotify"
     except Exception as exc:
-        print(f"[WARN] Failed to launch application from UI server: {exc}")
+        print(f"[WARN] App launcher fallback error: {exc}")
 
     return None
 
