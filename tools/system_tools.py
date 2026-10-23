@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import subprocess
 import urllib.parse
@@ -79,13 +80,17 @@ class GetSystemStatsTool(BaseTool):
 
 
 class OpenAppTool(BaseTool):
-    """Tool that launches desktop applications on Windows by shortcut name."""
+    """Tool that launches any desktop or Windows Store application on Windows by name or shortcut."""
     name: str = "open_app"
     description: str = (
-        "Opens an application on the Windows host machine by shortcut name. "
-        "Supported shortcuts: 'calc', 'chrome', 'cmd', 'code', 'excel', 'explorer', "
-        "'notepad', 'paint', 'powershell', 'settings', 'spotify', 'taskmgr', 'vlc', 'word'."
+        "Opens any application on the Windows host machine by name or shortcut (e.g. 'chrome', "
+        "'vscode', 'discord', 'steam', 'android studio', 'audacity', 'bluestacks', 'spotify', "
+        "'notepad', 'calc', 'settings', or any installed Windows software). Automatically scans "
+        "and launches installed applications."
     )
+
+    # In-memory cache for all discovered installed applications
+    _INSTALLED_APPS_CACHE: Optional[Dict[str, Dict[str, Any]]] = None
 
     # Primary Windows executable path mapping for supported shortcuts
     APP_MAPPING: Dict[str, str] = {
@@ -285,6 +290,105 @@ class OpenAppTool(BaseTool):
         "paint": r"shell:AppsFolder\Microsoft.MSPaint_8wekyb3d8bbwe!Microsoft.MSPaint",
     }
 
+    @classmethod
+    def _get_installed_apps(cls) -> Dict[str, Dict[str, Any]]:
+        """Discovers and caches all installed applications across Start Menu, Registry, and UWP Apps."""
+        if cls._INSTALLED_APPS_CACHE is not None:
+            return cls._INSTALLED_APPS_CACHE
+
+        apps: Dict[str, Dict[str, Any]] = {}
+
+        if os.name != "nt":
+            cls._INSTALLED_APPS_CACHE = apps
+            return apps
+
+        # 1. Scan Start Menu .lnk shortcuts (User and System)
+        dirs = [
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+            os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs"),
+        ]
+        for d in dirs:
+            if os.path.exists(d):
+                for root, _, files in os.walk(d):
+                    for f in files:
+                        if f.lower().endswith(".lnk"):
+                            clean_name = f[:-4].lower().strip()
+                            full = os.path.join(root, f)
+                            if clean_name not in apps:
+                                apps[clean_name] = {"type": "lnk", "path": full, "name": f[:-4]}
+
+        # 2. Scan Windows Registry App Paths (HKCU & HKLM)
+        try:
+            import winreg
+            for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    with winreg.OpenKey(root, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths") as key:
+                        for i in range(winreg.QueryInfoKey(key)[0]):
+                            sub = winreg.EnumKey(key, i)
+                            clean_name = sub.lower()
+                            if clean_name.endswith(".exe"):
+                                clean_name = clean_name[:-4]
+                            try:
+                                with winreg.OpenKey(key, sub) as sk:
+                                    val, _ = winreg.QueryValueEx(sk, "")
+                                    if val and os.path.exists(val) and clean_name not in apps:
+                                        apps[clean_name] = {"type": "exe", "path": val, "name": sub}
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 3. PowerShell Get-StartApps (covers Windows Store / UWP packages)
+        try:
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "Get-StartApps | ConvertTo-Json"],
+                capture_output=True,
+                text=True,
+                timeout=6,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                items = json.loads(res.stdout)
+                if isinstance(items, dict):
+                    items = [items]
+                if isinstance(items, list):
+                    for it in items:
+                        name = it.get("Name", "").lower().strip()
+                        appid = it.get("AppID", "")
+                        if name and appid and name not in apps:
+                            apps[name] = {"type": "appx", "appid": appid, "name": it.get("Name")}
+        except Exception:
+            pass
+
+        cls._INSTALLED_APPS_CACHE = apps
+        return apps
+
+    @classmethod
+    def _find_installed_app(cls, query: str) -> Optional[Dict[str, Any]]:
+        """Resolves an application by exact, alias, normalized, or substring match."""
+        apps = cls._get_installed_apps()
+        q = query.lower().strip()
+        q = cls.APP_ALIASES.get(q, q)
+
+        # Exact match
+        if q in apps:
+            return apps[q]
+
+        # Normalized match (ignoring whitespace and special characters)
+        q_norm = "".join(c for c in q if c.isalnum())
+        if q_norm:
+            for k, v in apps.items():
+                if "".join(c for c in k if c.isalnum()) == q_norm:
+                    return v
+
+        # Substring match (starts with or contains)
+        for k, v in apps.items():
+            if k.startswith(q) or q in k:
+                return v
+
+        return None
+
     @staticmethod
     def _find_start_menu_shortcut(name: str) -> Optional[str]:
         """Scans Windows Start Menu directories for matching .lnk application shortcuts."""
@@ -384,14 +488,14 @@ class OpenAppTool(BaseTool):
         """Launches the requested application in a non-blocking process.
 
         Args:
-            app_name: The shortcut or application name (e.g., 'calculator', 'chrome', 'cmd', 'notepad').
+            app_name: The shortcut or application name (e.g., 'calculator', 'chrome', 'cmd', 'notepad', 'android studio').
             **kwargs: Extra keyword arguments.
 
         Returns:
             ToolResult: Execution outcome with process PID or error details.
         """
         try:
-            if not app_name or not isinstance(app_name, str):
+            if not app_name or not isinstance(app_name, str) or not app_name.strip():
                 return ToolResult(
                     success=False,
                     data=None,
@@ -400,19 +504,6 @@ class OpenAppTool(BaseTool):
 
             raw_key = app_name.strip().lower()
             key = self.APP_ALIASES.get(raw_key, raw_key)
-
-            # Enforce allowlist / supported applications validation
-            if key not in self.APP_MAPPING and key not in self.ALLOWLIST and raw_key not in self.ALLOWLIST:
-                available = ", ".join(sorted(self.ALLOWLIST))
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message=(
-                        f"Unknown application shortcut '{app_name}'. "
-                        f"I can only open supported applications from the allowlist: {available}. "
-                        "Please check the application name and try again."
-                    )
-                )
 
             # Direct launch for notepad (handles classic notepad and Windows 11 UWP App Execution Alias)
             if key == "notepad":
@@ -458,7 +549,7 @@ class OpenAppTool(BaseTool):
                     except Exception:
                         pass
 
-            # 1. Try Windows UWP protocol if registered (e.g. calculator:, ms-settings:)
+            # 1. Try Windows UWP protocol if registered (e.g. calculator:, ms-settings:, spotify:)
             protocol = self.APP_PROTOCOLS.get(raw_key) or self.APP_PROTOCOLS.get(key)
             if protocol and os.name == "nt":
                 try:
@@ -471,28 +562,84 @@ class OpenAppTool(BaseTool):
                 except Exception:
                     pass
 
-            # 2. Resolve executable path
+            # 2. Resolve executable path via known static mapping / candidates / PATH
             executable_path = self._resolve_executable_path(key)
 
-            # 3. If not in predefined mapping, scan Windows Start Menu for installed .lnk shortcuts
+            # 3. If not in predefined mapping, check dynamic installed apps indexer (Start Menu, Registry, UWP)
             if not executable_path and os.name == "nt":
                 executable_path = self._find_start_menu_shortcut(raw_key) or self._find_start_menu_shortcut(key)
 
+            # 4. If still not found, search the dynamic application indexer (Start Menu, Registry, UWP packages)
+            if not executable_path and os.name == "nt":
+                dynamic_match = self._find_installed_app(raw_key) or self._find_installed_app(key)
+                if dynamic_match:
+                    match_type = dynamic_match.get("type")
+                    if match_type == "lnk":
+                        lnk_path = dynamic_match.get("path", "")
+                        try:
+                            os.startfile(lnk_path)
+                            return ToolResult(
+                                success=True,
+                                data={"app_name": dynamic_match.get("name", key), "shortcut_path": lnk_path},
+                                message=f"Application '{dynamic_match.get('name', app_name)}' launched successfully from Start Menu."
+                            )
+                        except Exception as exc:
+                            return ToolResult(
+                                success=False,
+                                data=None,
+                                message=f"Failed to launch Start Menu shortcut for '{app_name}': {exc}"
+                            )
+                    elif match_type == "exe":
+                        exe_path = dynamic_match.get("path", "")
+                        try:
+                            proc = subprocess.Popen(
+                                [exe_path],
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL
+                            )
+                            return ToolResult(
+                                success=True,
+                                data={"app_name": dynamic_match.get("name", key), "executable": exe_path, "pid": proc.pid},
+                                message=f"Application '{dynamic_match.get('name', app_name)}' launched successfully (PID: {proc.pid})."
+                            )
+                        except Exception as exc:
+                            return ToolResult(
+                                success=False,
+                                data=None,
+                                message=f"Failed to launch executable for '{app_name}': {exc}"
+                            )
+                    elif match_type == "appx":
+                        appid = dynamic_match.get("appid", "")
+                        try:
+                            proc = subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{appid}"])
+                            return ToolResult(
+                                success=True,
+                                data={"app_name": dynamic_match.get("name", key), "appid": appid, "pid": proc.pid},
+                                message=f"Application '{dynamic_match.get('name', app_name)}' launched successfully via Windows App Package."
+                            )
+                        except Exception as exc:
+                            return ToolResult(
+                                success=False,
+                                data=None,
+                                message=f"Failed to launch Windows App Package for '{app_name}': {exc}"
+                            )
+
+            # If no executable or shortcut path was found anywhere:
             if not executable_path:
-                if key not in self.APP_MAPPING:
-                    available = ", ".join(sorted(self.APP_MAPPING.keys()))
-                    return ToolResult(
-                        success=False,
-                        data=None,
-                        message=f"Unknown application shortcut '{app_name}'. Supported shortcuts: {available}."
-                    )
+                available = ", ".join(sorted(self.ALLOWLIST))
                 return ToolResult(
                     success=False,
                     data=None,
-                    message=f"Executable path for '{app_name}' could not be resolved."
+                    message=(
+                        f"Unknown application shortcut '{app_name}'. "
+                        f"Could not find '{app_name}' installed on this computer. "
+                        f"Supported applications from allowlist or common shortcuts include: {available}. "
+                        "Please check the application name and try again."
+                    )
                 )
 
-            # 4. If Start Menu shortcut (.lnk), launch via Windows Shell
+            # If Start Menu shortcut (.lnk), launch via Windows Shell
             if executable_path.lower().endswith(".lnk") and os.name == "nt":
                 try:
                     os.startfile(executable_path)
@@ -543,6 +690,10 @@ class OpenAppTool(BaseTool):
         Returns:
             Dict[str, Any]: JSON schema specification.
         """
+        base_enums = set(self.APP_MAPPING.keys()) | set(self.ALLOWLIST)
+        installed_names = set(self._get_installed_apps().keys())
+        all_enums = sorted(list(base_enums | installed_names))
+
         return {
             "name": self.name,
             "description": self.description,
@@ -551,8 +702,12 @@ class OpenAppTool(BaseTool):
                 "properties": {
                     "app_name": {
                         "type": "string",
-                        "description": "The shortcut name of the application to open.",
-                        "enum": sorted(list(self.APP_MAPPING.keys()))
+                        "description": (
+                            "The name or shortcut of the application to open on the laptop. "
+                            "Supports any installed application (e.g. 'chrome', 'android studio', "
+                            "'audacity', 'bluestacks', 'vscode', 'discord', 'steam', 'spotify', etc.)."
+                        ),
+                        "enum": all_enums
                     }
                 },
                 "required": ["app_name"]

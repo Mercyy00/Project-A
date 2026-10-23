@@ -245,6 +245,50 @@ class TestOpenAppToolAllowlist:
         assert res.data["pid"] == 9876
         mock_popen.assert_called_once()
 
+    def test_dynamic_app_discovery_indexes_system(self):
+        """Verify dynamic app indexer discovers and indexes installed applications on Windows."""
+        tool = OpenAppTool()
+        apps = tool._get_installed_apps()
+        assert isinstance(apps, dict)
+        if os.name == "nt":
+            assert len(apps) > 5
+
+    @patch("os.startfile")
+    def test_dynamic_app_launch_start_menu_shortcut(self, mock_startfile):
+        """Verify dynamic launch of any installed application via Start Menu shortcut (.lnk)."""
+        tool = OpenAppTool()
+        fake_app_info = {
+            "type": "lnk",
+            "path": r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Figma.lnk",
+            "name": "Figma"
+        }
+        with patch.object(OpenAppTool, "_find_installed_app", return_value=fake_app_info):
+            res = tool.run(app_name="Figma")
+            assert res.success is True
+            assert "Figma" in res.message
+            assert res.data["shortcut_path"] == fake_app_info["path"]
+            mock_startfile.assert_called_once_with(fake_app_info["path"])
+
+    @patch("subprocess.Popen")
+    def test_dynamic_app_launch_uwp_store_package(self, mock_popen):
+        """Verify dynamic launch of Windows Store / UWP application via shell:AppsFolder."""
+        tool = OpenAppTool()
+        fake_app_info = {
+            "type": "appx",
+            "appid": "OpenAI.Codex_2p2nqsd0c76g0!App",
+            "name": "ChatGPT"
+        }
+        mock_proc = MagicMock()
+        mock_proc.pid = 5566
+        mock_popen.return_value = mock_proc
+
+        with patch.object(OpenAppTool, "_find_installed_app", return_value=fake_app_info):
+            res = tool.run(app_name="ChatGPT")
+            assert res.success is True
+            assert "ChatGPT" in res.message
+            assert res.data["pid"] == 5566
+            mock_popen.assert_called_once_with(["explorer.exe", "shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App"])
+
 
 class TestOpenWebsiteTool:
     """Tests for Day 7 OpenWebsiteTool HTTP/HTTPS enforcement and URL opening."""
