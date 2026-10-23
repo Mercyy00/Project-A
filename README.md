@@ -170,7 +170,7 @@ pytest voice/test_stt.py voice/test_tts.py    # voice only
 pytest tests/test_brain.py tests/test_tools.py tests/test_control_tools.py
 ```
 
-Helper launchers in the repo root: `run_voice_tests.bat`, `run_audio_check.bat` (microphone and speaker check) and `run_benchmark.bat` (Whisper model benchmark, results in [`docs/voice_results.md`](docs/voice_results.md)).
+One-click Windows launcher: `run.bat` (supports flags like `run.bat --cli`, `run.bat --voice`, `run.bat --check`). Direct audio verification: `python voice/audio_check.py` and `python voice/benchmark_models.py` (results in [`docs/voice_results.md`](docs/voice_results.md)).
 
 <br>
 

@@ -65,6 +65,7 @@ Thumbs.db
 # Documentation & Sprint Planning Artifacts (Keep local only)
 *.pdf
 generate_pdf.py
+docs/generate_playbook_pdf.py
 WEEK_1_EXECUTION_PLAN.md
 
 # --- Trupti: Messaging ---
