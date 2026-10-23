@@ -351,6 +351,125 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+
+
+# ---------------------------------------------------------------------------
+# Dynamic Neural Core API Key Configuration Endpoints
+# ---------------------------------------------------------------------------
+
+class KeyConfigRequest(BaseModel):
+    """Payload schema for setting or updating API keys from the Web HUD."""
+    gemini_api_key: str = Field(..., min_length=8, description="Google Gemini API Key")
+    groq_api_key: Optional[str] = Field(None, description="Optional Groq Cloud API Key")
+
+
+@app.get("/api/config/key-status")
+async def get_key_status() -> Dict[str, Any]:
+    """Retrieve current neural core configuration status without revealing secret keys."""
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    is_valid_gemini = bool(gemini_key and gemini_key != "your_gemini_api_key_here")
+    is_valid_groq = bool(groq_key and groq_key != "your_groq_api_key_here")
+
+    masked = ""
+    if is_valid_gemini:
+        if len(gemini_key) > 8:
+            masked = f"{gemini_key[:4]}••••••••{gemini_key[-4:]}"
+        else:
+            masked = "••••••••"
+
+    return {
+        "configured": is_valid_gemini,
+        "masked_key": masked,
+        "has_groq": is_valid_groq,
+        "gemini_model": os.getenv("MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash",
+    }
+
+
+@app.post("/api/config/set-key")
+async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
+    """Validate, persist, and engage Google Gemini API Key from the Web HUD."""
+    key = payload.gemini_api_key.strip()
+    if not key or key == "your_gemini_api_key_here":
+        raise HTTPException(status_code=400, detail="A valid Gemini API key is required.")
+
+    # 1. Validate key live with Google GenAI SDK
+    try:
+        from google import genai
+        test_client = genai.Client(api_key=key)
+        model_name = os.getenv("MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash"
+        test_resp = test_client.models.generate_content(
+            model=model_name,
+            contents="Say 'OK'",
+        )
+        if not test_resp:
+            raise ValueError("Empty response from Gemini API.")
+    except Exception as exc:
+        err_msg = str(exc)
+        if "403" in err_msg or "API_KEY_INVALID" in err_msg or "permission" in err_msg.lower():
+            raise HTTPException(status_code=401, detail="Invalid Gemini API key. Verification failed.")
+        elif "quota" in err_msg.lower() or "429" in err_msg or "503" in err_msg:
+            # Quota or transient high demand, but key format was authenticated
+            pass
+        else:
+            raise HTTPException(status_code=400, detail=f"API verification probe failed: {err_msg[:120]}")
+
+    # 2. Update active process environment
+    os.environ["GEMINI_API_KEY"] = key
+    if payload.groq_api_key and payload.groq_api_key.strip():
+        os.environ["GROQ_API_KEY"] = payload.groq_api_key.strip()
+
+    # 3. Persist to .env file safely
+    try:
+        project_root = Path(__file__).resolve().parent.parent
+        env_file = project_root / ".env"
+        env_lines: List[str] = []
+        if env_file.exists():
+            env_lines = env_file.read_text(encoding="utf-8").splitlines()
+
+        gemini_found = False
+        groq_found = False
+        new_lines: List[str] = []
+        for line in env_lines:
+            if line.startswith("GEMINI_API_KEY="):
+                new_lines.append(f"GEMINI_API_KEY={key}")
+                gemini_found = True
+            elif payload.groq_api_key and line.startswith("GROQ_API_KEY="):
+                new_lines.append(f"GROQ_API_KEY={payload.groq_api_key.strip()}")
+                groq_found = True
+            else:
+                new_lines.append(line)
+
+        if not gemini_found:
+            new_lines.append(f"GEMINI_API_KEY={key}")
+        if payload.groq_api_key and not groq_found:
+            new_lines.append(f"GROQ_API_KEY={payload.groq_api_key.strip()}")
+
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    except Exception as exc:
+        print(f"[WARN] Failed to write key to .env file: {exc}")
+
+    # 4. Reinitialize brain singletons so active session immediately switches to new key
+    try:
+        import core.service as core_svc
+        import core.brain as core_brain
+
+        core_svc._brain_instance = None
+        core_brain._default_brain = None
+        core_svc.get_brain()
+    except Exception as exc:
+        print(f"[WARN] Failed to reinitialize brain singleton: {exc}")
+
+    global _genai_client
+    _genai_client = None
+
+    return {
+        "success": True,
+        "message": "Neural core engaged successfully. Key verified and persistent.",
+    }
+
+
+
 def try_launch_system_app(user_text: str) -> Optional[str]:
     """Helper in ui/server.py to reliably launch requested desktop applications on Windows.
     

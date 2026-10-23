@@ -362,6 +362,234 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   .action-buttons>*{flex:1}
   .reactor{max-width:280px}
 }
+
+/* =========================================================================
+   NEURAL CORE API KEY MODAL STYLING
+   ========================================================================= */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 8, 14, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+.modal-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+.modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 580px;
+  background: rgba(8, 20, 28, 0.96);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 45px rgba(var(--rgb), 0.28), inset 0 0 25px rgba(var(--rgb), 0.06);
+  padding: 32px 36px;
+  color: var(--text);
+  transform: scale(0.92) translateY(12px);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 20px 100%, 0 calc(100% - 20px));
+}
+.modal-overlay.active .modal-card {
+  transform: scale(1) translateY(0);
+}
+.modal-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 16px;
+}
+.modal-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.modal-logo {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  background: rgba(var(--rgb), 0.12);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 24px;
+  box-shadow: 0 0 16px rgba(var(--rgb), 0.3);
+}
+.modal-title {
+  margin: 3px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: #fff;
+}
+.modal-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.modal-close:hover {
+  color: #fff;
+  border-color: var(--accent);
+  background: rgba(var(--rgb), 0.1);
+}
+.modal-desc {
+  font-size: 14px;
+  line-height: 1.55;
+  color: #a1b8c4;
+  margin: 0 0 22px;
+}
+.input-group {
+  margin-bottom: 18px;
+}
+.input-group label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+.input-group label .required {
+  color: #ff6377;
+}
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.key-input {
+  width: 100%;
+  background: rgba(4, 12, 18, 0.9);
+  border: 1px solid var(--border);
+  color: #fff;
+  padding: 13px 44px 13px 14px;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  outline: none;
+  transition: all 0.25s ease;
+}
+.key-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 18px rgba(var(--rgb), 0.3);
+  background: rgba(6, 18, 26, 0.95);
+}
+.toggle-vis-btn {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.2s;
+}
+.toggle-vis-btn:hover {
+  color: var(--accent);
+}
+.key-hint {
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+.groq-details {
+  border: 1px solid var(--border);
+  background: rgba(var(--rgb), 0.03);
+  padding: 8px 12px;
+  margin-bottom: 18px;
+  border-radius: 2px;
+}
+.modal-feedback {
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  border-radius: 2px;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  font-size: 11px;
+}
+.modal-feedback.info {
+  background: rgba(var(--rgb), 0.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.modal-feedback.success {
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid #2ecc71;
+  color: #2ecc71;
+}
+.modal-feedback.error {
+  background: rgba(255, 99, 119, 0.12);
+  border: 1px solid #ff6377;
+  color: #ff6377;
+}
+.modal-footer {
+  margin-top: 24px;
+}
+.btn-engage {
+  width: 100%;
+  background: linear-gradient(135deg, rgba(var(--rgb), 0.25), rgba(var(--rgb), 0.1));
+  border: 1px solid var(--accent);
+  color: #fff;
+  padding: 15px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-shadow: 0 0 10px rgba(var(--rgb), 0.5);
+  box-shadow: 0 0 20px rgba(var(--rgb), 0.2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.25s ease;
+}
+.btn-engage:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(var(--rgb), 0.45), rgba(var(--rgb), 0.2));
+  box-shadow: 0 0 30px rgba(var(--rgb), 0.4);
+  transform: translateY(-1px);
+}
+.btn-engage:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 </style>
 </head>
 <body data-mode="classic">
@@ -376,10 +604,16 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       <div class="eyebrow mono">ADAPTIVE INTELLIGENCE INTERFACE</div>
     </div>
   </div>
-  <div class="clock mono">
-    <strong id="clock">--:--:--</strong>
-    <div class="tiny" id="date">--</div>
-    <div class="tiny online" id="ws-indicator">● SYSTEM ONLINE</div>
+  <div style="display:flex;align-items:center;gap:18px;">
+    <button id="btn-api-key" class="mono" style="background:rgba(var(--rgb),.08);border:1px solid var(--border);color:var(--accent);padding:7px 14px;font-size:12px;letter-spacing:.12em;display:flex;align-items:center;gap:8px;border-radius:2px;cursor:pointer;transition:all .3s ease;" title="Configure Google Gemini Neural Core">
+      <span style="font-size:14px;">🔑</span>
+      <span id="key-chip-text">API KEY CONFIG</span>
+    </button>
+    <div class="clock mono">
+      <strong id="clock">--:--:--</strong>
+      <div class="tiny" id="date">--</div>
+      <div class="tiny online" id="ws-indicator">● SYSTEM ONLINE</div>
+    </div>
   </div>
 </header>
 
@@ -838,8 +1072,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       console.warn('WS Init error:', e);
     }
   }
-  connectWS();
-
+  // connectWS will be triggered once neural core is engaged
   function sendDirective(text) {
     if (!text || !text.trim()) return;
     const clean = text.trim();
@@ -1191,7 +1424,229 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     log('INTERFACE STATE PURGED & REBOOTED');
   });
 
+  // -------------------------------------------------------------
+  // 10. NEURAL CORE API KEY MODAL CONTROLLER
+  // -------------------------------------------------------------
+  const modalOverlay = $('#key-modal-overlay');
+  const modalCloseBtn = $('#modal-close-btn');
+  const modalGeminiKey = $('#modal-gemini-key');
+  const modalGroqKey = $('#modal-groq-key');
+  const toggleVisBtn = $('#toggle-key-visibility');
+  const btnEngage = $('#btn-engage-core');
+  const engageBtnText = $('#engage-btn-text');
+  const engageSpinner = $('#engage-spinner');
+  const modalFeedback = $('#modal-feedback');
+  const btnApiKeyConfig = $('#btn-api-key');
+  const keyChipText = $('#key-chip-text');
+
+  let isCoreEngaged = false;
+  let hasJarvisStarted = false;
+
+  function showModalFeedback(type, message) {
+    modalFeedback.className = `modal-feedback mono tiny ${type}`;
+    modalFeedback.textContent = message;
+    modalFeedback.style.display = 'block';
+  }
+
+  function hideModalFeedback() {
+    modalFeedback.style.display = 'none';
+  }
+
+  function openKeyModal(allowClose = false) {
+    modalCloseBtn.style.display = allowClose ? 'grid' : 'none';
+    modalOverlay.classList.add('active');
+    setTimeout(() => modalGeminiKey.focus(), 250);
+  }
+
+  function closeKeyModal() {
+    modalOverlay.classList.remove('active');
+    hideModalFeedback();
+  }
+
+  modalCloseBtn.addEventListener('click', closeKeyModal);
+  btnApiKeyConfig.addEventListener('click', () => openKeyModal(isCoreEngaged));
+
+  toggleVisBtn.addEventListener('click', () => {
+    const isPass = modalGeminiKey.type === 'password';
+    modalGeminiKey.type = isPass ? 'text' : 'password';
+    toggleVisBtn.textContent = isPass ? '🙈' : '👁️';
+  });
+
+  // Enter key inside inputs triggers engagement
+  modalGeminiKey.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btnEngage.click();
+    }
+  });
+
+  async function checkKeyStatusOnLoad() {
+    try {
+      const res = await fetch('/api/config/key-status');
+      const data = await res.json();
+      if (data.configured) {
+        isCoreEngaged = true;
+        keyChipText.textContent = `KEY: ${data.masked_key}`;
+        modalGeminiKey.value = '';
+        modalGeminiKey.placeholder = `Active Key: ${data.masked_key} (Enter new to replace)`;
+        showModalFeedback('info', `ACTIVE KEY DETECTED (${data.masked_key}). Click below to start JARVIS or enter a new key.`);
+        engageBtnText.textContent = '⚡ ENGAGE CORE (CONTINUE WITH ACTIVE KEY)';
+        openKeyModal(true);
+      } else {
+        isCoreEngaged = false;
+        keyChipText.textContent = 'CONFIGURE API KEY';
+        showModalFeedback('error', 'AUTHORIZATION REQUIRED: Please provide your Google Gemini API Key to engage JARVIS.');
+        engageBtnText.textContent = '⚡ ENGAGE NEURAL CORE & START JARVIS';
+        openKeyModal(false);
+      }
+    } catch (e) {
+      console.warn('Key status probe failed:', e);
+      openKeyModal(false);
+    }
+  }
+
+  btnEngage.addEventListener('click', async () => {
+    const geminiKey = modalGeminiKey.value.trim();
+    const groqKey = modalGroqKey.value.trim();
+
+    // If key input is empty but a key was already configured, proceed to start
+    if (!geminiKey && isCoreEngaged) {
+      closeKeyModal();
+      startJarvisSystem();
+      return;
+    }
+
+    if (!geminiKey) {
+      showModalFeedback('error', 'ERROR: Please enter a valid Google Gemini API Key.');
+      modalGeminiKey.focus();
+      return;
+    }
+
+    // Engaging
+    btnEngage.disabled = true;
+    engageSpinner.style.display = 'inline-block';
+    engageBtnText.textContent = 'AUTHENTICATING NEURAL PATHWAYS...';
+    showModalFeedback('info', 'Connecting to Google Gemini API and verifying neural handshake...');
+
+    try {
+      const res = await fetch('/api/config/set-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gemini_api_key: geminiKey,
+          groq_api_key: groqKey || null,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok && result.success) {
+        showModalFeedback('success', 'NEURAL CORE AUTHENTICATED // CORE ONLINE');
+        isCoreEngaged = true;
+        const masked = geminiKey.length > 8 ? `${geminiKey.substring(0, 4)}••••••••${geminiKey.slice(-4)}` : '••••••••';
+        keyChipText.textContent = `KEY: ${masked}`;
+        log('NEURAL CORE AUTHENTICATED & ENGAGED');
+
+        setTimeout(() => {
+          closeKeyModal();
+          startJarvisSystem();
+        }, 800);
+      } else {
+        showModalFeedback('error', result.detail || 'AUTHENTICATION FAILED: Invalid API Key. Please verify key from Google AI Studio.');
+      }
+    } catch (err) {
+      showModalFeedback('error', `NETWORK ERROR: Unable to reach verification server: ${err.message}`);
+    } finally {
+      btnEngage.disabled = false;
+      engageSpinner.style.display = 'none';
+      engageBtnText.textContent = isCoreEngaged ? '⚡ ENGAGE CORE (CONTINUE WITH ACTIVE KEY)' : '⚡ ENGAGE NEURAL CORE & START JARVIS';
+    }
+  });
+
+  function startJarvisSystem() {
+    if (hasJarvisStarted) return;
+    hasJarvisStarted = true;
+    log('JARVIS ADAPTIVE HUD STARTING UP...');
+    connectWS();
+    fetchTelemetry();
+    appendFeedMessage('jarvis', 'Neural core online, sir. All subsystems operational. Ready for your directive.');
+    speakText('Neural core online, sir. All systems nominal. How may I assist you?');
+  }
+
+  // Trigger key verification modal on initial HUD launch
+  checkKeyStatusOnLoad();
+
 })();
 </script>
+
+<!-- ========================================================================= -->
+<!-- NEURAL CORE API KEY INITIALIZATION MODAL -->
+<!-- ========================================================================= -->
+<div id="key-modal-overlay" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-brand">
+        <div class="modal-logo">⚡</div>
+        <div>
+          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">SECURITY CLEARANCE LEVEL 4</div>
+          <h2 class="modal-title">NEURAL CORE INITIALIZATION</h2>
+        </div>
+      </div>
+      <button id="modal-close-btn" class="modal-close" title="Dismiss" style="display:none;">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <p class="modal-desc">
+        Enter your <strong>Google Gemini API Key</strong> below to authenticate JARVIS's neural core. This enables real-time reasoning, 39 autonomous system tools, vision analysis, and voice synthesis.
+      </p>
+
+      <div class="input-group">
+        <label class="mono eyebrow" for="modal-gemini-key">GOOGLE GEMINI API KEY <span class="required">*</span></label>
+        <div class="input-wrapper">
+          <input 
+            type="password" 
+            id="modal-gemini-key" 
+            class="key-input mono" 
+            placeholder="AIzaSy... (Paste Gemini API Key)" 
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" id="toggle-key-visibility" class="toggle-vis-btn" title="Toggle visibility">👁️</button>
+        </div>
+        <div class="key-hint mono tiny">
+          <span>Need a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Get a free key from Google AI Studio</a></span>
+        </div>
+      </div>
+
+      <details class="groq-details">
+        <summary class="mono tiny" style="cursor:pointer;color:var(--muted);letter-spacing:.1em;padding:4px 0;">
+          ▶ OPTIONAL: GROQ LPU HARDWARE ACCELERATION
+        </summary>
+        <div class="input-group" style="margin-top:10px;">
+          <label class="mono eyebrow" for="modal-groq-key">GROQ CLOUD API KEY (OPTIONAL)</label>
+          <div class="input-wrapper">
+            <input 
+              type="password" 
+              id="modal-groq-key" 
+              class="key-input mono" 
+              placeholder="gsk_... (Optional for sub-second Groq LPU speed)" 
+              autocomplete="off"
+            />
+          </div>
+        </div>
+      </details>
+
+      <div id="modal-feedback" class="modal-feedback mono tiny" style="display:none;"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" id="btn-engage-core" class="btn-engage mono">
+        <span id="engage-spinner" class="spinner" style="display:none;"></span>
+        <span id="engage-btn-text">⚡ ENGAGE NEURAL CORE & START JARVIS</span>
+      </button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
