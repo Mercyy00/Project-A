@@ -81,3 +81,6 @@ run_day1_to_day3.bat
 # Local runner scripts
 push_to_github.bat
 messaging/*.bat
+
+# Taste-Skill temp
+.taste-skill/

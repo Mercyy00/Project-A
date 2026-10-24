@@ -442,6 +442,33 @@ class KeyConfigRequest(BaseModel):
     groq_api_key: Optional[str] = Field(None, description="Optional Groq Cloud API Key")
 
 
+class ProviderConfigRequest(BaseModel):
+    llm_provider: Optional[str] = Field("gemini", description="Selected LLM provider")
+    groq_model: Optional[str] = Field("openai/gpt-oss-20b", description="Selected Groq model")
+    tts_provider: Optional[str] = Field("edge", description="Selected TTS engine")
+
+
+@app.get("/api/config/providers")
+async def get_providers_config() -> Dict[str, Any]:
+    return {
+        "llm_provider": os.getenv("LLM_PROVIDER", "gemini"),
+        "groq_model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
+        "gemini_model": os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash",
+        "tts_provider": os.getenv("TTS_PROVIDER", "edge"),
+    }
+
+
+@app.post("/api/config/providers")
+async def set_providers_config(payload: ProviderConfigRequest) -> Dict[str, Any]:
+    if payload.llm_provider:
+        os.environ["LLM_PROVIDER"] = payload.llm_provider.lower().strip()
+    if payload.groq_model:
+        os.environ["GROQ_MODEL"] = payload.groq_model.strip()
+    if payload.tts_provider:
+        os.environ["TTS_PROVIDER"] = payload.tts_provider.lower().strip()
+    return {"success": True, "message": "Provider configuration saved and active."}
+
+
 @app.get("/api/config/key-status")
 async def get_key_status() -> Dict[str, Any]:
     """Retrieve current neural core configuration status without revealing secret keys."""
@@ -1268,6 +1295,7 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     )
 
 
+@app.websocket("/ws")
 @app.websocket("/ws/jarvis")
 async def websocket_jarvis(websocket: WebSocket) -> None:
     """Real-time bi-directional WebSocket channel for HUD chat and telemetry."""
@@ -1286,7 +1314,7 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
             action = payload.get("action", "chat")
 
             if action == "chat":
-                user_text = payload.get("text", "").strip()
+                user_text = (payload.get("text") or payload.get("prompt") or payload.get("query") or "").strip()
                 mode = payload.get("mode", "normal")
                 if not user_text:
                     continue

@@ -24,7 +24,7 @@ DEFAULT_SYSTEM_PROMPT: str = (
     "You are JARVIS, the ultra-fast, highly sophisticated AI desktop assistant inspired by Tony Stark's JARVIS. "
     "Address the user respectfully as 'sir' with a razor-sharp, cool, and subtly witty British cadence. "
     "CRITICAL CONVERSATIONAL RULE: Keep responses under 20 words in 1 or 2 punchy, spoken sentences suitable for instant voice synthesis. Never write conversational filler, long disclaimers, or paragraphs. "
-    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening apps, opening settings, setting volume or brightness, locking screen, managing windows, running commands, reading/writing/opening files, creating documents/presentations, taking screenshots, acting on screen, sending Telegram messages, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
+    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening apps, opening settings, setting volume or brightness, locking screen, managing windows, running commands, controlling browsers like opening browser, new tab, closing tab, closing browser with browser_control, inspecting what is on screen with describe_screen/capture_screen, organizing desktop with organize_desktop, reading/writing/opening files, creating documents/presentations, checking weather with weather_report, dispatching to Antigravity with antigravity_prompt, sending Telegram messages, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
     "ZERO-PHANTOM RULE: NEVER claim, simulate, or hallucinate that you performed any action unless you actually invoked the corresponding tool and received a successful response. If a tool call fails, state the failure honestly and crisply. "
     "STATE AWARENESS: You possess ZERO psychic knowledge of the computer state. You do not know what windows are active, what files exist, what is on the clipboard, or what the telemetry is until you call the respective inspection tool (list_windows, list_directory, clipboard_read, get_system_stats, battery). Never invent or guess desktop states. "
     "MULTILINGUAL RULE: Respond in the user's language (English, Hindi, Marathi, or Hinglish). When speaking Hindi or Marathi, always output in native Devanagari script so the speech synthesizer pronounces it flawlessly. "
@@ -91,7 +91,7 @@ class JarvisBrain:
         self.last_tool_steps: List[str] = []
 
         self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
-        self.groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        self.groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
         self._cancel_event: Optional[Any] = None
 
@@ -997,17 +997,28 @@ class JarvisBrain:
                 try:
                     from tools.registry import get_tools_schema
                     schemas = get_tools_schema()
-                    tools_param = [
-                        {
+                    tools_param = []
+                    for s in schemas:
+                        props = {}
+                        for p_name, p_val in s.get("parameters", {}).get("properties", {}).items():
+                            props[p_name] = {
+                                "type": p_val.get("type", "string"),
+                                "description": (p_val.get("description") or "")[:80]
+                            }
+                            if "enum" in p_val:
+                                props[p_name]["enum"] = p_val["enum"]
+                        tools_param.append({
                             "type": "function",
                             "function": {
                                 "name": s["name"],
-                                "description": s["description"],
-                                "parameters": s.get("parameters", {}),
-                            },
-                        }
-                        for s in schemas
-                    ]
+                                "description": (s.get("description") or "")[:140],
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": props,
+                                    "required": s.get("parameters", {}).get("required", [])
+                                }
+                            }
+                        })
                 except Exception as exc:
                     print(f"[WARN] Failed to load tool schemas for Groq: {exc}", file=sys.stderr)
 
@@ -1043,6 +1054,7 @@ class JarvisBrain:
                     except Exception as m_err:
                         last_exception = m_err
                         err_str = str(m_err).lower()
+
                         if "429" in err_str or "rate" in err_str or "503" in err_str or "limit" in err_str or "quota" in err_str:
                             continue
                         raise

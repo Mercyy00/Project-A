@@ -871,10 +871,26 @@
         </button>
       </div>
       <div class="form-group">
+        <label class="form-label">AI Engine Provider (Mark LVI)</label>
+        <select class="form-select" id="llmProviderSelect">
+          <option value="gemini">Google Gemini (Flash / Live API)</option>
+          <option value="groq">Groq Cloud (Ultra-Fast Llama / GPT-OSS)</option>
+          <option value="ollama">Local Ollama / LM Studio (Offline)</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label class="form-label">Voice Synthesis Language</label>
         <select class="form-select" id="voiceLangSelect">
           <option value="en">English (Neural en-US-BrianMultilingualNeural)</option>
           <option value="hi">Hindi (Neural hi-IN-MadhurNeural)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Voice Engine Model (Mark LVI)</label>
+        <select class="form-select" id="ttsProviderSelect">
+          <option value="edge">Edge Neural Streaming (Cloud High-Fidelity)</option>
+          <option value="piper">Piper Local Neural (Offline &lt;50ms Latency)</option>
+          <option value="system">Windows SAPI5 / OS Native Fallback</option>
         </select>
       </div>
       <div class="form-group">
@@ -1334,10 +1350,29 @@
         }
       });
 
-      settingsBtn.addEventListener('click', () => openModal('settingsModal'));
-      window.saveSettings = function() {
+      settingsBtn.addEventListener('click', async () => {
+        openModal('settingsModal');
+        try {
+          const res = await fetch('/api/config/providers');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.llm_provider) document.getElementById('llmProviderSelect').value = data.llm_provider;
+            if (data.tts_provider) document.getElementById('ttsProviderSelect').value = data.tts_provider;
+          }
+        } catch(e){}
+      });
+      window.saveSettings = async function() {
         state.voiceLang = document.getElementById('voiceLangSelect').value;
         state.autoSpeech = document.getElementById('autoSpeechSelect').value === 'true';
+        const llm_provider = document.getElementById('llmProviderSelect').value;
+        const tts_provider = document.getElementById('ttsProviderSelect').value;
+        try {
+          await fetch('/api/config/providers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ llm_provider, tts_provider })
+          });
+        } catch(e){}
         closeModal('settingsModal');
       };
 

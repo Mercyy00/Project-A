@@ -282,6 +282,11 @@ class JarvisSpeaker:
 
             # Strictly wait while audio is playing (prevents audio overlapping)
             while pygame.mixer.music.get_busy() and self._is_speaking:
+                try:
+                    from core.echo import mark_speech_active
+                    mark_speech_active(0.5)
+                except Exception:
+                    pass
                 time.sleep(0.04)
 
         except Exception as exc:
