@@ -27,7 +27,7 @@ class TestJarvisBrain(unittest.TestCase):
         self.mock_key_patch.start()
 
         # Isolate environment for deterministic Gemini brain unit testing
-        self.mock_env = patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GROQ_API_KEY": ""})
+        self.mock_env = patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GROQ_API_KEY": "", "GEMINI_MODEL": "", "MODEL_NAME": ""})
         self.mock_env.start()
 
     def tearDown(self) -> None:
@@ -39,7 +39,7 @@ class TestJarvisBrain(unittest.TestCase):
     def test_initialization(self) -> None:
         """Verify brain initializes with default model and system prompt."""
         brain = JarvisBrain()
-        self.assertIn(brain.model_name, ("gemini-2.5-flash", "gemini-3.8-flash"))
+        self.assertIn(brain.model_name, ("gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite"))
         self.assertEqual(brain.system_prompt, DEFAULT_SYSTEM_PROMPT)
         self.assertEqual(len(brain.history), 0)
         self.mock_client.chats.create.assert_called_once()

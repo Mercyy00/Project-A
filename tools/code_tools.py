@@ -3,11 +3,12 @@ Code execution and file editing tools for Jarvis coding agent capabilities.
 Author: Abhijit (System & Automation Engineer)
 """
 
+import ast
 import os
 import re
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from tools.base import BaseTool, ToolResult
 from tools.safety import is_path_safe, get_designated_project_dir
 
@@ -21,6 +22,122 @@ _BLOCKED_COMMAND_PATTERNS = [
     re.compile(r"\brm\s+-rf\s+/", re.IGNORECASE),
     re.compile(r"\b(mkfs|dd\s+if=)", re.IGNORECASE),
 ]
+
+
+def validate_python_code_safety(code: str) -> Tuple[bool, Optional[str]]:
+    """Inspects Python code for obviously destructive calls before execution.
+
+    Blocks:
+        - shutil.rmtree
+        - os.system
+        - subprocess calls with shell=True
+        - os.remove / os.unlink targeting paths outside workspace/
+
+    Args:
+        code: Python source code string.
+
+    Returns:
+        Tuple[bool, Optional[str]]: (is_safe, error_reason_if_unsafe)
+    """
+    if not isinstance(code, str) or not code.strip():
+        return False, "Code must be a non-empty string."
+
+    # 1. Block shutil.rmtree
+    if re.search(r"\bshutil\s*\.\s*rmtree\b", code):
+        return (
+            False,
+            "Execution blocked: 'shutil.rmtree' is prohibited because recursive directory deletion is destructive and unsafe."
+        )
+
+    # 2. Block os.system
+    if re.search(r"\bos\s*\.\s*system\b", code):
+        return (
+            False,
+            "Execution blocked: 'os.system' is prohibited because arbitrary shell command execution bypasses safe process containment."
+        )
+
+    # 3. Block subprocess with shell=True
+    if re.search(r"\bshell\s*=\s*(?:True|1)\b", code):
+        return (
+            False,
+            "Execution blocked: 'subprocess' with 'shell=True' is prohibited to prevent shell injection and arbitrary command execution."
+        )
+
+    # 4. AST Analysis for deeper structural checks
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                # Check rmtree call
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "rmtree":
+                    return (
+                        False,
+                        "Execution blocked: 'shutil.rmtree' is prohibited because recursive directory deletion is destructive and unsafe."
+                    )
+                # Check system call
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "system":
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id == "os":
+                        return (
+                            False,
+                            "Execution blocked: 'os.system' is prohibited because arbitrary shell command execution bypasses safe process containment."
+                        )
+                # Check subprocess shell=True
+                for kw in node.keywords:
+                    if kw.arg == "shell":
+                        if isinstance(kw.value, ast.Constant) and bool(kw.value.value) is True:
+                            return (
+                                False,
+                                "Execution blocked: 'subprocess' with 'shell=True' is prohibited to prevent shell injection and arbitrary command execution."
+                            )
+                # Check os.remove / os.unlink
+                is_remove = False
+                if isinstance(node.func, ast.Attribute) and node.func.attr in ("remove", "unlink"):
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id == "os":
+                        is_remove = True
+                elif isinstance(node.func, ast.Name) and node.func.id in ("remove", "unlink"):
+                    is_remove = True
+
+                if is_remove and node.args:
+                    arg = node.args[0]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        raw_path = arg.value
+                        norm = os.path.normpath(raw_path)
+                        ws_abs = os.path.realpath("workspace")
+                        if os.path.isabs(norm):
+                            if not os.path.realpath(norm).lower().startswith(ws_abs.lower()):
+                                return (
+                                    False,
+                                    f"Execution blocked: 'os.remove' on path '{raw_path}' outside workspace is prohibited."
+                                )
+                        else:
+                            if norm.startswith("..") or (not norm.startswith("workspace") and not is_path_safe(norm)):
+                                return (
+                                    False,
+                                    f"Execution blocked: 'os.remove' on path '{raw_path}' outside workspace is prohibited."
+                                )
+    except SyntaxError:
+        pass
+
+    # Regex check for os.remove with explicit path outside workspace
+    remove_matches = re.finditer(r"\bos\s*\.\s*(?:remove|unlink)\s*\(\s*([rfu]?[b]?['\"][^'\"]+['\"])", code)
+    for m in remove_matches:
+        raw_path = m.group(1).lstrip("rfubRFUB").strip("'\"")
+        norm = os.path.normpath(raw_path)
+        ws_abs = os.path.realpath("workspace")
+        if os.path.isabs(norm):
+            if not os.path.realpath(norm).lower().startswith(ws_abs.lower()):
+                return (
+                    False,
+                    f"Execution blocked: 'os.remove' on path '{raw_path}' outside workspace is prohibited."
+                )
+        else:
+            if norm.startswith(".."):
+                return (
+                    False,
+                    f"Execution blocked: 'os.remove' on path '{raw_path}' outside workspace is prohibited."
+                )
+
+    return True, None
 
 
 class RunCommandTool(BaseTool):
@@ -336,62 +453,97 @@ class EditFileTool(BaseTool):
 
 
 class RunPythonTool(BaseTool):
-    """Tool that safely executes a Python script file or code snippet."""
+    """Tool that safely saves and executes Python code inside the workspace/ directory."""
     name: str = "run_python"
     description: str = (
-        "Executes a Python script or inline Python code snippet safely using the project environment. "
-        "Returns stdout, stderr, and exit code."
+        "Saves Python code into the workspace/ directory and executes it safely with a 10-second timeout. "
+        "Enforces safety guardrails against destructive operations, captures stdout and stderr, "
+        "and truncates output to 4000 characters."
     )
 
     def run(
         self,
         code: Optional[str] = None,
+        filename: str = "script.py",
         file_path: Optional[str] = None,
         path: Optional[str] = None,
         args: Optional[List[str]] = None,
         cwd: Optional[str] = None,
-        timeout: int = 60,
+        timeout: int = 10,
         **kwargs: Any
     ) -> ToolResult:
-        """Executes a Python script or code string.
+        """Executes a Python program safely inside workspace/.
 
         Args:
-            code: Python code string to execute (optional if file_path is provided).
-            file_path: Relative or absolute path to a Python script to execute.
+            code: Python code string to execute.
+            filename: Target file name inside workspace/ without path separators (defaults to 'script.py').
+            file_path: Optional file path to execute directly (for backward compatibility).
             path: Alias for file_path.
             args: Optional list of command-line argument strings to pass to the script.
-            cwd: Optional working directory for execution.
-            timeout: Maximum execution time in seconds (default: 60).
+            cwd: Optional execution directory (defaults to workspace/).
+            timeout: Execution timeout in seconds (default: 10).
             **kwargs: Extra keyword arguments.
 
         Returns:
-            ToolResult: Execution outcome with stdout, stderr, and exit code.
+            ToolResult: Structured execution outcome with stdout, stderr, and exit code.
         """
         try:
             target_path = file_path or path
             extra_args = args if (args is not None and isinstance(args, list)) else []
 
-            # Determine working directory
-            effective_cwd = get_designated_project_dir()
-            if cwd:
-                if not isinstance(cwd, str) or not cwd.strip():
+            if code is not None:
+                if not isinstance(code, str) or not code.strip():
                     return ToolResult(
                         success=False,
                         data=None,
-                        message="cwd must be a non-empty string if provided."
+                        message="code must be a non-empty string."
                     )
-                clean_cwd = cwd.strip()
-                if not is_path_safe(clean_cwd):
+
+                if not filename or not isinstance(filename, str) or not filename.strip():
                     return ToolResult(
                         success=False,
                         data=None,
-                        message=f"Permission Denied: Directory '{clean_cwd}' is not allowed."
+                        message="filename must be a non-empty string."
                     )
-                effective_cwd = os.path.realpath(clean_cwd)
 
-            python_exe = sys.executable
+                clean_filename = filename.strip()
 
-            if target_path:
+                # Validate that filename has no path separators or directory traversals
+                if (
+                    "/" in clean_filename
+                    or "\\" in clean_filename
+                    or os.path.sep in clean_filename
+                    or (os.path.altsep and os.path.altsep in clean_filename)
+                    or ".." in clean_filename
+                    or ":" in clean_filename
+                ):
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message="filename must not contain path separators. Code must be saved directly inside workspace/."
+                    )
+
+                # Block code containing destructive calls
+                is_safe, blocked_reason = validate_python_code_safety(code)
+                if not is_safe:
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message=blocked_reason or "Code execution blocked due to safety violations."
+                    )
+
+                # Save code into workspace/ (create the folder if it does not exist)
+                workspace_dir = os.path.realpath("workspace")
+                os.makedirs(workspace_dir, exist_ok=True)
+                dest_file = os.path.join(workspace_dir, clean_filename)
+                with open(dest_file, "w", encoding="utf-8") as f:
+                    f.write(code)
+
+                effective_file = dest_file
+                effective_cwd = workspace_dir
+                effective_filename = clean_filename
+
+            elif target_path:
                 clean_path = target_path.strip()
                 if not is_path_safe(clean_path):
                     return ToolResult(
@@ -408,21 +560,19 @@ class RunPythonTool(BaseTool):
                         message=f"Script file not found: '{clean_path}'."
                     )
 
-                cmd = [python_exe, resolved_path] + [str(a) for a in extra_args]
-            elif code:
-                if not isinstance(code, str) or not code.strip():
-                    return ToolResult(
-                        success=False,
-                        data=None,
-                        message="code must be a non-empty string if provided."
-                    )
-                cmd = [python_exe, "-c", code] + [str(a) for a in extra_args]
+                effective_file = resolved_path
+                effective_cwd = os.path.realpath(cwd) if cwd else os.path.realpath("workspace")
+                effective_filename = os.path.basename(resolved_path)
+
             else:
                 return ToolResult(
                     success=False,
                     data=None,
                     message="Either 'code' or 'file_path' must be provided."
                 )
+
+            python_exe = sys.executable
+            cmd = [python_exe, effective_file] + [str(a) for a in extra_args]
 
             proc = subprocess.run(
                 cmd,
@@ -435,22 +585,32 @@ class RunPythonTool(BaseTool):
                 errors="replace"
             )
 
+            # Truncate output to 4000 characters
+            max_chars = 4000
+            stdout = proc.stdout
+            stderr = proc.stderr
+            if len(stdout) > max_chars:
+                stdout = stdout[:max_chars] + f"\n... [Output truncated to {max_chars} characters]"
+            if len(stderr) > max_chars:
+                stderr = stderr[:max_chars] + f"\n... [Error output truncated to {max_chars} characters]"
+
             data = {
                 "exit_code": proc.returncode,
-                "stdout": proc.stdout,
-                "stderr": proc.stderr,
-                "cwd": effective_cwd
+                "stdout": stdout,
+                "stderr": stderr,
+                "cwd": effective_cwd,
+                "filename": effective_filename
             }
 
             if proc.returncode == 0:
-                summary = f"Python execution succeeded (exit code 0).\nOutput:\n{proc.stdout}" if proc.stdout else "Python execution succeeded with no stdout."
+                summary = stdout.strip() if stdout.strip() else "Python execution succeeded with no stdout."
                 return ToolResult(
                     success=True,
                     data=data,
-                    message=summary.strip()
+                    message=summary
                 )
             else:
-                err_msg = proc.stderr.strip() or proc.stdout.strip() or f"Exited with code {proc.returncode}"
+                err_msg = stderr.strip() or stdout.strip() or f"Process exited with code {proc.returncode}"
                 return ToolResult(
                     success=False,
                     data=data,
@@ -460,7 +620,13 @@ class RunPythonTool(BaseTool):
         except subprocess.TimeoutExpired:
             return ToolResult(
                 success=False,
-                data={"exit_code": -1, "stdout": "", "stderr": f"Timed out after {timeout}s"},
+                data={
+                    "exit_code": -1,
+                    "stdout": "",
+                    "stderr": f"Timed out after {timeout} seconds",
+                    "timed_out": True,
+                    "filename": filename if code is not None else ""
+                },
                 message=f"Python execution timed out after {timeout} seconds."
             )
         except Exception as e:
@@ -484,28 +650,15 @@ class RunPythonTool(BaseTool):
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Inline Python code to execute (optional if file_path is provided)."
+                        "description": "Python source code to execute inside workspace/."
                     },
-                    "file_path": {
+                    "filename": {
                         "type": "string",
-                        "description": "Path to the Python script to execute (optional if code is provided)."
-                    },
-                    "args": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of command-line arguments to pass to the script."
-                    },
-                    "cwd": {
-                        "type": "string",
-                        "description": "Optional working directory for execution."
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Maximum seconds to wait before terminating. Defaults to 60.",
-                        "default": 60
+                        "description": "Target filename inside workspace/ without path separators (default: 'script.py').",
+                        "default": "script.py"
                     }
                 },
-                "required": []
+                "required": ["code"]
             }
         }
 

@@ -22,24 +22,33 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
 
 ---
 
-## 2. Daily Implementations & Enhancements
+## 2. Implementations & Architecture
 
-### Day 1: Setup + Hello Documents (`creator/hello_docs.py`)
-- Creates `workspace/hello.pdf` (ReportLab), `workspace/hello.docx` (python-docx), and `workspace/hello.pptx` (python-pptx).
-- Each document has the title `'Hello from JARVIS'` and one line of text.
-- Automatically creates the `workspace/` output directory if missing and prints full resolved paths.
-- Wrapped in try/except with strict Python 3.11+ type hints and docstrings.
+### Claude Skills Integration: Web Artifacts Maker (`creator/web_maker.py`)
+- **`make_website(title, sections, theme='tech_innovation', out_dir='workspace', auto_open=True) -> str`**:
+  - Single-file standalone HTML bundle requiring zero external build steps.
+  - Modern typography pairing (Inter, Plus Jakarta Sans, Outfit, Playfair Display, Fira Code via Google Web Fonts).
+  - Glassmorphic navigation header with theme badge, quick-jump links, and system status indicator.
+  - Hero section featuring pill badges, high-contrast title, and dynamic timestamps.
+  - Bento metric cards displaying key performance indicators, stats, and delta tags.
+  - Collapsible/structured section cards with copy actions, code callouts, and bullet lists.
+  - Interactive data tables with client-side real-time filtering, search, and row highlighting.
+  - Full Anthropic Theme Factory CSS variables and color palettes.
 
-### Day 2: Theming Engine & Themed PDF Maker (`creator/themes.py`, `creator/pdf_maker.py`)
-- **`creator/themes.py`**:
-  - `THEMES` dictionary defining `'clean_light'`, `'dark_pro'`, and `'colourful'`.
-  - Defines background colors, text colors, primary/secondary/accent tones, card and table styling, typography, and spacing metrics.
-  - `get_theme(theme_name)` safely falls back to `'clean_light'` for unknown themes.
-- **`creator/pdf_maker.py`**:
-  - `make_pdf(title, sections, theme='clean_light', out_dir='workspace', auto_open=True) -> str`
-  - ReportLab Platypus architecture with cover title, headings, paragraphs, bullet lists, and styled data tables.
-  - Custom `NumberedCanvas` two-pass rendering for dynamic page footers (`"Page X of Y"`) and document title tracking.
-  - Page-level background painting matching the selected theme.
+### Comprehensive Font Suite (`creator/fonts/`, `creator/themes.py`)
+- **18 TrueType Fonts** bundled directly within `creator/fonts/`:
+  - `NotoSansDevanagari-Regular.ttf`, `NotoSansDevanagari-Bold.ttf` (Hindi & Marathi Devanagari script support)
+  - `calibri.ttf`, `calibrib.ttf` (Standard Corporate Sans)
+  - `georgia.ttf`, `georgiab.ttf`, `georgiai.ttf` (Editorial Serif)
+  - `consola.ttf`, `consolab.ttf` (Clean Monospace / Code)
+  - `segoeui.ttf`, `segoeuib.ttf` (Modern Clean UI Sans)
+  - `bahnschrift.ttf` (Geometric DIN Style)
+  - `trebuc.ttf`, `trebucbd.ttf` (Contemporary Sans)
+  - `verdana.ttf`, `verdanab.ttf` (High-Legibility Screen Sans)
+  - `arial.ttf`, `arialbd.ttf` (Universal Clean Sans)
+- **Automatic Registration (`register_all_fonts`)**:
+  - Scans `creator/fonts/` and safely registers all TTF files into ReportLab's `TTFont` registry with error-handling.
+  - Retains `register_devanagari_fonts()` for backward compatibility.
 
 ### Day 3: Word, PowerPoint Makers & Day 3 Elevation (D1.1, D1.2, D1.3)
 - **`creator/tools.py` (Task D1.1 - Brain Integration & Tool Registry)**:
@@ -132,7 +141,7 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
 
 ---
 
-## 3. Themes Reference
+## 3. Tool Usage Examples
 
 | Theme | Background | Text | Primary Accent | Vibe |
 |---|---|---|---|---|
@@ -147,7 +156,33 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
 | `modern_minimalist` | `#F8FAFC` | `#0F172A` | `#0F172A` (Pure Slate) | Swiss architectural, clean |
 | `sunset_boulevard` | `#0A0512` | `#FDF4FF` | `#E11D48` (Sunset Rose) | Plum luxury, bold gradients |
 
----
+result = execute_tool("create_website", {
+    "title": "Quantum Cloud Computing Architecture",
+    "sections": [
+        {
+            "heading": "1. Executive Summary",
+            "text": "Fault-tolerant topological quantum processor orchestration at scale.",
+            "metrics": [
+                {"label": "Coherence Time", "value": "1.2 ms"},
+                {"label": "Gate Fidelity", "value": "99.98%"},
+                {"label": "Qubits Active", "value": "1,024"}
+            ],
+            "bullets": [
+                "Real-time syndrome measurement and surface code decoding.",
+                "Cryogenic CMOS control electronics integrated at 4 Kelvin.",
+                "Sub-microsecond feedback latency via FPGA coprocessors."
+            ],
+            "table": [
+                ["Subsystem", "Latency Target", "Status"],
+                ["QPU Control", "< 15 ns", "Nominal"],
+                ["Readout", "< 120 ns", "Nominal"],
+                ["Error Decoder", "< 850 ns", "Active"]
+            ]
+        }
+    ],
+    "theme": "tech_innovation",
+    "auto_open": True
+})
 
 ## 4. How to Run & Verify
 
@@ -156,7 +191,31 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
 python tests/test_creator.py
 ```
 
-### Run with Pytest
+### Natural Language Topic to Any Format
+```python
+from tools.registry import execute_tool
+
+# Generate an interactive web artifact
+res_web = execute_tool("create_document", {
+    "topic": "Microservices to Event-Driven Architecture Migration",
+    "kind": "web",
+    "theme": "midnight_executive"
+})
+
+# Generate a high-resolution presentation in Hindi
+res_pptx = execute_tool("create_document", {
+    "topic": "आर्टिफिशियल इंटेलिजेंस और भारत का भविष्य",
+    "kind": "pptx",
+    "language": "hi",
+    "theme": "ocean_depths"
+})
+```
+
+---
+
+## 4. Testing & Verification
+
+Run the comprehensive test suite for `creator`:
 ```powershell
 pytest tests/test_creator.py -v
 ```
