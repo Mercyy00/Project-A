@@ -47,7 +47,12 @@
 ## Week 2: Autonomous Agentic Intelligence & Proactive Voice Assistant (Days 8–14)
 
 ### Day 8: Full-Duplex Voice, Barge-In & Stream Cancellation
-- [ ] **Task 11: Cancellation Token & Abort Protocol in Brain & WebSocket** (`core/brain.py`, `ui/server.py`) - Pair A
+- [x] **Task 11: Cancellation Token & Abort Protocol in Brain & Service** (`core/brain.py`, `core/service.py`, `core/test_service.py`) - Jay (Core Brain) [PASSED]
+  - Sub-100ms cancellation token (`cancel_event`) in `chat_stream()`, `stream_chat()`, and async `handle_text_stream()`.
+  - Zero-latency `interrupt()` / `abort()` on `JarvisBrain` and `interrupt_generation()` service API.
+  - Emission of `{"type": "interrupted", ...}` without history corruption.
+  - Comprehensive unit test suite in `core/test_service.py` passing 14/14 tests.
+- [ ] **Task 11b: UI WebSocket Interruption Action & HUD Pulse Wave** (`ui/server.py`, `ui/index.html`) - Rohit (UI)
 - [ ] **Task 12: Continuous VAD & Zero-Latency Audio Muting on Speech** (`voice/stt.py`, `voice/tts.py`) - Pair B
 - [ ] **Task 13: Non-Blocking Guard Interruption Logging** (`tools/guard.py`) - Pair C
 - [ ] **Task 14: Telegram Voice Note Audio Transcribe Handler** (`messaging/telegram_bot.py`) - Pair D
