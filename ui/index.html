@@ -646,10 +646,6 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:18px;">
-    <button id="btn-api-key" class="mono" style="background:rgba(var(--rgb),.08);border:1px solid var(--border);color:var(--accent);padding:7px 14px;font-size:12px;letter-spacing:.12em;display:flex;align-items:center;gap:8px;border-radius:2px;cursor:pointer;transition:all .3s ease;" title="Configure Google Gemini Neural Core">
-      <span style="font-size:14px;">🔑</span>
-      <span id="key-chip-text">API KEY CONFIG</span>
-    </button>
     <div class="clock mono">
       <strong id="clock">--:--:--</strong>
       <div class="tiny" id="date">--</div>
@@ -888,6 +884,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   let activeMode = 'classic';
   let isListening = false;
   let isJarvisSpeaking = false;
+  let isAwaitingReplyOrSpeaking = false;
   let currentAudio = null;
   let ws = null;
   let pingInterval = null;
@@ -1127,6 +1124,12 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     log(`INPUT: "${clean.substring(0, 24)}..."`);
     setCoreState('thinking');
 
+    // Immediately stop microphone if listening so speaker output is not captured
+    isAwaitingReplyOrSpeaking = true;
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+    }
+
     // Check for verbal mode switching
     const lower = clean.toLowerCase();
     if (lower.includes('combat mode') || lower.includes('engage combat')) {
@@ -1229,8 +1232,16 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       setCoreState('speaking');
     };
     utterance.onend = () => {
-      setTimeout(() => { isJarvisSpeaking = false; }, 300);
-      setCoreState(isListening ? 'listening' : 'idle');
+      setTimeout(() => {
+        isJarvisSpeaking = false;
+        isAwaitingReplyOrSpeaking = false;
+        setCoreState(isListening ? 'listening' : 'idle');
+        if (isListening && recognition) {
+          btnVoice.classList.add('active-voice');
+          btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
+          try { recognition.start(); } catch (e) {}
+        }
+      }, 350);
     };
     utterance.onerror = () => {
       isJarvisSpeaking = false;
@@ -1273,8 +1284,16 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
       audio.onended = () => {
         if (currentAudio === audio) currentAudio = null;
-        setTimeout(() => { isJarvisSpeaking = false; }, 350);
-        setCoreState(isListening ? 'listening' : 'idle');
+        setTimeout(() => {
+          isJarvisSpeaking = false;
+          isAwaitingReplyOrSpeaking = false;
+          setCoreState(isListening ? 'listening' : 'idle');
+          if (isListening && recognition) {
+            btnVoice.classList.add('active-voice');
+            btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
+            try { recognition.start(); } catch (e) {}
+          }
+        }, 350);
       };
 
       audio.onerror = () => {
@@ -1317,7 +1336,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   const btnVoice = $('#voice');
 
   function handleVoiceInput(candidate) {
-    if (isJarvisSpeaking) return;
+    if (isJarvisSpeaking || isAwaitingReplyOrSpeaking) return;
     const text = (candidate || '').trim();
     if (!text || text.length < 2) return;
 
@@ -1326,6 +1345,15 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     if (text === lastSpokenSubmission && (now - lastSpokenTime) < 1500) return;
     lastSpokenSubmission = text;
     lastSpokenTime = now;
+
+    // Immediately stop the microphone so it doesn't hear ambient noise or Jarvis speaking!
+    isAwaitingReplyOrSpeaking = true;
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+    }
+    btnVoice.classList.remove('active-voice');
+    btnVoice.textContent = '◎ PROCESSING DIRECTIVE...';
+    setCoreState('thinking');
 
     // Stealth Mode Wake-Word Check
     if (activeMode === 'stealth') {
@@ -1422,10 +1450,10 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     };
 
     rec.onend = () => {
-      if (isListening) {
+      if (isListening && !isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
         const restartDelay = consecutiveNetworkErrors > 0 ? 2500 : 350;
         setTimeout(() => {
-          if (isListening && recognition) {
+          if (isListening && !isAwaitingReplyOrSpeaking && !isJarvisSpeaking && recognition) {
             try {
               recognition.start();
             } catch (e) {
@@ -1435,8 +1463,10 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
         }, restartDelay);
       } else {
         btnVoice.classList.remove('active-voice');
-        btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
-        setCoreState('idle');
+        btnVoice.textContent = (isAwaitingReplyOrSpeaking || isJarvisSpeaking) ? '◎ PROCESSING DIRECTIVE...' : '◎ INITIALIZE VOICE LINK';
+        if (!isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
+          setCoreState('idle');
+        }
       }
     };
 
@@ -1547,7 +1577,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   }
 
   modalCloseBtn.addEventListener('click', closeKeyModal);
-  btnApiKeyConfig.addEventListener('click', () => openKeyModal(isCoreEngaged));
+  btnApiKeyConfig?.addEventListener('click', () => openKeyModal(isCoreEngaged));
 
   toggleVisBtn.addEventListener('click', () => {
     const isPass = modalGeminiKey.type === 'password';
@@ -1569,7 +1599,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       const data = await res.json();
       if (data.configured) {
         isCoreEngaged = true;
-        keyChipText.textContent = `KEY: ${data.masked_key}`;
+        if (keyChipText) keyChipText.textContent = `KEY: ${data.masked_key}`;
         modalGeminiKey.value = '';
         modalGeminiKey.placeholder = `Active Key: ${data.masked_key} (Enter new to replace)`;
         showModalFeedback('info', `ACTIVE KEY DETECTED (${data.masked_key}). Click below to start JARVIS or enter a new key.`);
@@ -1577,7 +1607,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
         openKeyModal(true);
       } else {
         isCoreEngaged = false;
-        keyChipText.textContent = 'CONFIGURE API KEY';
+        if (keyChipText) keyChipText.textContent = 'CONFIGURE API KEY';
         showModalFeedback('error', 'AUTHORIZATION REQUIRED: Please provide your Google Gemini API Key to engage JARVIS.');
         engageBtnText.textContent = '⚡ ENGAGE NEURAL CORE & START JARVIS';
         openKeyModal(false);
@@ -1627,7 +1657,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
         showModalFeedback('success', 'NEURAL CORE AUTHENTICATED // CORE ONLINE');
         isCoreEngaged = true;
         const masked = geminiKey.length > 8 ? `${geminiKey.substring(0, 4)}••••••••${geminiKey.slice(-4)}` : '••••••••';
-        keyChipText.textContent = `KEY: ${masked}`;
+        if (keyChipText) keyChipText.textContent = `KEY: ${masked}`;
         log('NEURAL CORE AUTHENTICATED & ENGAGED');
 
         setTimeout(() => {

@@ -1128,15 +1128,18 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
 
     # 8. Live Time / Date
     time_triggers = (
-        "current time", "what time", "what is the time", "tell me the time",
-        "tell me the current time", "clock", "date today", "what date",
-        "whats today", "aajchi tarikh", "kiti vajle"
+        "current time", "what time", "what is the time", "tell me the time", "tell me time",
+        "tell time", "what is time", "whats the time", "what time is it", "what is date",
+        "tell me the current time", "clock", "date today", "what date", "today date",
+        "whats today", "aajchi tarikh", "kiti vajle", "vel kay zali", "samay kya hua", "kitne baje"
     )
-    if any(k in norm for k in time_triggers):
+    is_meta = any(w in norm.split() for w in ("why", "wrong", "before", "mistake", "told", "yesterday", "ago"))
+    if not is_meta and (any(k in norm for k in time_triggers) or any(w in norm.split() for w in ("time", "clock", "date", "tarikh", "samay", "vajle", "vel"))):
         now = datetime.datetime.now()
         time_str = now.strftime("%I:%M %p").lstrip("0")
         date_str = now.strftime("%A, %B %d, %Y")
-        return f"The current time is {time_str} on {date_str}."
+        user_suffix = f", {active_name}" if session_user.get("is_known") else ", Sir"
+        return f"The current time is {time_str} on {date_str}{user_suffix}."
 
     # 9. Real Hardware Telemetry Specs
     if any(k in norm for k in ("system info", "check system specs", "laptop specs", "my specs", "hardware specs", "specs")):
@@ -1259,24 +1262,52 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     except Exception:
                         pass
                 else:
-                    # 3. Delegate directly to Core Brain Engine via handle_text
-                    reply_text = ""
-                    try:
-                        from core.service import handle_text
-                        result = await handle_text(user_text, source="ui", mode=mode)
-                        reply_text = result.get("text", "")
-                        tool_steps = result.get("tool_steps", [])
-                    except Exception:
+                    # 2a. Live System Time & Date Intent (100% accurate, sub-millisecond local system clock)
+                    norm_words = norm.split()
+                    time_triggers = (
+                        "what time", "what is the time", "tell me the time", "tell me time",
+                        "tell time", "current time", "time please", "what time is it", "whats the time",
+                        "what s the time", "what is time", "what is date", "what is the date",
+                        "today date", "what date", "todays date", "date today",
+                        "what day is it", "kiti vajle", "vel kay zali", "samay kya hua", "kitne baje", "aajchi tarikh"
+                    )
+                    is_meta_time = any(w in norm_words for w in ("why", "wrong", "before", "mistake", "told", "yesterday", "ago", "spent", "table", "timeline", "schedule", "plan"))
+                    is_time_query = not is_meta_time and (
+                        any(t in norm for t in time_triggers)
+                        or any(w in norm_words for w in ("time", "clock", "date", "tarikh", "vajle", "samay"))
+                    )
+
+                    if is_time_query:
+                        now = datetime.datetime.now()
+                        time_str = now.strftime("%I:%M %p").lstrip("0")
+                        date_str = now.strftime("%A, %B %d, %Y")
+                        user_suffix = f", {session_user['name']}" if session_user.get("is_known") else ", Sir"
+                        reply_text = f"The current time is {time_str} on {date_str}{user_suffix}."
+                        tool_steps = ["get_system_time()"]
+                        try:
+                            await memory_manager.save_interaction(role="user", content=user_text)
+                            await memory_manager.save_interaction(role="assistant", content=reply_text)
+                        except Exception:
+                            pass
+                    else:
+                        # 3. Delegate directly to Core Brain Engine via handle_text
                         reply_text = ""
+                        try:
+                            from core.service import handle_text
+                            result = await handle_text(user_text, source="ui", mode=mode)
+                            reply_text = result.get("text", "")
+                            tool_steps = result.get("tool_steps", [])
+                        except Exception:
+                            reply_text = ""
 
-                    if not reply_text:
-                        reply_text = await _generate_response(user_text, session_user=session_user)
+                        if not reply_text:
+                            reply_text = await _generate_response(user_text, session_user=session_user)
 
-                    try:
-                        await memory_manager.save_interaction(role="user", content=user_text)
-                        await memory_manager.save_interaction(role="assistant", content=reply_text)
-                    except Exception:
-                        pass
+                        try:
+                            await memory_manager.save_interaction(role="user", content=user_text)
+                            await memory_manager.save_interaction(role="assistant", content=reply_text)
+                        except Exception:
+                            pass
 
                 # 4. Broadcast executed tool steps to HUD
                 if tool_steps:
