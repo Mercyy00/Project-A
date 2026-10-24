@@ -84,3 +84,8 @@ messaging/*.bat
 
 # Taste-Skill temp
 .taste-skill/
+
+# Agent skills & local configs
+.agents/
+skills-lock.json
+
