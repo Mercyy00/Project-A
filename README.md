@@ -27,7 +27,7 @@ writes documents, keeps notes and answers in English, Hindi and Marathi.
 
 ## Contents
 
-[Features](#features) · [Screenshots](#screenshots) · [How it is built](#how-it-is-built) · [Quick start](#quick-start) · [Running JARVIS](#running-jarvis) · [Demo Script](docs/DAY_7_DEMO_SCRIPT.md) · [Testing](#testing) · [Project structure](#project-structure) · [Team](#team)
+[Features](#features) · [Screenshots](#screenshots) · [How it is built](#how-it-is-built) · [Quick start](#quick-start) · [Running JARVIS](#running-jarvis) · [Demo Script](docs/DAY_7_DEMO_SCRIPT.md) · [Week 1 Plan](WEEK_1_EXECUTION_PLAN.md) · [Week 2 Plan](WEEK_2_EXECUTION_PLAN.md) · [Testing](#testing) · [Project structure](#project-structure) · [Team](#team)
 
 <br>
 
@@ -151,11 +151,22 @@ Never commit `.env`. It is already in `.gitignore`.
 
 > For the comprehensive 2-minute video recording guide and technical viva script, see [docs/DAY_7_DEMO_SCRIPT.md](docs/DAY_7_DEMO_SCRIPT.md).
 
+### 🚀 One-Click Master Launcher
+Double-click **`START_JARVIS.bat`** (or the **`Project JARVIS`** Desktop shortcut). It automatically:
+1. Verifies Python 3.11+
+2. Pulls the latest code updates from Git (`git pull origin main`)
+3. Sets up and activates the virtual environment (`venv`)
+4. Verifies and installs all required dependencies (`requirements.txt`)
+5. Launches JARVIS in a **standalone native desktop application window** (not inside a generic browser tab)
+
+---
+
 `main.py` is the unified application entrypoint:
 
 | Interface | Command | Notes |
 | :-- | :-- | :-- |
-| **Web HUD** (recommended) | `python main.py` (or `python main.py --ui`) | Opens browser at <http://127.0.0.1:8000> automatically |
+| **Desktop Application Window** (recommended) | `python main.py` (or `python main.py --app`) | Launches standalone desktop app window (no URL bar, no tabs) |
+| **Web HUD (Browser Tab)** | `python main.py --browser` | Opens in your default browser tab at <http://127.0.0.1:8000> |
 | **Spoken Voice Loop** | `python main.py --voice` | Real-time multilingual voice loop (`--auto` for continuous) |
 | **Terminal Command Center** | `python main.py --cli` | Interactive REPL with slash commands (`/doctor`, `/stats`, `/tools`, `/mode`) |
 | **Telegram Remote Bridge** | `python main.py --telegram` | Owner-authorized remote assistant |

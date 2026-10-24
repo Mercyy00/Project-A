@@ -40,3 +40,49 @@
 - [x] **Task 10: Expand Core Service Tests for 38 Tools Discovery**
   - **File:** `core/test_service.py`
   - **Description:** Added assertions for all 38 tools in `test_tool_discovery_count`. All 14 tests in `core/` passed.
+
+
+---
+
+## Week 2: Autonomous Agentic Intelligence & Proactive Voice Assistant (Days 8–14)
+
+### Day 8: Full-Duplex Voice, Barge-In & Stream Cancellation
+- [ ] **Task 11: Cancellation Token & Abort Protocol in Brain & WebSocket** (`core/brain.py`, `ui/server.py`) - Pair A
+- [ ] **Task 12: Continuous VAD & Zero-Latency Audio Muting on Speech** (`voice/stt.py`, `voice/tts.py`) - Pair B
+- [ ] **Task 13: Non-Blocking Guard Interruption Logging** (`tools/guard.py`) - Pair C
+- [ ] **Task 14: Telegram Voice Note Audio Transcribe Handler** (`messaging/telegram_bot.py`) - Pair D
+
+### Day 9: Long-Term Semantic Vector Memory (RAG) & Workspace Indexing
+- [ ] **Task 15: ChromaDB Persistent Vector Memory Store** (`memory/vector_store.py`) - Pair A
+- [ ] **Task 16: Local Workspace & Codebase Semantic Search Tool** (`tools/file_tools.py`) - Pair C
+- [ ] **Task 17: User Accent Adaptation & Whisper Prompt Priming** (`voice/stt.py`) - Pair B
+- [ ] **Task 18: Multi-Format Document Summarizer Tool** (`creator/document_reader.py`) - Pair D
+
+### Day 10: Multi-Step Autonomous Agent Workflows & Look-Decide-Act Loop
+- [ ] **Task 19: Recursive ReAct Goal Planner with Step Milestones** (`core/brain.py`, `ui/index.html`) - Pair A
+- [ ] **Task 20: Screen-Guided Look-Decide-Act GUI Loop** (`vision/loop.py`) - Pair C
+- [ ] **Task 21: Spoken Milestone Progress Audio Cues** (`voice/tts.py`) - Pair B
+- [ ] **Task 22: Telegram Inline Action Confirmation Buttons** (`messaging/telegram_bot.py`) - Pair D
+
+### Day 11: Real-Time Web Intelligence & Live Web Scraping
+- [ ] **Task 23: Clean Webpage Content & Table Extractor Tools** (`tools/web_tools.py`) - Pair C
+- [ ] **Task 24: Academic Citation Engine & Link Preview in HUD** (`core/brain.py`, `ui/index.html`) - Pair A
+- [ ] **Task 25: Morning Audio Briefing Generator** (`voice/briefing.py`) - Pair B
+- [ ] **Task 26: Web Research to PDF/DOCX Report Compiler** (`creator/report_builder.py`) - Pair D
+
+### Day 12: Proactive System Monitoring, Cron Triggers & Smart Alerts
+- [ ] **Task 27: Background Async Task Scheduler & HUD Toast Alerts** (`core/scheduler.py`, `ui/index.html`) - Pair A
+- [ ] **Task 28: Hardware Watchdog (CPU, Battery & Disk)** (`tools/guardian.py`) - Pair C
+- [ ] **Task 29: Auditory Sci-Fi Alert Chimes** (`voice/audio/`) - Pair B
+- [ ] **Task 30: Proactive Telegram Push Notification Dispatcher** (`messaging/telegram_bot.py`) - Pair D
+
+### Day 13: Local Offline LLM Fallback (Ollama / Llama-3) & Air-Gapped Mode
+- [ ] **Task 31: Triple-Engine Failover (Groq ➔ Gemini ➔ Local Ollama)** (`core/brain.py`) - Pair A
+- [ ] **Task 32: Air-Gapped Tool Execution Validation** (`tools/safety.py`) - Pair C
+- [ ] **Task 33: End-to-End 100% Offline Spoken Loop Benchmark** (`voice/benchmark_offline.py`) - Pair B
+- [ ] **Task 34: Offline Document Template Engine** (`creator/templates.py`) - Pair D
+
+### Day 14: Final Integration 2.0, Packaging & Evaluator Showcase
+- [ ] **Task 35: Full Regression Test Suite (Target: 350+ Tests)** (`tests/`) - All Hands
+- [ ] **Task 36: One-Click Windows Executable / Installer Packaging** (`run.bat`, `setup.py`) - All Hands
+- [ ] **Task 37: 3-Minute Week 2 Video Walkthrough & Viva Guide** (`docs/DAY_14_DEMO_SCRIPT.md`) - All Hands

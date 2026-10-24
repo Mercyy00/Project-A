@@ -35,3 +35,18 @@ As Team Lead and Core Brain architect, today's focus is two-fold:
 - Added `pynput>=1.7.6` to `requirements.txt`.
 - Isolated `.env` variable bleed (`GEMINI_MODEL`, `MODEL_NAME`) in `tests/test_brain.py`.
 - Verified test suite passes hermetically across modules.
+
+
+---
+
+# Week 2 Plan: Autonomous Agentic Intelligence & Proactive Voice Assistant (Days 8–14)
+
+## Overview & Strategic Objectives
+In Week 2, Project JARVIS transitions from an interactive reactive assistant into an autonomous proactive agent:
+1. **Full-Duplex Voice & Interruption (Day 8):** Continuous VAD and Barge-In detection that mutes TTS and halts LLM generation immediately upon user speech.
+2. **Semantic Vector Memory & Code RAG (Day 9):** Persistent ChromaDB integration to recall user facts and index local workspace source code.
+3. **Multi-Step ReAct Planner (Day 10):** Structured task decomposition allowing JARVIS to plan, chain up to 8 tools, observe intermediate states, and self-correct.
+4. **Real-Time Web Intelligence (Day 11):** Clean article scraping, table parsing, live web research, and citation attribution.
+5. **Proactive Watchdog & Alerts (Day 12):** Background scheduler for hardware health warnings, scheduled reminders, and proactive Telegram push notifications.
+6. **Air-Gapped Offline LLM Fallback (Day 13):** Triple-engine failover (`Groq LPU ➔ Gemini ➔ Local Ollama`) with local Whisper and offline tools.
+7. **Week 2 Release 2.0 Packaging (Day 14):** 350+ unit tests, multi-channel stress tests, and one-click installer.
