@@ -1096,10 +1096,15 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     greeting_triggers = (
         "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
         "hey", "hello", "hi", "are you there", "namaste", "namaskar",
-        "suno jarvis", "bol jarvis", "uth jarvis"
+        "namaste jarvis", "namaskar jarvis", "suno jarvis", "bol jarvis", "uth jarvis"
     )
     norm_words = norm.split()
-    is_pure_greeting = norm in greeting_triggers or (norm.startswith("hey jarvis") and len(norm_words) <= 3)
+    greeting_tokens = {"hey", "hi", "hello", "jarvis", "namaste", "namaskar", "suno", "bol", "uth", "ok", "there"}
+    is_pure_greeting = (
+        norm in greeting_triggers
+        or (norm_words and all(w in greeting_tokens for w in norm_words))
+        or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
+    )
     if is_pure_greeting:
         user_suffix = f", {active_name}" if session_user.get("is_known") else ", Sir"
         is_mr_hi = any("ऀ" <= c <= "ॿ" for c in user_text) or any(w in norm_words for w in ("namaste", "namaskar", "suno", "bol", "ahes", "ka"))
@@ -1330,9 +1335,14 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 greeting_triggers = (
                     "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
                     "hey", "hello", "hi", "are you there", "namaste", "namaskar",
-                    "suno jarvis", "bol jarvis", "uth jarvis"
+                    "namaste jarvis", "namaskar jarvis", "suno jarvis", "bol jarvis", "uth jarvis"
                 )
-                is_pure_greeting = norm in greeting_triggers or (norm.startswith("hey jarvis") and len(norm_words) <= 3)
+                greeting_tokens = {"hey", "hi", "hello", "jarvis", "namaste", "namaskar", "suno", "bol", "uth", "ok", "there"}
+                is_pure_greeting = (
+                    norm in greeting_triggers
+                    or (norm_words and all(w in greeting_tokens for w in norm_words))
+                    or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
+                )
 
                 launch_info = try_launch_system_app(user_text)
                 tool_steps = []
