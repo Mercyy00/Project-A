@@ -1072,6 +1072,9 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   let silenceTimer = null;
   let lastSpokenSubmission = '';
   let lastSpokenTime = 0;
+  let activeMediaRecorder = null;
+  let activeMediaStream = null;
+  let audioChunks = [];
 
   // -------------------------------------------------------------
   // 2. LOGGING UTILITY
@@ -1595,17 +1598,14 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   }
 
   function initSpeech() {
-    if (!SpeechRecognition) {
-      alert('Speech recognition is supported on Chrome, Edge, and Brave browsers.');
-      return null;
-    }
+    if (!SpeechRecognition) return null;
     const rec = new SpeechRecognition();
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = activeSpeechLang;
 
     rec.onresult = (event) => {
-      if (isJarvisSpeaking) return; // Prevent speaker acoustic echo
+      if (isJarvisSpeaking) return;
 
       let interim = '';
       let final = '';
@@ -1622,7 +1622,6 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       if (final) {
         handleVoiceInput(final);
       } else if (interim && interim.trim().length > 2) {
-        // Fast-trigger silence debounce
         const c = interim.trim();
         const delay = activeMode === 'combat' ? 500 : 750;
         silenceTimer = setTimeout(() => {
@@ -1633,40 +1632,22 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       }
     };
 
-    let consecutiveNetworkErrors = 0;
-
     rec.onstart = () => {
       isListening = true;
-      consecutiveNetworkErrors = 0;
       btnVoice.classList.add('active-voice');
       btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
       setCoreState('listening');
-      log('VOICE RECEPTORS ENGAGED');
+      log('VOICE RECEPTORS ENGAGED (WEB SPEECH)');
     };
 
     rec.onerror = (e) => {
       if (e.error === 'no-speech') return;
 
-      if (e.error === 'network') {
-        consecutiveNetworkErrors++;
-        log('MIC: CLOUD STT NETWORK HICCUP');
-        if (isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
-          releaseSpeakingLock();
-        }
-        if (consecutiveNetworkErrors >= 2) {
-          log('TIP: USE KEYBOARD OR RETRY VOICE LINK');
-          appendFeedMessage('jarvis', 'Browser speech recognition network timed out connecting to Google speech servers. You can transmit directives by keyboard or check your internet/VPN connection.');
-        }
-        return;
-      }
-
-      if (e.error === 'not-allowed') {
-        log('MIC ERROR: PERMISSION BLOCKED IN BROWSER');
-        appendFeedMessage('jarvis', '⚠️ Microphone access is not allowed. Please click the lock icon in your browser address bar next to 127.0.0.1:8000 and select "Allow Microphone", then reload the page.');
-        isListening = false;
-        btnVoice.classList.remove('active-voice');
-        btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
-        setCoreState('idle');
+      if (e.error === 'network' || e.error === 'not-allowed' || e.error === 'audio-capture') {
+        log(`SPEECH RECEPTOR NOTICE (${e.error}) — ACTIVATING LOCAL WHISPER STT`);
+        try { rec.stop(); } catch (err) {}
+        recognition = null;
+        startLocalMediaRecorder();
         return;
       }
 
@@ -1674,8 +1655,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     };
 
     rec.onend = () => {
-      if (isListening && !isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
-        const restartDelay = consecutiveNetworkErrors > 0 ? 2500 : 350;
+      if (isListening && !isAwaitingReplyOrSpeaking && !isJarvisSpeaking && !activeMediaRecorder) {
         setTimeout(() => {
           if (isListening && !isAwaitingReplyOrSpeaking && !isJarvisSpeaking && recognition) {
             try {
@@ -1684,8 +1664,8 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
               console.warn('Speech restart exception:', e);
             }
           }
-        }, restartDelay);
-      } else {
+        }, 350);
+      } else if (!activeMediaRecorder) {
         btnVoice.classList.remove('active-voice');
         btnVoice.textContent = (isAwaitingReplyOrSpeaking || isJarvisSpeaking) ? '◎ PROCESSING DIRECTIVE...' : '◎ INITIALIZE VOICE LINK';
         if (!isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
@@ -1697,40 +1677,138 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     return rec;
   }
 
-  btnVoice.addEventListener('click', async () => {
-    if (isListening || isAwaitingReplyOrSpeaking) {
-      isListening = false;
-      stopAudio();
-      if (recognition) {
-        try { recognition.stop(); } catch (e) {}
-      }
-      releaseSpeakingLock();
-      log('VOICE RECEPTORS DISENGAGED');
-    } else {
-      releaseSpeakingLock();
+  async function startLocalMediaRecorder() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      stopListening();
+      log('MICROPHONE HARDWARE NOT ACCESSIBLE');
+      appendFeedMessage('jarvis', '⚠️ Microphone hardware access is not available in this browser window.');
+      return;
+    }
 
-      // Explicitly prompt for browser microphone access if not already granted
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach(t => t.stop());
-          log('MIC ACCESS VERIFIED');
-        } catch (permErr) {
-          log('MIC ACCESS DENIED');
-          appendFeedMessage('jarvis', '⚠️ Microphone access blocked. Please click the lock or site settings icon in your browser address bar next to http://127.0.0.1:8000 and set Microphone to "Allow".');
+    try {
+      activeMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm')) ? 'audio/webm' : '';
+      }
+      activeMediaRecorder = mimeType ? new MediaRecorder(activeMediaStream, { mimeType }) : new MediaRecorder(activeMediaStream);
+
+      activeMediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunks.push(e.data);
+        }
+      };
+
+      activeMediaRecorder.onstart = () => {
+        isListening = true;
+        btnVoice.classList.add('active-voice');
+        btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
+        setCoreState('listening');
+        log('VOICE RECEPTORS ENGAGED (LOCAL WHISPER)');
+        appendFeedMessage('jarvis', '🎤 Voice link active. Speak your command (click Disconnect when done to submit).');
+      };
+
+      activeMediaRecorder.onstop = async () => {
+        if (activeMediaStream) {
+          activeMediaStream.getTracks().forEach(t => t.stop());
+          activeMediaStream = null;
+        }
+
+        if (audioChunks.length === 0) {
+          releaseSpeakingLock();
           return;
         }
-      }
 
-      isListening = true;
-      if (!recognition) recognition = initSpeech();
-      if (recognition) {
+        const audioBlob = new Blob(audioChunks, { type: activeMediaRecorder.mimeType || 'audio/webm' });
+        audioChunks = [];
+        activeMediaRecorder = null;
+
+        if (audioBlob.size < 500) {
+          releaseSpeakingLock();
+          return;
+        }
+
+        btnVoice.textContent = '◎ TRANSCRIBING AUDIO...';
+        setCoreState('thinking');
+        log('TRANSCRIBING DIRECTIVE VIA LOCAL WHISPER...');
+
         try {
-          recognition.start();
-        } catch (e) {
-          console.warn(e);
+          const res = await fetch('/api/stt', {
+            method: 'POST',
+            headers: { 'Content-Type': audioBlob.type || 'audio/webm' },
+            body: audioBlob,
+          });
+          const data = await res.json();
+          if (data && data.text && data.text.trim()) {
+            log(`STT TRANSCRIPTION: "${data.text.trim()}"`);
+            sendDirective(data.text.trim());
+          } else {
+            log('STT: NO AUDIBLE WORDS CAPTURED');
+            appendFeedMessage('jarvis', 'No audible words recognized. Please try speaking closer to your microphone.');
+            releaseSpeakingLock();
+          }
+        } catch (err) {
+          log(`STT ERROR: ${err.message}`);
+          releaseSpeakingLock();
+        }
+      };
+
+      activeMediaRecorder.start(250);
+    } catch (permErr) {
+      stopListening();
+      log('MIC ACCESS DENIED');
+      appendFeedMessage('jarvis', '⚠️ Microphone access was denied or unavailable. Please grant microphone access in Windows Settings / Browser Settings.');
+    }
+  }
+
+  function stopListening() {
+    isListening = false;
+    stopAudio();
+
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+    }
+
+    if (activeMediaRecorder && activeMediaRecorder.state !== 'inactive') {
+      try { activeMediaRecorder.stop(); } catch (e) {}
+    } else if (activeMediaStream) {
+      activeMediaStream.getTracks().forEach(t => t.stop());
+      activeMediaStream = null;
+    }
+
+    releaseSpeakingLock();
+    btnVoice.classList.remove('active-voice');
+    btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
+    setCoreState('idle');
+    log('VOICE RECEPTORS DISENGAGED');
+  }
+
+  btnVoice.addEventListener('click', async () => {
+    if (isListening || isAwaitingReplyOrSpeaking || activeMediaRecorder) {
+      stopListening();
+    } else {
+      releaseSpeakingLock();
+      btnVoice.textContent = '◎ ENGAGING VOICE RECEPTORS...';
+      btnVoice.classList.add('active-voice');
+      setCoreState('thinking');
+      log('ENGAGING VOICE RECEPTORS...');
+
+      if (SpeechRecognition) {
+        if (!recognition) recognition = initSpeech();
+        if (recognition) {
+          try {
+            recognition.start();
+            return;
+          } catch (err) {
+            console.warn('SpeechRecognition failed, falling back to local Whisper:', err);
+          }
         }
       }
+
+      // Seamless fallback to Local Whisper
+      startLocalMediaRecorder();
     }
   });
 
