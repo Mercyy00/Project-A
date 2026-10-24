@@ -11,6 +11,11 @@ from core.brain import run_interactive_cli
 
 def main() -> None:
     """Launch the interactive terminal runner."""
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     run_interactive_cli()
 
 

@@ -4,9 +4,26 @@ Author: Abhijit (System & Automation Engineer)
 """
 
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional
 from tools.base import BaseTool, ToolResult
 from tools.safety import is_path_safe
+
+
+def normalize_target_path(clean_path: str) -> str:
+    """Normalize file path, mapping desktop/documents/downloads to actual user directories."""
+    clean = clean_path.strip()
+    clean_norm = clean.replace("\\", "/")
+    parts = [p for p in clean_norm.split("/") if p]
+    for idx, part in enumerate(parts):
+        low = part.lower()
+        if low == "desktop":
+            sub = Path(*parts[idx + 1:]) if idx + 1 < len(parts) else Path()
+            return str(Path.home() / "Desktop" / sub)
+        if low in ("documents", "downloads"):
+            sub = Path(*parts[idx + 1:]) if idx + 1 < len(parts) else Path()
+            return str(Path.home() / low.capitalize() / sub)
+    return os.path.expanduser(clean)
 
 
 class FileContent(str):
@@ -28,8 +45,9 @@ class ReadFileTool(BaseTool):
     """Tool that safely reads text content from a file inside allowed directories."""
     name: str = "read_file"
     description: str = (
-        "Reads the contents of a text file. For security, only paths within workspace/ "
-        "or directories starting with temp_ are permitted. Access to system directories is blocked."
+        "Reads the contents of a text file. Permitted locations include workspace/, "
+        "user's Desktop ('Desktop/filename.ext'), Documents, Downloads, and temp_ directories. "
+        "Access to sensitive system roots is blocked."
     )
 
     def run(
@@ -63,15 +81,17 @@ class ReadFileTool(BaseTool):
 
             clean_path = target_path.strip()
 
+            expanded_path = normalize_target_path(clean_path)
+
             # Enforce path security isolation first
-            if not is_path_safe(clean_path):
+            if not is_path_safe(expanded_path):
                 return ToolResult(
                     success=False,
                     data=None,
                     message=f"Permission Denied: Access to '{clean_path}' is not allowed."
                 )
 
-            resolved_path = os.path.realpath(clean_path)
+            resolved_path = os.path.realpath(expanded_path)
             if not os.path.exists(resolved_path):
                 return ToolResult(
                     success=False,
@@ -141,8 +161,8 @@ class WriteFileTool(BaseTool):
     """Tool that safely writes text content to a file inside allowed directories."""
     name: str = "write_file"
     description: str = (
-        "Writes text content to a file. For security, only paths within workspace/ "
-        "or directories starting with temp_ are permitted. Access to system directories is blocked. "
+        "Writes text content to a file. Permitted locations include workspace/, "
+        "user's Desktop ('Desktop/filename.ext'), Documents, Downloads, and temp_ directories. "
         "Existing files will not be overwritten unless overwrite=True is explicitly specified."
     )
 
@@ -187,21 +207,19 @@ class WriteFileTool(BaseTool):
 
             target_content = content if content is not None else (text if text is not None else (data if data is not None else ""))
             if not isinstance(target_content, str):
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="content must be a string."
-                )
+                target_content = str(target_content)
+
+            expanded_path = normalize_target_path(clean_path)
 
             # Enforce path security isolation first
-            if not is_path_safe(clean_path):
+            if not is_path_safe(expanded_path):
                 return ToolResult(
                     success=False,
                     data=None,
                     message=f"Permission Denied: Access to '{clean_path}' is not allowed."
                 )
 
-            resolved_path = os.path.realpath(clean_path)
+            resolved_path = os.path.realpath(expanded_path)
 
             # Check if file exists and prevent overwrite unless explicitly requested
             if os.path.exists(resolved_path) and not overwrite:

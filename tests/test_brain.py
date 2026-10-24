@@ -26,15 +26,20 @@ class TestJarvisBrain(unittest.TestCase):
         self.mock_key_patch = patch("core.brain.load_api_key", return_value="fake-api-key")
         self.mock_key_patch.start()
 
+        # Isolate environment for deterministic Gemini brain unit testing
+        self.mock_env = patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GROQ_API_KEY": "", "GEMINI_MODEL": "", "MODEL_NAME": ""})
+        self.mock_env.start()
+
     def tearDown(self) -> None:
         """Tear down all patches."""
         self.mock_client_patch.stop()
         self.mock_key_patch.stop()
+        self.mock_env.stop()
 
     def test_initialization(self) -> None:
         """Verify brain initializes with default model and system prompt."""
         brain = JarvisBrain()
-        self.assertIn(brain.model_name, ("gemini-2.5-flash", "gemini-3.8-flash"))
+        self.assertIn(brain.model_name, ("gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite"))
         self.assertEqual(brain.system_prompt, DEFAULT_SYSTEM_PROMPT)
         self.assertEqual(len(brain.history), 0)
         self.mock_client.chats.create.assert_called_once()
@@ -93,6 +98,19 @@ class TestJarvisBrain(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 load_api_key()
             self.assertIn("GEMINI_API_KEY is missing", str(ctx.exception))
+
+    def test_compact_history(self) -> None:
+        """Verify context compaction prunes older turns and maintains sliding window."""
+        brain = JarvisBrain()
+        for i in range(25):
+            brain.history.append({"role": "user", "content": f"msg {i}"})
+            brain.history.append({"role": "model", "content": f"reply {i}"})
+        self.assertEqual(len(brain.history), 50)
+
+        pruned = brain.compact_history(max_entries=10)
+        self.assertEqual(pruned, 40)
+        self.assertEqual(len(brain.history), 10)
+        self.assertEqual(brain.history[-1]["content"], "reply 24")
 
 
 if __name__ == "__main__":

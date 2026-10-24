@@ -44,12 +44,19 @@ cache/
 logs/
 *.log
 
-# Audio temp files (Aryan)
+# Audio & Vision temp files (Aryan)
 temp_audio/
 temp_vision/
 temp_*/
 *.wav
 *.mp3
+*.jpg
+*.jpeg
+*.png
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg
+!docs/screenshots/*.jpeg
+
 
 # OS specific
 .DS_Store
@@ -58,4 +65,18 @@ Thumbs.db
 # Documentation & Sprint Planning Artifacts (Keep local only)
 *.pdf
 generate_pdf.py
+docs/generate_playbook_pdf.py
 WEEK_1_EXECUTION_PLAN.md
+WEEK_2_EXECUTION_PLAN.md
+
+# --- Trupti: Messaging ---
+messaging/contacts.json
+messaging/reminders.json
+
+# --- Vidhita: Documents ---
+workspace/
+temp_creator/
+run_day1_to_day3.bat
+
+# Local runner scripts
+push_to_github.bat

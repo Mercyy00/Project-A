@@ -1,0 +1,31 @@
+id,language,script,text,expected_lang,description
+1,English,Roman,Jarvis what is the date today?,en,English basic query
+2,English,Roman,Open Notepad and type my notes.,en,English app command
+3,English,Roman,Check system memory and CPU utilization.,en,English system query
+4,English,Roman,Set an alarm for six in the morning tomorrow.,en,English reminder command
+5,English,Roman,What is the current weather forecast for Mumbai?,en,English info query
+6,English,Roman,Read the latest unread emails in my inbox.,en,English messaging query
+7,English,Roman,Save this note in the SQLite database.,en,English memory command
+8,English,Roman,Take a screenshot of the active window.,en,English vision command
+9,English,Roman,How much battery percentage is remaining on this laptop?,en,English hardware query
+10,English,Roman,Who is the prime minister of India?,en,English general knowledge query
+11,Hindi,Devanagari,जार्विस आज की तारीख क्या है?,hi,Hindi Devanagari date query
+12,Hindi,Devanagari,कृपया नोटपैड खोलो और लिखना शुरू करो।,hi,Hindi Devanagari app command
+13,Hindi,Devanagari,मेरे लैपटॉप की रैम और मेमोरी चेक करो।,hi,Hindi Devanagari system check
+14,Hindi,Devanagari,मुझे कल सुबह सात बजे याद दिलाना।,hi,Hindi Devanagari reminder
+15,Hindi,Devanagari,आज का मौसम कैसा है मुझे बताओ।,hi,Hindi Devanagari weather query
+16,Hindi,Roman,Jarvis aaj ka date kya hai batao,en,Hindi Roman transliteration
+17,Hindi,Roman,notepad open karo aur likhna shuru karo,en,Hindi Roman app command
+18,Hindi,Roman,mere system ki RAM check karo,en,Hindi Roman system check
+19,Hindi,Roman,mujhe subah saat baje remind karna,en,Hindi Roman reminder
+20,Hindi,Roman,aaj ka mausam kaisa hai,en,Hindi Roman weather query
+21,Marathi,Devanagari,जार्विस आजची तारीख काय आहे?,mr,Marathi Devanagari date query
+22,Marathi,Devanagari,कृपया नोटपॅड उघडा आणि लिहायला सुरुवात करा.,mr,Marathi Devanagari app command
+23,Marathi,Devanagari,माझ्या लॅपटॉपची रॅम आणि मेमरी तपासा.,mr,Marathi Devanagari system check
+24,Marathi,Devanagari,मला उद्या सकाळी सात वाजता आठवण करून द्या.,mr,Marathi Devanagari reminder
+25,Marathi,Devanagari,आजचे हवामान कसे आहे ते मला सांगा.,mr,Marathi Devanagari weather query
+26,Marathi,Roman,Jarvis aajchi tarikh kay aahe sanga,en,Marathi Roman transliteration
+27,Marathi,Roman,notepad ughada aani lihayla suruvat kara,en,Marathi Roman app command
+28,Marathi,Roman,majhya system chi RAM check kara,en,Marathi Roman system check
+29,Marathi,Roman,mala udya sakali saat vajta aathvan karun dya,en,Marathi Roman reminder
+30,Marathi,Roman,aajche havaman kase aahe te mala sanga,en,Marathi Roman weather query
