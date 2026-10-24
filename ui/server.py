@@ -1548,6 +1548,30 @@ async def serve_hud() -> FileResponse:
     raise HTTPException(status_code=404, detail="HUD index.html not found")
 
 
+@app.get("/manifest.json")
+async def serve_manifest() -> FileResponse:
+    manifest_file = UI_DIR / "manifest.json"
+    if manifest_file.exists():
+        return FileResponse(manifest_file, media_type="application/manifest+json")
+    raise HTTPException(status_code=404, detail="manifest.json not found")
+
+
+@app.get("/sw.js")
+async def serve_sw() -> FileResponse:
+    sw_file = UI_DIR / "sw.js"
+    if sw_file.exists():
+        return FileResponse(sw_file, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="sw.js not found")
+
+
+@app.get("/icon.svg")
+async def serve_icon() -> FileResponse:
+    icon_file = UI_DIR / "icon.svg"
+    if icon_file.exists():
+        return FileResponse(icon_file, media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="icon.svg not found")
+
+
 if __name__ == "__main__":
     import uvicorn
 

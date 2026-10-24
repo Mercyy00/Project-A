@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JARVIS Autonomous System</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <meta name="theme-color" content="#070a0f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="preconnect" href="https://api.fontshare.com">
   <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
   <style>
@@ -714,6 +720,7 @@
     </div>
     <div class="header-actions">
       <div class="clock" id="clockDisplay">00:00:00</div>
+      <button class="btn btn-subtle" id="installAppBtn" title="Install Standalone Desktop App" style="display: none; border-color: rgba(13, 242, 166, 0.4); color: var(--accent);">Install App</button>
       <button class="btn btn-subtle" id="notesBtn" title="Scratchpad & Notes">Notes</button>
       <button class="btn btn-subtle" id="apiKeyBtn" title="API Key Management">Keys</button>
       <button class="btn btn-subtle" id="settingsBtn" title="Voice & UI Settings">Config</button>
@@ -994,6 +1001,42 @@
       }
       setInterval(updateClock, 1000);
       updateClock();
+
+      // PWA Service Worker Registration & App Install Logic
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+
+      let deferredInstallPrompt = null;
+      const installAppBtn = document.getElementById('installAppBtn');
+
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredInstallPrompt = e;
+        if (installAppBtn) installAppBtn.style.display = 'inline-flex';
+      });
+
+      if (installAppBtn) {
+        installAppBtn.addEventListener('click', async () => {
+          if (deferredInstallPrompt) {
+            deferredInstallPrompt.prompt();
+            const choice = await deferredInstallPrompt.userChoice;
+            if (choice.outcome === 'accepted') {
+              installAppBtn.style.display = 'none';
+            }
+            deferredInstallPrompt = null;
+          } else {
+            // Standalone mode already active or prompt unavailable
+            alert('JARVIS App is ready. You can also pin this window or launch via START_JARVIS.bat!');
+          }
+        });
+      }
+
+      window.addEventListener('appinstalled', () => {
+        if (installAppBtn) installAppBtn.style.display = 'none';
+      });
 
       // WebSocket initialization
       function initWebSocket() {
