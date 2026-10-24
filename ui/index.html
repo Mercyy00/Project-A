@@ -851,6 +851,175 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 </div>
 </main>
 
+<!-- ========================================================================= -->
+<!-- NEURAL CORE API KEY INITIALIZATION MODAL -->
+<!-- ========================================================================= -->
+<div id="key-modal-overlay" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-brand">
+        <div class="modal-logo">⚡</div>
+        <div>
+          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">SECURITY CLEARANCE LEVEL 4</div>
+          <h2 class="modal-title">NEURAL CORE INITIALIZATION</h2>
+        </div>
+      </div>
+      <button id="modal-close-btn" class="modal-close" title="Dismiss" style="display:none;">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <p class="modal-desc">
+        Enter your <strong>Google Gemini API Key</strong> below to authenticate JARVIS's neural core. This enables real-time reasoning, 39 autonomous system tools, vision analysis, and voice synthesis.
+      </p>
+
+      <div class="input-group">
+        <label class="mono eyebrow" for="modal-gemini-key">GOOGLE GEMINI API KEY <span class="required">*</span></label>
+        <div class="input-wrapper">
+          <input 
+            type="password" 
+            id="modal-gemini-key" 
+            class="key-input mono" 
+            placeholder="AIzaSy... (Paste Gemini API Key)" 
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" id="toggle-key-visibility" class="toggle-vis-btn" title="Toggle visibility">👁️</button>
+        </div>
+        <div class="key-hint mono tiny">
+          <span>Need a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Get a free key from Google AI Studio</a></span>
+        </div>
+      </div>
+
+      <details class="groq-details">
+        <summary class="mono tiny" style="cursor:pointer;color:var(--muted);letter-spacing:.1em;padding:4px 0;">
+          ▶ OPTIONAL: GROQ LPU HARDWARE ACCELERATION
+        </summary>
+        <div class="input-group" style="margin-top:10px;">
+          <label class="mono eyebrow" for="modal-groq-key">GROQ CLOUD API KEY (OPTIONAL)</label>
+          <div class="input-wrapper">
+            <input 
+              type="password" 
+              id="modal-groq-key" 
+              class="key-input mono" 
+              placeholder="gsk_... (Optional for sub-second Groq LPU speed)" 
+              autocomplete="off"
+            />
+          </div>
+        </div>
+      </details>
+
+      <div id="modal-feedback" class="modal-feedback mono tiny" style="display:none;"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" id="btn-engage-core" class="btn-engage mono">
+        <span id="engage-spinner" class="spinner" style="display:none;"></span>
+        <span id="engage-btn-text">⚡ ENGAGE NEURAL CORE & START JARVIS</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+<!-- ========================================================================= -->
+<!-- 1. NOTES VAULT MODAL (SQLITE CRUD - DAY 2/3) -->
+<!-- ========================================================================= -->
+<div id="notes-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width: 600px;">
+    <div class="modal-header">
+      <div class="modal-brand">
+        <div class="modal-logo">📝</div>
+        <div>
+          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">PERSISTENT MEMORY</div>
+          <h2 class="modal-title" style="font-size:18px;margin:0;">SQLITE NOTES VAULT</h2>
+        </div>
+      </div>
+      <button id="close-notes-modal" class="modal-close" title="Close">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+      <form id="new-note-form" style="display:flex;flex-direction:column;gap:8px;">
+        <input type="text" class="modal-input" id="note-title" placeholder="Note Title (e.g. Project Architecture Plan)" required style="width:100%;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;" />
+        <textarea class="modal-textarea" id="note-content" placeholder="Type note content to store persistently in SQLite..." required style="width:100%;min-height:75px;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;resize:vertical;"></textarea>
+        <button type="submit" class="btn mono" style="align-self:flex-end;padding:6px 14px;">+ SAVE TO SQLITE</button>
+      </form>
+      <input type="text" class="modal-input" id="search-notes-input" placeholder="🔍 Search saved notes in database..." style="width:100%;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;margin-top:6px;" />
+      <div class="notes-list" id="notes-list-container" style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;margin-top:6px;">
+        <!-- Dynamically rendered -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 2. SETTINGS & PREFERENCES MODAL (DAY 8) -->
+<!-- ========================================================================= -->
+<div id="settings-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width: 520px;">
+    <div class="modal-header">
+      <div class="modal-brand">
+        <div class="modal-logo">⚙️</div>
+        <div>
+          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">SYSTEM PREFERENCES</div>
+          <h2 class="modal-title" style="font-size:18px;margin:0;">JARVIS CONFIGURATION</h2>
+        </div>
+      </div>
+      <button id="close-settings-modal" class="modal-close" title="Close">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;">
+      <div>
+        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:6px;letter-spacing:.1em;">NEURAL VOICE AUDIO (EDGE-TTS)</label>
+        <div style="display:flex;gap:10px;">
+          <button type="button" class="btn mono" id="setting-voice-on" style="flex:1;">🔊 ON (STREAM SPEECH)</button>
+          <button type="button" class="btn mono" id="setting-voice-off" style="flex:1;">🔇 MUTED</button>
+        </div>
+      </div>
+      <div>
+        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:6px;letter-spacing:.1em;">VOICE RECOGNITION LANGUAGE</label>
+        <select id="setting-lang-select" style="width:100%;padding:9px 12px;background:rgba(var(--rgb),.08);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;">
+          <option value="en-IN">English (India) - en-IN</option>
+          <option value="hi-IN">Hindi (India) - hi-IN</option>
+          <option value="mr-IN">Marathi (India) - mr-IN</option>
+          <option value="en-US">English (United States) - en-US</option>
+        </select>
+      </div>
+      <div>
+        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:4px;letter-spacing:.1em;">ACTIVE ASSISTANT PERSONA</label>
+        <div class="note mono" style="padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);border-radius:4px;color:var(--text);">JARVIS 8.02 / MULTI-USER ADAPTIVE CORE (PAIR A: ROHIT + JAYESH)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 3. ACTION CONFIRMATION MODAL (RISK GUARDRAILS - DAY 6) -->
+<!-- ========================================================================= -->
+<div id="confirm-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width: 460px;border-color:#ef4444;">
+    <div class="modal-header" style="border-bottom-color:rgba(239,68,68,0.3);">
+      <div class="modal-brand">
+        <div class="modal-logo" style="border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,0.12);">⚠️</div>
+        <div>
+          <div class="eyebrow mono" style="color:#ef4444;letter-spacing:.25em;">SAFETY GUARDRAIL</div>
+          <h2 class="modal-title" style="font-size:18px;margin:0;color:#ef4444;">CONFIRMATION REQUIRED</h2>
+        </div>
+      </div>
+      <button id="close-confirm-modal" class="modal-close" title="Cancel">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-message" style="font-size:13px;line-height:1.6;color:var(--text);margin:6px 0 16px;">
+        This action involves system modifications or irreversible file execution. Please confirm to execute.
+      </p>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button type="button" class="btn mono" id="confirm-cancel-btn" style="border-color:var(--muted);color:var(--muted);">CANCEL</button>
+        <button type="button" class="btn mono" id="confirm-yes-btn" style="background:#ef4444;border-color:#ef4444;color:#fff;">CONFIRM (YES)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (()=>{
   // -------------------------------------------------------------
@@ -895,6 +1064,14 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   let ws = null;
   let pingInterval = null;
   let pingStartTime = 0;
+  const btnVoice = $('#voice');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  // directiveWatchdogTimer hoisted to script top
+  // activeSpeechLang hoisted to script top
+  let silenceTimer = null;
+  let lastSpokenSubmission = '';
+  let lastSpokenTime = 0;
 
   // -------------------------------------------------------------
   // 2. LOGGING UTILITY
@@ -1236,7 +1413,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   // -------------------------------------------------------------
   // 7. TEXT-TO-SPEECH (Edge-TTS Neural & Fast Fallback)
   // -------------------------------------------------------------
-  let directiveWatchdogTimer = null;
+  // directiveWatchdogTimer hoisted to script top
 
   function releaseSpeakingLock() {
     clearTimeout(directiveWatchdogTimer);
@@ -1356,50 +1533,11 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   }
 
 
-    // High-fidelity Microsoft Edge Neural TTS stream
-    isJarvisSpeaking = true;
-    setCoreState('speaking');
-
-    try {
-      const audio = new Audio(`/api/tts?text=${encodeURIComponent(clean)}`);
-      currentAudio = audio;
-
-      audio.onplay = () => {
-        isJarvisSpeaking = true;
-        setCoreState('speaking');
-      };
-
-      audio.onended = () => {
-        if (currentAudio === audio) currentAudio = null;
-        setTimeout(() => {
-          isJarvisSpeaking = false;
-          isAwaitingReplyOrSpeaking = false;
-          setCoreState(isListening ? 'listening' : 'idle');
-          if (isListening && recognition) {
-            btnVoice.classList.add('active-voice');
-            btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
-            try { recognition.start(); } catch (e) {}
-          }
-        }, 350);
-      };
-
-      audio.onerror = () => {
-        if (currentAudio === audio) currentAudio = null;
-        speakBrowserSpeech(clean);
-      };
-
-      audio.play().catch(() => {
-        speakBrowserSpeech(clean);
-      });
-    } catch (e) {
-      speakBrowserSpeech(clean);
-    }
-  }
 
   // -------------------------------------------------------------
   
   // Language chips click handler (Task A2.2)
-  let activeSpeechLang = 'en-IN';
+  // activeSpeechLang hoisted to script top
   document.querySelectorAll('.chip-lang').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1415,12 +1553,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
   // 8. REAL-TIME SPEECH RECOGNITION (Microphone Link)
   // -------------------------------------------------------------
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognition = null;
-  let silenceTimer = null;
-  let lastSpokenSubmission = '';
-  let lastSpokenTime = 0;
-  const btnVoice = $('#voice');
+  // speech recognition variables hoisted to script top
 
   function handleVoiceInput(candidate) {
     if (isJarvisSpeaking || isAwaitingReplyOrSpeaking) return;
@@ -1871,7 +2004,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     hideModalFeedback();
   }
 
-  modalCloseBtn.addEventListener('click', closeKeyModal);
+  modalCloseBtn?.addEventListener('click', closeKeyModal);
   btnApiKeyConfig?.addEventListener('click', () => openKeyModal(isCoreEngaged));
 
   toggleVisBtn.addEventListener('click', () => {
@@ -1913,7 +2046,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     }
   }
 
-  btnEngage.addEventListener('click', async () => {
+  btnEngage?.addEventListener('click', async () => {
     const geminiKey = modalGeminiKey.value.trim();
     const groqKey = modalGroqKey.value.trim();
 
@@ -1986,172 +2119,5 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
 })();
 </script>
-
-<!-- ========================================================================= -->
-<!-- NEURAL CORE API KEY INITIALIZATION MODAL -->
-<!-- ========================================================================= -->
-<div id="key-modal-overlay" class="modal-overlay">
-  <div class="modal-card">
-    <div class="modal-header">
-      <div class="modal-brand">
-        <div class="modal-logo">⚡</div>
-        <div>
-          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">SECURITY CLEARANCE LEVEL 4</div>
-          <h2 class="modal-title">NEURAL CORE INITIALIZATION</h2>
-        </div>
-      </div>
-      <button id="modal-close-btn" class="modal-close" title="Dismiss" style="display:none;">✕</button>
-    </div>
-
-    <div class="modal-body">
-      <p class="modal-desc">
-        Enter your <strong>Google Gemini API Key</strong> below to authenticate JARVIS's neural core. This enables real-time reasoning, 39 autonomous system tools, vision analysis, and voice synthesis.
-      </p>
-
-      <div class="input-group">
-        <label class="mono eyebrow" for="modal-gemini-key">GOOGLE GEMINI API KEY <span class="required">*</span></label>
-        <div class="input-wrapper">
-          <input 
-            type="password" 
-            id="modal-gemini-key" 
-            class="key-input mono" 
-            placeholder="AIzaSy... (Paste Gemini API Key)" 
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <button type="button" id="toggle-key-visibility" class="toggle-vis-btn" title="Toggle visibility">👁️</button>
-        </div>
-        <div class="key-hint mono tiny">
-          <span>Need a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Get a free key from Google AI Studio</a></span>
-        </div>
-      </div>
-
-      <details class="groq-details">
-        <summary class="mono tiny" style="cursor:pointer;color:var(--muted);letter-spacing:.1em;padding:4px 0;">
-          ▶ OPTIONAL: GROQ LPU HARDWARE ACCELERATION
-        </summary>
-        <div class="input-group" style="margin-top:10px;">
-          <label class="mono eyebrow" for="modal-groq-key">GROQ CLOUD API KEY (OPTIONAL)</label>
-          <div class="input-wrapper">
-            <input 
-              type="password" 
-              id="modal-groq-key" 
-              class="key-input mono" 
-              placeholder="gsk_... (Optional for sub-second Groq LPU speed)" 
-              autocomplete="off"
-            />
-          </div>
-        </div>
-      </details>
-
-      <div id="modal-feedback" class="modal-feedback mono tiny" style="display:none;"></div>
-    </div>
-
-    <div class="modal-footer">
-      <button type="button" id="btn-engage-core" class="btn-engage mono">
-        <span id="engage-spinner" class="spinner" style="display:none;"></span>
-        <span id="engage-btn-text">⚡ ENGAGE NEURAL CORE & START JARVIS</span>
-      </button>
-    </div>
-  </div>
-</div>
-
 </body>
 </html>
-
-
-<!-- ========================================================================= -->
-<!-- 1. NOTES VAULT MODAL (SQLITE CRUD - DAY 2/3) -->
-<!-- ========================================================================= -->
-<div id="notes-modal" class="modal-overlay">
-  <div class="modal-card" style="max-width: 600px;">
-    <div class="modal-header">
-      <div class="modal-brand">
-        <div class="modal-logo">📝</div>
-        <div>
-          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">PERSISTENT MEMORY</div>
-          <h2 class="modal-title" style="font-size:18px;margin:0;">SQLITE NOTES VAULT</h2>
-        </div>
-      </div>
-      <button id="close-notes-modal" class="modal-close" title="Close">✕</button>
-    </div>
-    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
-      <form id="new-note-form" style="display:flex;flex-direction:column;gap:8px;">
-        <input type="text" class="modal-input" id="note-title" placeholder="Note Title (e.g. Project Architecture Plan)" required style="width:100%;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;" />
-        <textarea class="modal-textarea" id="note-content" placeholder="Type note content to store persistently in SQLite..." required style="width:100%;min-height:75px;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;resize:vertical;"></textarea>
-        <button type="submit" class="btn mono" style="align-self:flex-end;padding:6px 14px;">+ SAVE TO SQLITE</button>
-      </form>
-      <input type="text" class="modal-input" id="search-notes-input" placeholder="🔍 Search saved notes in database..." style="width:100%;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;margin-top:6px;" />
-      <div class="notes-list" id="notes-list-container" style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;margin-top:6px;">
-        <!-- Dynamically rendered -->
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ========================================================================= -->
-<!-- 2. SETTINGS & PREFERENCES MODAL (DAY 8) -->
-<!-- ========================================================================= -->
-<div id="settings-modal" class="modal-overlay">
-  <div class="modal-card" style="max-width: 520px;">
-    <div class="modal-header">
-      <div class="modal-brand">
-        <div class="modal-logo">⚙️</div>
-        <div>
-          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">SYSTEM PREFERENCES</div>
-          <h2 class="modal-title" style="font-size:18px;margin:0;">JARVIS CONFIGURATION</h2>
-        </div>
-      </div>
-      <button id="close-settings-modal" class="modal-close" title="Close">✕</button>
-    </div>
-    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;">
-      <div>
-        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:6px;letter-spacing:.1em;">NEURAL VOICE AUDIO (EDGE-TTS)</label>
-        <div style="display:flex;gap:10px;">
-          <button type="button" class="btn mono" id="setting-voice-on" style="flex:1;">🔊 ON (STREAM SPEECH)</button>
-          <button type="button" class="btn mono" id="setting-voice-off" style="flex:1;">🔇 MUTED</button>
-        </div>
-      </div>
-      <div>
-        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:6px;letter-spacing:.1em;">VOICE RECOGNITION LANGUAGE</label>
-        <select id="setting-lang-select" style="width:100%;padding:9px 12px;background:rgba(var(--rgb),.08);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;">
-          <option value="en-IN">English (India) - en-IN</option>
-          <option value="hi-IN">Hindi (India) - hi-IN</option>
-          <option value="mr-IN">Marathi (India) - mr-IN</option>
-          <option value="en-US">English (United States) - en-US</option>
-        </select>
-      </div>
-      <div>
-        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:4px;letter-spacing:.1em;">ACTIVE ASSISTANT PERSONA</label>
-        <div class="note mono" style="padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);border-radius:4px;color:var(--text);">JARVIS 8.02 / MULTI-USER ADAPTIVE CORE (PAIR A: ROHIT + JAYESH)</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ========================================================================= -->
-<!-- 3. ACTION CONFIRMATION MODAL (RISK GUARDRAILS - DAY 6) -->
-<!-- ========================================================================= -->
-<div id="confirm-modal" class="modal-overlay">
-  <div class="modal-card" style="max-width: 460px;border-color:#ef4444;">
-    <div class="modal-header" style="border-bottom-color:rgba(239,68,68,0.3);">
-      <div class="modal-brand">
-        <div class="modal-logo" style="border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,0.12);">⚠️</div>
-        <div>
-          <div class="eyebrow mono" style="color:#ef4444;letter-spacing:.25em;">SAFETY GUARDRAIL</div>
-          <h2 class="modal-title" style="font-size:18px;margin:0;color:#ef4444;">CONFIRMATION REQUIRED</h2>
-        </div>
-      </div>
-      <button id="close-confirm-modal" class="modal-close" title="Cancel">✕</button>
-    </div>
-    <div class="modal-body">
-      <p id="confirm-message" style="font-size:13px;line-height:1.6;color:var(--text);margin:6px 0 16px;">
-        This action involves system modifications or irreversible file execution. Please confirm to execute.
-      </p>
-      <div style="display:flex;justify-content:flex-end;gap:10px;">
-        <button type="button" class="btn mono" id="confirm-cancel-btn" style="border-color:var(--muted);color:var(--muted);">CANCEL</button>
-        <button type="button" class="btn mono" id="confirm-yes-btn" style="background:#ef4444;border-color:#ef4444;color:#fff;">CONFIRM (YES)</button>
-      </div>
-    </div>
-  </div>
-</div>
