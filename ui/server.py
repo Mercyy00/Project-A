@@ -73,13 +73,20 @@ def strip_unnecessary_filler(text: str) -> str:
         return text
 
     boilerplate_patterns = [
-        r"(?i)\s*let me know if you (?:need|have|require)[\s\S]*$",
+        r"(?i)\s*(?:please\s+)?let me know (?:if|what|how)[\s\S]*$",
         r"(?i)\s*feel free to (?:ask|reach out|let me know)[\s\S]*$",
         r"(?i)\s*how (?:else )?(?:can|may) i (?:assist|help) you[\s\S]*$",
         r"(?i)\s*is there anything (?:else )?(?:i can help|you need)[\s\S]*$",
-        r"(?i)\s*if you need anything else[\s\S]*$",
+        r"(?i)\s*if you (?:need|require) (?:anything|any) (?:else|further)[\s\S]*$",
         r"(?i)\s*i(?:'m| am) here to help[\s\S]*$",
         r"(?i)\s*standing by for your (?:next directive|command)[\s\S]*$",
+        r"(?i)\s*do you (?:need|require) (?:any|anything) (?:further|else)[\s\S]*$",
+        r"(?i)\s*happy to help[\s\S]*$",
+        r"(?i)\s*hope that helps[\s\S]*$",
+        r"(?i)\s*hope this helps[\s\S]*$",
+        r"(?i)\s*what else can i (?:do|help with)[\s\S]*$",
+        r"(?i)\s*ready for your (?:next directive|command)[\s\S]*$",
+        r"(?i)\s*let me know if you (?:need|have|require)[\s\S]*$",
     ]
     cleaned = text.strip()
     for pattern in boilerplate_patterns:
@@ -148,6 +155,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure Day 7 workspace documents & temp_vision screenshot directories are served statically
+workspace_dir = Path("workspace")
+workspace_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/workspace", StaticFiles(directory="workspace"), name="workspace")
+
+temp_vision_dir = Path("temp_vision")
+temp_vision_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/temp_vision", StaticFiles(directory="temp_vision"), name="temp_vision")
 
 
 @app.get("/health", status_code=status.HTTP_200_OK)
@@ -1198,9 +1214,10 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     if client:
         try:
             prompt = (
-                f"You are J.A.R.V.I.S., a witty, highly capable desktop AI assistant. "
+                f"You are J.A.R.V.I.S., a precise, ultra-concise desktop AI assistant. "
                 f"User name: {active_name}. "
-                f"Answer the following query concisely and clearly in 1-3 sentences. "
+                f"Provide ONLY the direct answer to what was asked in 1-2 short sentences. "
+                f"Do NOT include conversational filler, polite boilerplate, or offers for extra help. "
                 f"If the user addresses you in Hindi or Marathi, reply in that language.\n\n"
                 f"User Query: {user_text}"
             )
@@ -1209,7 +1226,7 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
                 contents=prompt,
             )
             if response and response.text:
-                return response.text.strip()
+                return strip_unnecessary_filler(response.text.strip())
         except Exception:
             pass
 
