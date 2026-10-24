@@ -51,7 +51,7 @@ from voice.lang import detect_language
 
 
 DEFAULT_SAMPLE_RATE: Final[int] = 16000  # 16 kHz mono standard
-DEFAULT_SILENCE_SECONDS: Final[float] = 3.0  # Adaptive pause threshold (allows 2s thinking pauses)
+DEFAULT_SILENCE_SECONDS: Final[float] = float(os.getenv("SILENCE_SECONDS", "1.2"))  # Adaptive pause threshold (allows 2s thinking pauses)
 DEFAULT_MAX_SECONDS: Final[int] = 15
 DEFAULT_MIC_DURATION: Final[int] = 4
 
