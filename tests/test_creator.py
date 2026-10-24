@@ -1,6 +1,6 @@
 """Tests for JARVIS Document Creator (Days 1, 2, and 3 - Elevated).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: tests.test_creator
 
 Verifies:
@@ -1150,7 +1150,7 @@ def test_day6_template_project_report(tmp_path: Path) -> None:
     ]
     pdf_path = project_report(
         title="Autonomous Desktop Assistant",
-        author="Vidhita (Document Engineer)",
+        author="Document Engineer",
         chapters=chapters,
         theme="clean_light",
         out_dir=str(tmp_path),
@@ -1161,7 +1161,7 @@ def test_day6_template_project_report(tmp_path: Path) -> None:
 
     docx_path = project_report(
         title="Autonomous Desktop Assistant",
-        author="Vidhita (Document Engineer)",
+        author="Document Engineer",
         chapters=chapters,
         theme="dark_pro",
         out_dir=str(tmp_path),
@@ -1175,7 +1175,7 @@ def test_day6_template_assignment_cover(tmp_path: Path) -> None:
     """Verify assignment_cover template creates formal student submission document in PDF and DOCX."""
     pdf_path = assignment_cover(
         subject="Artificial Intelligence",
-        name="Vidhita Shitole",
+        name="Student Name",
         roll_no="AI-524",
         title="Autonomous Agent Architecture",
         theme="clean_light",
@@ -1187,7 +1187,7 @@ def test_day6_template_assignment_cover(tmp_path: Path) -> None:
 
     docx_path = assignment_cover(
         subject="Operating Systems Automation",
-        name="Vidhita Shitole",
+        name="Student Name",
         roll_no="AI-524",
         title="Process Control & Telemetry",
         theme="colourful",
@@ -1201,9 +1201,9 @@ def test_day6_template_assignment_cover(tmp_path: Path) -> None:
 def test_day6_template_resume(tmp_path: Path) -> None:
     """Verify resume template creates clean CV in PDF and DOCX formats."""
     resume_data = {
-        "name": "Vidhita Shitole",
+        "name": "Alex Mercer",
         "role": "AI Software Engineer",
-        "contact": {"email": "vidhita@example.com", "phone": "+91 9876543210", "location": "Pune, India"},
+        "contact": {"email": "alex.mercer@example.com", "phone": "+91 9876543210", "location": "Pune, India"},
         "summary": "Specialist in autonomous agent architectures, multi-modal workflows, and document engineering.",
         "skills": {
             "Languages": ["Python", "TypeScript", "SQL"],
@@ -1233,8 +1233,8 @@ def test_day6_template_resume(tmp_path: Path) -> None:
 def test_day6_template_application_letter(tmp_path: Path) -> None:
     """Verify application_letter template creates formal application in PDF and DOCX formats."""
     letter_data = {
-        "applicant_name": "Vidhita Shitole",
-        "applicant_contact": "vidhita@example.com • Pune",
+        "applicant_name": "Alex Mercer",
+        "applicant_contact": "alex.mercer@example.com • Pune",
         "recipient_name": "Dr. Sarah Connor",
         "recipient_title": "Director of Autonomous Systems",
         "company_name": "Cyberdyne Labs",
@@ -1267,7 +1267,7 @@ def test_day6_create_template_tool_schema_and_execution(tmp_path: Path) -> None:
             "template_type": "assignment_cover",
             "data": {
                 "subject": "Deep Learning Systems",
-                "name": "Vidhita Shitole",
+                "name": "Alex Mercer",
                 "roll_no": "AI-524",
                 "title": "Neural Model Optimization",
             },
@@ -1446,11 +1446,11 @@ def run_verification() -> bool:
             "heading": "1. Introduction & Context",
             "text": "Overview of JARVIS autonomous document generation system.",
             "metrics": [
-                {"label": "Lead Engineer", "value": "Vidhita"},
+                {"label": "Lead Engineer", "value": "Document Engineer"},
                 {"label": "Pair Module", "value": "Pair D"},
             ],
             "bullets": [
-                "Engineered by Vidhita (Document Engineer).",
+                "Engineered by Document Creator.",
                 "Built for desktop assistant workflow.",
             ],
         },
@@ -1630,7 +1630,7 @@ def run_verification() -> bool:
         # Day 6 Template 1: Project Report
         d6_rep = project_report(
             title="JARVIS Autonomous Architecture",
-            author="Vidhita (Document Engineer)",
+            author="Document Engineer",
             chapters=[
                 {
                     "heading": "Core Subsystems",
@@ -1653,7 +1653,7 @@ def run_verification() -> bool:
         # Day 6 Template 2: Assignment Cover
         d6_assign = assignment_cover(
             subject="Autonomous AI Systems",
-            name="Vidhita Shitole",
+            name="Student Name",
             roll_no="AI-524",
             title="Multi-Modal Assistant Project",
             theme="dark_pro",
@@ -1670,7 +1670,7 @@ def run_verification() -> bool:
                 "template_type": "assignment_cover",
                 "data": {
                     "subject": "Deep Learning Systems",
-                    "name": "Vidhita Shitole",
+                    "name": "Alex Mercer",
                     "roll_no": "AI-524",
                     "title": "Neural Model Optimization",
                 },
@@ -1703,9 +1703,9 @@ def run_verification() -> bool:
                     ],
                     "table": [
                         ["Component", "Lead", "Formats Supported", "Status"],
-                        ["Document Engine", "Vidhita", "PDF, DOCX, PPTX, HTML", "OPERATIONAL"],
-                        ["Charts & Analytics", "Vidhita", "PNG (Agg Headless)", "OPERATIONAL"],
-                        ["Templates", "Vidhita", "Reports, Resumes, Letters", "OPERATIONAL"],
+                        ["Document Engine", "Creator Lead", "PDF, DOCX, PPTX, HTML", "OPERATIONAL"],
+                        ["Charts & Analytics", "Creator Lead", "PNG (Agg Headless)", "OPERATIONAL"],
+                        ["Templates", "Creator Lead", "Reports, Resumes, Letters", "OPERATIONAL"],
                     ],
                 }
             ],

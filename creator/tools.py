@@ -1,6 +1,6 @@
 """Document generation tools for JARVIS ReAct Brain and Central Registry.
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.tools
 
 Exposes CreatePdfTool, CreateDocxTool, and CreatePptxTool conforming strictly
@@ -213,6 +213,7 @@ class CreatePdfTool(BaseTool):
                 theme=theme,
                 out_dir=effective_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
 
             file_size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
@@ -362,6 +363,7 @@ class CreateDocxTool(BaseTool):
                 theme=theme,
                 out_dir=effective_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
 
             file_size = os.path.getsize(docx_path) if os.path.exists(docx_path) else 0
@@ -511,6 +513,7 @@ class CreatePptxTool(BaseTool):
                 theme=theme,
                 out_dir=effective_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
 
             file_size = os.path.getsize(pptx_path) if os.path.exists(pptx_path) else 0
@@ -772,6 +775,7 @@ class GenerateReportTool(BaseTool):
                 formats=norm_formats,
                 out_dir=out_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
 
             total_bytes = sum(os.path.getsize(p) for p in output_map.values() if os.path.exists(p))
@@ -907,6 +911,7 @@ class CreateDocumentTool(BaseTool):
                 language=language,
                 out_dir=out_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
             fmt = Path(file_path).suffix.lstrip(".").lower()
@@ -1017,6 +1022,7 @@ class CreateWebsiteTool(BaseTool):
                 theme=theme,
                 out_dir=out_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
                 filename=filename,
                 hero_tagline=hero_tagline,
                 language=language,

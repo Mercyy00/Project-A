@@ -1,6 +1,6 @@
 """Day 3: Themed PowerPoint PPTX Maker using python-pptx (Claude-Quality Elevation).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.pptx_maker
 
 Generates clean 16:9 widescreen presentation decks with:
@@ -84,6 +84,7 @@ def make_pptx(
     cover_page: bool = True,
     header_text: Optional[str] = None,
     footer_text: Optional[str] = None,
+    author: Optional[str] = None,
 ) -> str:
     """Build a themed, Claude-quality PowerPoint presentation deck (16:9).
 
@@ -191,7 +192,10 @@ def make_pptx(
             p_sub.space_after = Pt(14)
 
             p_author = tf.add_paragraph()
-            p_author.text = "Author: Vidhita (Document Engineer)  •  Project JARVIS"
+            if author and author.strip():
+                p_author.text = f"Author: {author.strip()}  •  Project JARVIS"
+            else:
+                p_author.text = "Author: Project JARVIS  •  Document Engine"
             p_author.font.name = font_name
             p_author.font.size = Pt(18)  # >= 18 pt
             p_author.font.color.rgb = text_rgb

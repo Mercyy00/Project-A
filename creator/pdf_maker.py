@@ -1,6 +1,6 @@
 """Day 2 & Day 3: Themed PDF Maker using ReportLab Platypus (Claude-Quality Elevation).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.pdf_maker
 
 Generates publication-grade, beautifully styled, multi-page PDFs with:
@@ -241,6 +241,7 @@ def make_pdf(
     cover_page: bool = True,
     header_text: Optional[str] = None,
     footer_text: Optional[str] = None,
+    author: Optional[str] = None,
 ) -> str:
     """Build a themed, Claude-quality PDF document using ReportLab Platypus.
 
@@ -270,6 +271,7 @@ def make_pdf(
         dev_registered = register_devanagari_fonts()
 
         theme_cfg = get_theme(theme)
+        doc_author = (author or "").strip() or "Project JARVIS"
         norm_dir_lower = str(out_dir).replace("\\", "/").lower()
         if norm_dir_lower == "desktop" or norm_dir_lower.startswith("desktop/") or "desktop" in norm_dir_lower:
             target_dir = Path.home() / "Desktop"
@@ -427,7 +429,7 @@ def make_pdf(
             meta_table_data = [
                 [
                     Paragraph("<b>AUTHOR:</b>", meta_label_style),
-                    Paragraph("Vidhita (Document Engineer) • Pair D", meta_value_style),
+                    Paragraph(doc_author, meta_value_style),
                     Paragraph("<b>STATUS:</b>", meta_label_style),
                     Paragraph("Production Verified", meta_value_style),
                 ],
@@ -628,6 +630,7 @@ def make_pdf(
                 cover_page=cover_page,
                 header_text=header_text,
                 footer_text=footer_text,
+                author=author,
             ),
         )
 
@@ -655,6 +658,7 @@ def _init_canvas(
     cover_page: bool = True,
     header_text: Optional[str] = None,
     footer_text: Optional[str] = None,
+    author: Optional[str] = None,
 ) -> NumberedCanvas:
     """Helper to initialize NumberedCanvas with document parameters."""
     canv = NumberedCanvas(*args, **kwargs)

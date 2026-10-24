@@ -58,7 +58,7 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
   - Full OpenAPI / Gemini JSON schemas via `get_schema()` enabling autonomous ReAct brain function calling.
   - Automatic registration into `TOOL_REGISTRY`.
 - **Claude-Quality Document Themes & Styling (Task D1.2)**:
-  - **Executive Cover Page**: Full-bleed accent stripe, document title, subtitle, and structured metadata card (Author: Vidhita • Pair D, Theme, Engine, Status).
+  - **Executive Cover Page**: Full-bleed accent stripe, document title, subtitle, and structured metadata card (Author: Project JARVIS, Theme, Engine, Status).
   - **Bento Grid Cards**: 2-column key metric callout cards with colored borders, card background shading, bold numerals, and descriptive labels.
   - **Modern Tables**: Bold header row with theme fill, alternating row fills (`card_bg` and `table_row_alt`), and clean light borders.
   - **Devanagari Font Embedding**: TrueType Noto Sans Devanagari (`creator/fonts/NotoSansDevanagari-Regular.ttf` & `Bold`) registered in ReportLab and embedded in Word/PPTX, ensuring flawless Marathi and Hindi rendering without square-box corruption.
@@ -243,7 +243,7 @@ result = execute_tool("create_website", {
             ],
             "table": [
                 ["Subsystem", "Owner", "Status"],
-                ["Creator", "Vidhita", "Day 7 Complete"],
+                ["Creator", "Creator Lead", "Day 7 Complete"],
                 ["Core", "Jay", "Operational"],
                 ["Voice", "Aryan / Madhuri", "Operational"],
             ]
@@ -316,7 +316,7 @@ res = execute_tool("create_template_document", {
     "template_type": "assignment_cover",
     "data": {
         "subject": "Distributed Systems",
-        "name": "Vidhita Shitole",
+        "name": "Student Name",
         "roll_no": "AI-524",
         "title": "Consensus Protocols"
     },

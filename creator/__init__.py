@@ -1,6 +1,6 @@
 """JARVIS Document & Web Artifact Creator Module.
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Role: Document Generation (PDF, Word, PowerPoint, Web Artifacts, Charts, Executive Reports, Templates)
 """
 

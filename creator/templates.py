@@ -1,6 +1,6 @@
 """JARVIS Document Templates Engine (Day 6 Deliverable).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Role: Ready-to-use professional document templates:
       Project Reports, Assignment Covers, Resumes, and Application Letters.
 """
@@ -32,7 +32,7 @@ def project_report(
 ) -> str:
     """Build a comprehensive academic or corporate project report.
 
-    Implements Vidhita's Day 6 template deliverable:
+    Implements Day 6 template deliverable:
     - Automatically builds executive cover page with author metadata
     - Formats chapters with headings, narrative text, bullet points, and data tables/charts
     - Automatically structures Executive Summary and Conclusion sections if missing
@@ -154,7 +154,7 @@ def assignment_cover(
 ) -> str:
     """Build a formal academic assignment submission document with cover page.
 
-    Implements Vidhita's Day 6 template deliverable:
+    Implements Day 6 template deliverable:
     - Structured student identification metadata table
     - Formal declaration of originality and integrity
     - Assignment rubric and evaluation framework
@@ -266,7 +266,7 @@ def resume(
 ) -> str:
     """Build a professional, modern curriculum vitae / resume.
 
-    Implements Vidhita's Day 6 template deliverable:
+    Implements Day 6 template deliverable:
     - Formats contact details, career summary, technical skills,
       work experience, and education
     - Single/multi-page compact layout without separate cover page
@@ -433,7 +433,7 @@ def application_letter(
 ) -> str:
     """Build a formal business or job application cover letter.
 
-    Implements Vidhita's Day 6 template deliverable:
+    Implements Day 6 template deliverable:
     - Formal letter formatting with Date, Recipient block, Subject line
     - Salutation, structured narrative body paragraphs, and professional sign-off
     - Directly begins on page 1 without extraneous cover page

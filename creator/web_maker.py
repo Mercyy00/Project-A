@@ -1,6 +1,6 @@
 """Claude-Quality Web Artifacts & Modern Website Generator.
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.web_maker
 
 Implements Anthropic Claude Skills principles:

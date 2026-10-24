@@ -1,6 +1,6 @@
 """JARVIS Themed Chart Generator (Day 6 Deliverable).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Role: High-fidelity statistical visualisations with Matplotlib,
       theme palettes, and Devanagari typography.
 """
@@ -57,7 +57,7 @@ def make_chart(
 ) -> str:
     """Generate a clean statistical chart PNG with matplotlib matching theme colours.
 
-    Implements Vidhita's Day 6 specification:
+    Implements Day 6 specification:
     - Supports kind: 'bar', 'line', 'pie' (plus 'donut', 'horizontal_bar')
     - Applies active theme colors (background, text, grid, accent palette)
     - Supports Hindi and Marathi Devanagari typography

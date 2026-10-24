@@ -1,6 +1,6 @@
 """Day 3: Themed Word DOCX Maker using python-docx (Claude-Quality Elevation).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.docx_maker
 
 Generates publication-grade, beautifully styled Word (.docx) documents with:
@@ -150,6 +150,7 @@ def make_docx(
     cover_page: bool = True,
     header_text: Optional[str] = None,
     footer_text: Optional[str] = None,
+    author: Optional[str] = None,
 ) -> str:
     """Build a themed, Claude-quality Word document using python-docx.
 
@@ -176,6 +177,7 @@ def make_docx(
         out_path = target_dir / f"{safe_name}_{theme_cfg['name']}.docx"
 
         doc = docx.Document()
+        doc_author = (author or "").strip() or "Project JARVIS"
 
         # Page margins
         for section in doc.sections:
@@ -200,7 +202,12 @@ def make_docx(
 
             footer = section.footer
             footer_p = footer.paragraphs[0]
-            footer_p.text = footer_text or f"Theme: {theme_cfg['name'].replace('_', ' ').title()}  •  Author: Vidhita (Documents)  •  Project JARVIS"
+            if footer_text:
+                footer_p.text = footer_text
+            elif author and author.strip():
+                footer_p.text = f"Theme: {theme_cfg['name'].replace('_', ' ').title()}  •  Author: {author.strip()}  •  Project JARVIS"
+            else:
+                footer_p.text = f"Theme: {theme_cfg['name'].replace('_', ' ').title()}  •  Project JARVIS Document Engine"
             footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             if footer_p.runs:
                 _format_run(
@@ -246,7 +253,7 @@ def make_docx(
             meta_table.autofit = False
 
             meta_rows_data = [
-                [("AUTHOR", "Vidhita (Document Engineer) • Pair D"), ("STATUS", "Production Verified")],
+                [("AUTHOR", doc_author), ("STATUS", "Production Verified")],
                 [("THEME", theme_cfg["name"].replace("_", " ").title()), ("ENGINE", "python-docx Executive")],
             ]
             for r_idx, row in enumerate(meta_rows_data):

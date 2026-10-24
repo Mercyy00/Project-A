@@ -1,6 +1,6 @@
 """Themed chart generation module for JARVIS Document Creator (Day 4 Deliverable).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Pair: Pair D (Documents + Messaging)
 Module: creator.chart_maker
 

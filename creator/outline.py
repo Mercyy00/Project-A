@@ -1,6 +1,6 @@
 """AI-powered Document Outline Generator and End-to-End Creator for JARVIS.
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.outline
 
 Implements Day 5 Acceptance Criteria:
@@ -320,10 +320,11 @@ def create_document(
     language: str = "en",
     out_dir: str = "workspace",
     auto_open: bool = False,
+    author: Optional[str] = None,
 ) -> str:
     """Generate a complete, professionally formatted document from a single topic directive.
 
-    Implements Vidhita's Day 5 milestone:
+    Implements Day 5 milestone:
     1. Generates 4-6 section structured outline in the requested language (en, hi, mr).
     2. Uses TrueType Noto Sans Devanagari fonts for Hindi/Marathi text.
     3. Renders into PDF, DOCX, or 16:9 PPTX.
@@ -384,6 +385,7 @@ def create_document(
             theme=theme,
             out_dir=effective_dir,
             auto_open=auto_open,
+            author=author,
         )
     elif clean_kind == "docx":
         return make_docx(
@@ -392,6 +394,7 @@ def create_document(
             theme=theme,
             out_dir=effective_dir,
             auto_open=auto_open,
+            author=author,
         )
     elif clean_kind == "web":
         from creator.web_maker import make_website
@@ -401,6 +404,7 @@ def create_document(
             theme=theme,
             out_dir=effective_dir,
             auto_open=auto_open,
+            author=author,
             language=language,
         )
     else:  # pptx
@@ -410,4 +414,5 @@ def create_document(
             theme=theme,
             out_dir=effective_dir,
             auto_open=auto_open,
+            author=author,
         )

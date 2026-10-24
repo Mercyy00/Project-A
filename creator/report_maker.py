@@ -1,6 +1,6 @@
 """Autonomous Multi-Format Executive Report Generator (Day 5 Deliverable).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Pair: Pair D (Documents + Messaging)
 Module: creator.report_maker
 
@@ -40,6 +40,7 @@ def generate_executive_report(
     formats: Optional[List[str]] = None,
     out_dir: str = "workspace",
     auto_open: bool = False,
+    author: Optional[str] = None,
 ) -> Dict[str, str]:
     """Generate a coordinated multi-format executive report package.
 
@@ -128,6 +129,7 @@ def generate_executive_report(
                 out_dir=str(target_dir),
                 subtitle="Autonomous Executive Intelligence Package",
                 auto_open=False,  # defer auto_open to coordinated launcher
+                author=author,
             )
             output_files["pdf"] = pdf_path
             if not primary_file_to_open:
@@ -141,6 +143,7 @@ def generate_executive_report(
                 out_dir=str(target_dir),
                 subtitle="Autonomous Executive Intelligence Package",
                 auto_open=False,
+                author=author,
             )
             output_files["docx"] = docx_path
             if not primary_file_to_open:
@@ -154,6 +157,7 @@ def generate_executive_report(
                 out_dir=str(target_dir),
                 subtitle="Autonomous Executive Intelligence Package",
                 auto_open=False,
+                author=author,
             )
             output_files["pptx"] = pptx_path
             if not primary_file_to_open:
