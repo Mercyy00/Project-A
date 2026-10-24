@@ -555,6 +555,53 @@ def test_do_on_screen_tool_validation() -> None:
     assert "Parameter 'goal' is required" in res.message
 
 
+# ---------------------------------------------------------------------------
+# 7. Day 7 Tests (Sat 24 Oct): Speed Optimization & Latency Caching
+# ---------------------------------------------------------------------------
+
+@patch("pygetwindow.getActiveWindow")
+def test_take_screenshot_active_window(mock_get_win: MagicMock, tmp_path: Path) -> None:
+    """Verify active_window=True crops to active window rect."""
+    mock_win = MagicMock()
+    mock_win.left = 100
+    mock_win.top = 100
+    mock_win.width = 800
+    mock_win.height = 600
+    mock_get_win.return_value = mock_win
+
+    path = take_screenshot(active_window=True)
+    assert os.path.exists(path)
+
+
+@patch("vision.screen.take_screenshot")
+@patch("google.genai.Client")
+def test_describe_screen_followup_reuse(
+    mock_client_cls: MagicMock,
+    mock_shot: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify describe_screen reuses previous screenshot when is_followup=True within 2s."""
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-test-key")
+
+    test_img = tmp_path / "cached_shot.jpg"
+    Image.new("RGB", (320, 240), "white").save(test_img, "JPEG")
+    mock_shot.return_value = str(test_img)
+
+    mock_resp = MagicMock(text="Cached response")
+    mock_client_inst = MagicMock()
+    mock_client_inst.models.generate_content.return_value = mock_resp
+    mock_client_cls.return_value = mock_client_inst
+
+    # First call: captures screenshot
+    describe_screen("First question")
+    assert mock_shot.call_count == 1
+
+    # Second call within 2 seconds with is_followup=True: reuses cache without take_screenshot
+    describe_screen("Follow up question", is_followup=True)
+    assert mock_shot.call_count == 1  # Not called again!
+
+
 def test_tools_schema_definitions() -> None:
     """Verify all tools export valid JSON parameter schemas compliant with BaseTool."""
     for tool in TOOLS:
@@ -567,7 +614,7 @@ def test_tools_schema_definitions() -> None:
 
 
 def test_tools_export_list() -> None:
-    """Verify TOOLS list contains all 5 tools up to Day 6."""
+    """Verify TOOLS list contains all 5 tools up to Day 7."""
     assert len(TOOLS) == 5
     tool_names = [t.name for t in TOOLS]
     assert "take_screenshot" in tool_names

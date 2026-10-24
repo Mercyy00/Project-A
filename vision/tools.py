@@ -1,7 +1,8 @@
 """Vision tools module for Project Jarvis (Aryan).
 
-Implements ScreenshotTool, DescribeScreenTool, ExplainScreenErrorTool, and ClickElementTool
-compliant with BaseTool specification, allowing automatic discovery by the Jarvis Tool Registry.
+Implements ScreenshotTool, DescribeScreenTool, ExplainScreenErrorTool, ClickElementTool,
+DoOnScreenTool, and ExplainCodeOnScreenTool compliant with BaseTool specification,
+allowing automatic discovery and registration by the Jarvis Tool Registry.
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ class ScreenshotTool(BaseTool):
 
     name: str = "take_screenshot"
     description: str = (
-        "Captures a high-resolution screenshot of the user's primary monitor or a specific screen region. "
+        "Captures a high-resolution screenshot of the user's primary monitor, active window, or a specific screen region. "
         "Saves the image into temp_vision/ and returns the file path. "
         "Useful for seeing the current state of apps, desktop, or errors."
     )
@@ -34,6 +35,7 @@ class ScreenshotTool(BaseTool):
         self,
         region: Optional[Sequence[int]] = None,
         region_hint: Optional[str] = None,
+        active_window: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
         """Capture a screenshot.
@@ -41,6 +43,7 @@ class ScreenshotTool(BaseTool):
         Args:
             region: Optional bounding box [left, top, width, height] in pixels.
             region_hint: Optional descriptive region ('top half', 'bottom half', 'left half', 'right half').
+            active_window: If True, crops capture to the currently active foreground window.
             **kwargs: Extra arguments (ignored).
 
         Returns:
@@ -55,10 +58,15 @@ class ScreenshotTool(BaseTool):
                         message="Invalid 'region' parameter: must be a list or tuple of 4 integers [left, top, width, height].",
                     )
 
-            path = take_screenshot(region=region, region_hint=region_hint)
+            path = take_screenshot(region=region, region_hint=region_hint, active_window=active_window)
             return ToolResult(
                 success=True,
-                data={"file_path": path, "region": region, "region_hint": region_hint},
+                data={
+                    "file_path": path,
+                    "region": region,
+                    "region_hint": region_hint,
+                    "active_window": active_window,
+                },
                 message=f"Screenshot captured successfully and saved to: {path}",
             )
         except PermissionError as pe:
@@ -98,6 +106,10 @@ class ScreenshotTool(BaseTool):
                         "type": "string",
                         "description": "Optional region hint ('top half', 'bottom half', 'left half', 'right half') to crop the capture area.",
                     },
+                    "active_window": {
+                        "type": "boolean",
+                        "description": "Optional boolean flag to crop specifically to the active window rectangle.",
+                    },
                 },
                 "required": [],
             },
@@ -119,6 +131,8 @@ class DescribeScreenTool(BaseTool):
         screenshot_path: Optional[str] = None,
         region: Optional[Sequence[int]] = None,
         region_hint: Optional[str] = None,
+        active_window: bool = False,
+        is_followup: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
         """Analyze desktop screen contents.
@@ -128,6 +142,8 @@ class DescribeScreenTool(BaseTool):
             screenshot_path: Optional path to an existing image file. If omitted, takes a live screenshot.
             region: Optional bounding box [left, top, width, height] to capture if screenshot_path is None.
             region_hint: Optional region hint ('top half', 'bottom half', 'left half', 'right half').
+            active_window: If True, crops to active foreground window.
+            is_followup: If True, reuses previous screenshot if under 2 seconds old.
             **kwargs: Extra arguments (ignored).
 
         Returns:
@@ -146,6 +162,8 @@ class DescribeScreenTool(BaseTool):
                 screenshot_path=screenshot_path,
                 region=region,
                 region_hint=region_hint,
+                active_window=active_window,
+                is_followup=is_followup,
             )
 
             return ToolResult(
@@ -155,6 +173,8 @@ class DescribeScreenTool(BaseTool):
                     "description": answer,
                     "screenshot_path": screenshot_path,
                     "region_hint": region_hint,
+                    "active_window": active_window,
+                    "is_followup": is_followup,
                 },
                 message=answer,
             )
@@ -203,6 +223,14 @@ class DescribeScreenTool(BaseTool):
                         "type": "string",
                         "description": "Optional region hint ('top half', 'bottom half', 'left half', 'right half') to crop the capture area.",
                     },
+                    "active_window": {
+                        "type": "boolean",
+                        "description": "Optional boolean flag to crop specifically to the active foreground window.",
+                    },
+                    "is_followup": {
+                        "type": "boolean",
+                        "description": "Set to true for rapid follow-up questions to reuse recent screenshot (< 2s old) for ultra-low latency.",
+                    },
                 },
                 "required": ["question"],
             },
@@ -223,6 +251,7 @@ class ExplainScreenErrorTool(BaseTool):
         screenshot_path: Optional[str] = None,
         region: Optional[Sequence[int]] = None,
         region_hint: Optional[str] = None,
+        active_window: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
         """Inspect and explain visible errors on screen.
@@ -231,6 +260,7 @@ class ExplainScreenErrorTool(BaseTool):
             screenshot_path: Optional path to an existing image. If None, captures live screen.
             region: Optional [left, top, width, height] bounding box.
             region_hint: Optional region crop ('top half', 'bottom half', etc.).
+            active_window: If True, crops capture to active window.
             **kwargs: Extra parameters (ignored).
 
         Returns:
@@ -241,6 +271,7 @@ class ExplainScreenErrorTool(BaseTool):
                 screenshot_path=screenshot_path,
                 region=region,
                 region_hint=region_hint,
+                active_window=active_window,
             )
 
             return ToolResult(
@@ -249,6 +280,7 @@ class ExplainScreenErrorTool(BaseTool):
                     "error_explanation": explanation,
                     "screenshot_path": screenshot_path,
                     "region_hint": region_hint,
+                    "active_window": active_window,
                 },
                 message=explanation,
             )
@@ -292,6 +324,10 @@ class ExplainScreenErrorTool(BaseTool):
                     "region_hint": {
                         "type": "string",
                         "description": "Optional region hint ('top half', 'bottom half', 'left half', 'right half').",
+                    },
+                    "active_window": {
+                        "type": "boolean",
+                        "description": "Optional boolean flag to crop capture to active window.",
                     },
                 },
                 "required": [],
@@ -356,28 +392,32 @@ class ClickElementTool(BaseTool):
                 "button": button,
                 "clicks": clicks,
             }
+
             click_res: ToolResult = tool_registry.execute_tool("click", click_args)
 
             if click_res.success:
                 return ToolResult(
                     success=True,
                     data={
+                        "found": True,
                         "description": description,
                         "x": target_x,
                         "y": target_y,
                         "button": button,
                         "clicks": clicks,
-                        "click_result": click_res.data,
+                        "action_result": click_res.data,
                     },
-                    message=(
-                        f"Successfully located '{description}' at ({target_x}, {target_y}) "
-                        f"and clicked {button} button."
-                    ),
+                    message=f"Successfully located '{description}' at ({target_x}, {target_y}) and clicked it.",
                 )
             else:
                 return ToolResult(
                     success=False,
-                    data={"description": description, "x": target_x, "y": target_y},
+                    data={
+                        "found": True,
+                        "description": description,
+                        "x": target_x,
+                        "y": target_y,
+                    },
                     message=(
                         f"Located '{description}' at ({target_x}, {target_y}), "
                         f"but click action failed: {click_res.message}"

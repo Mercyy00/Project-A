@@ -2,7 +2,7 @@
 
 Captures desktop screen using mss, optimizes size for AI models,
 provides Gemini multimodal screen understanding, error explanation, UI element location,
-autonomous look-decide-act loop,
+autonomous look-decide-act loop, code explanation/debugging, speed optimizations,
 and respects privacy switches.
 """
 from __future__ import annotations
@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 TEMP_VISION_DIR = Path("temp_vision")
 TEMP_VISION_DIR.mkdir(parents=True, exist_ok=True)
+
+# Day 7: Speed optimization - screenshot cache for follow-up queries (< 2 seconds old)
+_LAST_SCREENSHOT_PATH: Optional[str] = None
+_LAST_SCREENSHOT_TIME: float = 0.0
 
 
 def _ensure_desktop_access() -> None:
@@ -116,14 +120,17 @@ def parse_region_hint(
 def take_screenshot(
     region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
     region_hint: Optional[str] = None,
+    active_window: bool = False,
 ) -> str:
-    """Capture a screenshot of the primary monitor or a specified region.
+    """Capture a screenshot of the primary monitor, active window, or a specified region.
 
     Args:
         region: Optional (left, top, width, height) bounding box sequence.
                 If None, captures the full primary monitor.
         region_hint: Optional descriptive string ('top half', 'bottom half',
                      'left half', 'right half') that crops accordingly.
+        active_window: If True and region is None, crops to active foreground window
+                       using pygetwindow (with fallback to full screen).
 
     Returns:
         String path to the saved JPEG screenshot inside temp_vision/.
@@ -133,12 +140,24 @@ def take_screenshot(
         ValueError: If region coordinates or region_hint are invalid.
         RuntimeError: If screen capture or image processing fails.
     """
+    global _LAST_SCREENSHOT_PATH, _LAST_SCREENSHOT_TIME
+
     if os.getenv("VISION_PAUSED", "0") == "1":
         raise PermissionError(
             "Screen capture is currently paused by user privacy mode (VISION_PAUSED=1)."
         )
 
     _ensure_desktop_access()
+
+    # Day 7: Active window cropping with fallback to full display
+    if active_window and region is None and region_hint is None:
+        try:
+            import pygetwindow as gw
+            win = gw.getActiveWindow()
+            if win and win.width > 0 and win.height > 0:
+                region = (win.left, win.top, win.width, win.height)
+        except Exception as win_err:
+            logger.debug("Could not crop to active window, falling back to full screen: %s", win_err)
 
     try:
         with mss.MSS() as sct:
@@ -190,6 +209,10 @@ def take_screenshot(
             # Save with 70% JPEG quality
             img.save(filepath, format="JPEG", quality=70, optimize=True)
 
+            # Update cache
+            _LAST_SCREENSHOT_PATH = str(filepath)
+            _LAST_SCREENSHOT_TIME = time.time()
+
             # Keep only the 10 newest files in temp_vision/
             clean_temp_vision(keep_newest=10)
 
@@ -207,6 +230,8 @@ def describe_screen(
     screenshot_path: Optional[str] = None,
     region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
     region_hint: Optional[str] = None,
+    active_window: bool = False,
+    is_followup: bool = False,
 ) -> str:
     """Analyze the computer screen using Google Gemini Multimodal Vision.
 
@@ -222,6 +247,8 @@ def describe_screen(
                 if screenshot_path is not specified.
         region_hint: Optional descriptive crop ('top half', 'bottom half',
                      'left half', 'right half').
+        active_window: If True, crops to the active foreground window.
+        is_followup: If True, reuses the previous screenshot if captured within 2 seconds.
 
     Returns:
         The model's textual answer describing or answering questions about the screen.
@@ -231,6 +258,8 @@ def describe_screen(
         ValueError: If question is empty or GEMINI_API_KEY is missing/invalid.
         RuntimeError: If Gemini API call or screenshot loading fails.
     """
+    global _LAST_SCREENSHOT_PATH, _LAST_SCREENSHOT_TIME
+
     if os.getenv("VISION_PAUSED", "0") == "1":
         raise PermissionError(
             "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
@@ -249,21 +278,51 @@ def describe_screen(
 
     model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
 
-    # Acquire screenshot path
+    t_start = time.perf_counter()
+
+    # Day 7: Speed optimization - reuse screenshot if < 2s old and follow-up
     if screenshot_path is None:
-        target_path = take_screenshot(region=region, region_hint=region_hint)
+        if (
+            is_followup
+            and _LAST_SCREENSHOT_PATH
+            and os.path.exists(_LAST_SCREENSHOT_PATH)
+            and (time.time() - _LAST_SCREENSHOT_TIME < 2.0)
+        ):
+            target_path = _LAST_SCREENSHOT_PATH
+            capture_ms = 0
+        else:
+            target_path = take_screenshot(
+                region=region,
+                region_hint=region_hint,
+                active_window=active_window,
+            )
+            capture_ms = int((time.perf_counter() - t_start) * 1000)
     else:
         target_path = screenshot_path
+        capture_ms = 0
 
     if not os.path.exists(target_path):
         raise FileNotFoundError(f"Screenshot image file not found at: {target_path}")
 
     try:
+        t_prep_start = time.perf_counter()
         with Image.open(target_path) as img:
+            prep_ms = int((time.perf_counter() - t_prep_start) * 1000)
+
+            t_api_start = time.perf_counter()
             client = genai.Client(api_key=api_key.strip())
             response = client.models.generate_content(
                 model=model_name,
                 contents=[img, question.strip()],
+            )
+            gemini_ms = int((time.perf_counter() - t_api_start) * 1000)
+
+            # Day 7 requirement: Log timing in milliseconds
+            logger.info(
+                "Vision timing: capture=%d ms, prep=%d ms, gemini=%d ms",
+                capture_ms,
+                prep_ms,
+                gemini_ms,
             )
 
             answer = response.text or ""
@@ -280,6 +339,7 @@ def explain_screen_error(
     screenshot_path: Optional[str] = None,
     region: Optional[Union[Tuple[int, int, int, int], Sequence[int]]] = None,
     region_hint: Optional[str] = None,
+    active_window: bool = False,
 ) -> str:
     """Inspect the screen for error messages, quote the error, explain its cause, and suggest a fix.
 
@@ -291,6 +351,7 @@ def explain_screen_error(
         screenshot_path: Optional path to an existing screenshot image.
         region: Optional (left, top, width, height) bounding box sequence.
         region_hint: Optional region hint ('top half', 'bottom half', etc.).
+        active_window: If True, crops capture to active window.
 
     Returns:
         Structured analysis of the error or confirmation that no error is present.
@@ -316,6 +377,7 @@ def explain_screen_error(
         screenshot_path=screenshot_path,
         region=region,
         region_hint=region_hint,
+        active_window=active_window,
     )
 
 
