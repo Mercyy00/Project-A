@@ -8,7 +8,12 @@ Adheres strictly to Project Jarvis architecture and module contracts.
 from __future__ import annotations
 
 import datetime
+import ast
+import inspect
+import operator
+import json
 import os
+import re
 import sys
 import threading
 import time
@@ -24,12 +29,49 @@ DEFAULT_SYSTEM_PROMPT: str = (
     "You are JARVIS, the ultra-fast, highly sophisticated AI desktop assistant inspired by Tony Stark's JARVIS. "
     "Address the user respectfully as 'sir' with a razor-sharp, cool, and subtly witty British cadence. "
     "CRITICAL CONVERSATIONAL RULE: Keep responses under 20 words in 1 or 2 punchy, spoken sentences suitable for instant voice synthesis. Never write conversational filler, long disclaimers, or paragraphs. "
-    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening apps, opening settings, setting volume or brightness, locking screen, managing windows, running commands, controlling browsers like opening browser, new tab, closing tab, closing browser with browser_control, inspecting what is on screen with describe_screen/capture_screen, organizing desktop with organize_desktop, reading/writing/opening files, creating documents/presentations, checking weather with weather_report, dispatching to Antigravity with antigravity_prompt, sending Telegram messages, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
+    "STRICT TOOL EXECUTION MANDATE: Whenever the user requests an action on their computer (opening apps, opening settings, setting volume or brightness, locking screen, managing windows, running commands, controlling browsers like opening browser, new tab, closing tab, closing browser with browser_control, inspecting what is on screen with describe_screen/capture_screen, organizing desktop with organize_desktop, reading/writing/opening files, creating documents/presentations, checking weather with weather_report, dispatching to Antigravity with antigravity_prompt, sending Telegram or WhatsApp messages, searching saved WhatsApp contacts, or taking notes), YOU MUST INVOKE THE APPROPRIATE TOOL. "
+    "DOCUMENT CREATION: For current or recent factual documents, research with search_web first and pass the verified findings into the creator. Use create_document for a topic-driven original outline or create_pdf for your own tailored sections; do not use a template unless requested. Match the selected visual theme to the user's style direction. "
     "ZERO-PHANTOM RULE: NEVER claim, simulate, or hallucinate that you performed any action unless you actually invoked the corresponding tool and received a successful response. If a tool call fails, state the failure honestly and crisply. "
     "STATE AWARENESS: You possess ZERO psychic knowledge of the computer state. You do not know what windows are active, what files exist, what is on the clipboard, or what the telemetry is until you call the respective inspection tool (list_windows, list_directory, clipboard_read, get_system_stats, battery). Never invent or guess desktop states. "
     "MULTILINGUAL RULE: Respond in the user's language (English, Hindi, Marathi, or Hinglish). When speaking Hindi or Marathi, always output in native Devanagari script so the speech synthesizer pronounces it flawlessly. "
-    "SAFETY: Require explicit user confirmation before executing destructive commands (deletions, file overwrites, sending messages)."
+    "CONFIRMATION FLOW: For Telegram/WhatsApp message sends (including attachments), file overwrites, or destructive commands, still invoke the requested tool so JARVIS can prepare an explicit confirmation token; the tool gate will not perform the action yet. Show the exact 'CONFIRM <token>' request and wait for the user to provide that token. Do not replace the token flow with a vague yes/no question. "
+    "SAFETY: Never execute destructive actions until the user provides the exact confirmation token returned by the tool gate."
 )
+
+
+def _compact_json_schema(value: Any) -> Any:
+    """Remove verbose schema metadata while preserving model-callable structure."""
+    if isinstance(value, dict):
+        compacted: Dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"description", "title", "default", "examples", "example"}:
+                continue
+            if key == "enum" and isinstance(item, list) and len(item) > 16:
+                continue
+            compacted[key] = _compact_json_schema(item)
+        return compacted
+    if isinstance(value, list):
+        return [_compact_json_schema(item) for item in value]
+    return value
+
+
+def _groq_tool_definitions(schemas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert registry schemas to compact Groq-compatible function tools."""
+    definitions: List[Dict[str, Any]] = []
+    for schema in schemas:
+        definitions.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": schema["name"],
+                    "description": (schema.get("description") or "")[:100],
+                    "parameters": _compact_json_schema(
+                        schema.get("parameters", {"type": "object", "properties": {}})
+                    ),
+                },
+            }
+        )
+    return definitions
 
 
 def load_api_key(env_path: Optional[Path] = None) -> str:
@@ -80,7 +122,22 @@ class JarvisBrain:
             system_prompt: Optional custom persona instructions.
             enable_tools: Whether to auto-discover and register tools for function calling.
         """
-        api_key: str = load_api_key()
+        gemini_key_error: Optional[ValueError] = None
+        try:
+            api_key: Optional[str] = load_api_key()
+        except ValueError as exc:
+            gemini_key_error = exc
+            api_key = None
+        self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
+        if self.groq_api_key and self.groq_api_key.strip() in (
+            "",
+            "your_groq_api_key_here",
+        ):
+            self.groq_api_key = None
+        if not api_key and not self.groq_api_key:
+            raise ValueError(
+                "JARVIS needs at least one valid provider key: GEMINI_API_KEY or GROQ_API_KEY."
+            ) from gemini_key_error
         self.model_name: str = (
             model_name or os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.8-flash"
         )
@@ -90,16 +147,262 @@ class JarvisBrain:
         self.max_history_entries: int = int(os.getenv("MAX_HISTORY_ENTRIES", "20"))
         self.last_tool_steps: List[str] = []
 
-        self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
         self.groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
+        if not api_key:
+            self.llm_provider = "groq"
         self._cancel_event: Optional[Any] = None
 
-        self.client: genai.Client = genai.Client(api_key=api_key)
+        self.client: Optional[genai.Client] = genai.Client(api_key=api_key) if api_key else None
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
         if load_memory:
             self._load_memory_history()
         self._init_chat_session()
+
+    def _execute_registered_tool(
+        self,
+        name: str,
+        args: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Dispatch a registered tool, requiring user confirmation for risky actions."""
+        from tools.registry import execute_tool
+
+        call_args = args or {}
+        confirmation_reason: Optional[str] = None
+        if name == "send_telegram":
+            message = str(call_args.get("text", "")).strip()
+            confirmation_reason = f"Send this Telegram message to the configured owner: {message}"
+            attachment = str(call_args.get("file_path", "")).strip()
+            if attachment:
+                confirmation_reason += f" Attach file: {attachment}"
+        elif name == "send_whatsapp":
+            contact = str(call_args.get("contact", "")).strip()
+            message = str(call_args.get("message", "")).strip()
+            confirmation_reason = f"Send this WhatsApp message to saved contact '{contact}': {message}"
+        elif name == "write_file" and call_args.get("overwrite") is True:
+            confirmation_reason = (
+                f"Overwrite file '{call_args.get('file_path', '')}' with the requested content."
+            )
+        elif name == "run_command" and re.search(
+            r"\b(?:del|erase|rm|rmdir|remove-item|format)\b",
+            str(call_args.get("command", "")),
+            flags=re.IGNORECASE,
+        ):
+            confirmation_reason = f"Run this potentially destructive command: {call_args.get('command', '')}"
+        elif name == "run_python" and re.search(
+            r"\.(?:remove|unlink|rmdir)\s*\(|\b(?:rmtree|remove|unlink)\s*\(",
+            str(call_args.get("code", "")),
+            flags=re.IGNORECASE,
+        ):
+            confirmation_reason = "Run Python code that may delete or remove files."
+
+        if confirmation_reason:
+            from core.confirm import requires_confirmation
+            from tools.base import ToolResult
+
+            prompt = requires_confirmation(
+                operation=name,
+                description=confirmation_reason,
+                callback=execute_tool,
+                name=name,
+                args=call_args,
+            )
+            return ToolResult(
+                success=False,
+                data={"confirmation_required": True},
+                message=prompt,
+            )
+
+        return execute_tool(name, call_args)
+
+    def _execute_compound_local_request(self, text: str) -> Optional[str]:
+        """Execute clearly phrased desktop/search/math sub-actions without an LLM.
+
+        This narrow parser is a resilience path for common compound requests; it
+        only recognizes explicit searches, known local apps/folders, time, and
+        arithmetic. Unsupported or ambiguous requests remain with the reasoning model.
+        """
+        if not re.search(r"\b(?:and then|and also|then|also)\b", text, re.IGNORECASE):
+            return None
+
+        search_pattern = re.compile(
+            r"\bsearch\s+(?:(?:about|for)\s+)?(.+?)"
+            r"(?=\s+(?:and\s+then|then|and\s+also|also)\s+|[,;]|$)",
+            re.IGNORECASE,
+        )
+        searches = [match.group(1).strip(" .?!'“”") for match in search_pattern.finditer(text)]
+        actions: List[tuple[str, Dict[str, Any]]] = []
+        browser_match = re.search(r"\b(?:on|in|open)\s+(chrome|google chrome|edge|firefox|brave)\b", text, re.IGNORECASE)
+        requested_browser = browser_match.group(1).lower().replace("google ", "") if browser_match else None
+        for query in searches:
+            if query:
+                args: Dict[str, Any] = {"action": "search", "query": query}
+                if requested_browser:
+                    args["browser"] = requested_browser
+                actions.append(("browser_control", args))
+
+        normalized = text.lower()
+        if re.search(r"\b(?:downloads? folder|my downloads|open downloads)\b", normalized):
+            actions.append(("open_file", {"file_path": "Downloads"}))
+        if re.search(r"\b(?:open )?(?:the )?calculator\b", normalized):
+            actions.append(("open_app", {"app_name": "calculator"}))
+
+        has_time = bool(re.search(r"\b(?:what(?:'s| is) the time|what time|tell me the time)\b", normalized))
+        if has_time:
+            now = datetime.datetime.now().astimezone()
+            actions.append(("__time__", {"value": now.strftime("%I:%M %p").lstrip("0")}))
+
+        expression_match = re.search(
+            r"\bwhat(?:'s| is)\s+((?:\d+(?:\.\d+)?\s*(?:\+|-|\*|/|plus|minus|times|into|multiplied\s+by|divided\s+by)\s*)+\d+(?:\.\d+)?)",
+            text,
+            re.IGNORECASE,
+        )
+        if expression_match:
+            expression = expression_match.group(1)
+            for word, symbol in (("plus", "+"), ("minus", "-"), ("times", "*"),
+                                 ("into", "*"), ("multiplied by", "*"), ("divided by", "/")):
+                expression = re.sub(rf"\b{word}\b", symbol, expression, flags=re.IGNORECASE)
+            try:
+                result = self._evaluate_arithmetic(expression)
+                actions.append(("__math__", {"expression": expression, "value": result}))
+            except (ValueError, ZeroDivisionError):
+                pass
+
+        if len(actions) < 2:
+            return None
+
+        outcomes: List[str] = []
+        all_tools_succeeded = True
+        for tool_name, args in actions:
+            if self.is_interrupted:
+                break
+            if tool_name == "__time__":
+                outcomes.append(f"It is {args['value']}.")
+                continue
+            if tool_name == "__math__":
+                value = args["value"]
+                shown = int(value) if isinstance(value, float) and value.is_integer() else value
+                outcomes.append(f"{args['expression']} = {shown}.")
+                continue
+            result = self._execute_registered_tool(tool_name, args)
+            self.last_tool_steps.append(f"{tool_name}({args})")
+            if getattr(result, "success", False):
+                outcomes.append(str(getattr(result, "message", "Action completed.")))
+            else:
+                all_tools_succeeded = False
+                outcomes.append(f"Could not complete {tool_name}: {getattr(result, 'message', 'unknown error')}.")
+
+        if not outcomes:
+            return None
+        prefix = "Completed the requested steps: " if all_tools_succeeded else "Some requested steps failed: "
+        response = prefix + " ".join(outcomes)
+        self.history.extend([
+            {"role": "user", "content": text},
+            {"role": "model", "content": response},
+        ])
+        self.compact_history()
+        return response
+
+    def _execute_local_document_request(self, text: str) -> Optional[str]:
+        """Use the document generator directly for explicit create-file requests."""
+        match = re.search(
+            r"\b(?:create|make|generate|build)\s+(?:me\s+)?(?:a\s+)?"
+            r"(pdf|pptx|powerpoint(?:\s+presentation)?|presentation|docx|word(?:\s+document)?)"
+            r"\s+(?:about|on|for)\s+(.+?)\s*[.!?]*$",
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+
+        requested_format = match.group(1).lower()
+        topic = match.group(2).strip()
+        if not topic:
+            return None
+        kind = "pdf" if requested_format == "pdf" else (
+            "docx" if requested_format.startswith("word") or requested_format == "docx" else "pptx"
+        )
+        theme = "dark_pro" if re.search(r"\b(?:dark|modern warfare|mw style|sci.?fi|futuristic)\b", topic, re.I) else "clean_light"
+        topic = re.sub(r"\s+(?:in|with)\s+(?:a\s+)?(?:dark|mw|modern warfare|sci.?fi|futuristic)\s+style\s*$", "", topic, flags=re.I).strip()
+
+        reference_material: List[Dict[str, str]] = []
+        wants_current_facts = bool(re.search(r"\b(?:latest|current|recent|newest|today)\b", topic, re.I))
+        if wants_current_facts:
+            try:
+                from ddgs import DDGS
+
+                search_results = DDGS().text(topic[:240], max_results=5)
+                for item in search_results[:5]:
+                    if not isinstance(item, dict):
+                        continue
+                    reference_material.append({
+                        "title": str(item.get("title", ""))[:240],
+                        "body": str(item.get("body", ""))[:900],
+                        "href": str(item.get("href", ""))[:500],
+                    })
+            except Exception as search_exc:
+                logger.warning("Could not retrieve current document sources: %s", search_exc)
+
+        try:
+            args: Dict[str, Any] = {
+                "topic": topic,
+                "kind": kind,
+                "theme": theme,
+                "auto_open": True,
+            }
+            if reference_material:
+                args["reference_material"] = json.dumps(reference_material, ensure_ascii=False)
+            result = self._execute_registered_tool(
+                "create_document",
+                args,
+            )
+            self.last_tool_steps.append(f"create_document(topic={topic!r}, kind={kind!r})")
+            message = str(getattr(result, "message", ""))
+            if not getattr(result, "success", False):
+                response = f"I couldn't create the {kind.upper()} document: {message or 'the document tool failed.'}"
+            else:
+                path = getattr(result, "data", None) or {}
+                file_path = path.get("file_path") if isinstance(path, dict) else None
+                response = f"Created the {kind.upper()} document."
+                if file_path:
+                    response += f" Saved at {file_path}."
+                if reference_material:
+                    response += f" It includes {len(reference_material)} live search sources."
+                elif wants_current_facts:
+                    response += " I could not retrieve live sources, so verify current details before relying on it."
+        except Exception as exc:
+            response = f"I couldn't create the {kind.upper()} document: {exc}"
+
+        self.history.extend([
+            {"role": "user", "content": text},
+            {"role": "model", "content": response},
+        ])
+        self.compact_history()
+        return response
+
+    @staticmethod
+    def _evaluate_arithmetic(expression: str) -> float:
+        """Evaluate a basic arithmetic expression without executing arbitrary code."""
+        binary_ops: Dict[type, Callable[[Any, Any], Any]] = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+        }
+
+        def visit(node: ast.AST) -> float:
+            if isinstance(node, ast.Expression):
+                return visit(node.body)
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return float(node.value)
+            if isinstance(node, ast.BinOp) and type(node.op) in binary_ops:
+                return float(binary_ops[type(node.op)](visit(node.left), visit(node.right)))
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                value = visit(node.operand)
+                return value if isinstance(node.op, ast.UAdd) else -value
+            raise ValueError("Only basic arithmetic is supported.")
+
+        return visit(ast.parse(expression, mode="eval"))
 
     def _load_memory_history(self, limit: int = 6) -> None:
         """Load recent interaction history from SQLite memory vault if available."""
@@ -261,8 +564,9 @@ class JarvisBrain:
             """
             self.last_tool_steps.append(f"write_file({file_path})")
             try:
-                from tools.registry import execute_tool
-                result = execute_tool("write_file", {"file_path": file_path, "content": content})
+                result = self._execute_registered_tool(
+                    "write_file", {"file_path": file_path, "content": content}
+                )
                 return result.to_llm_string()
             except Exception as exc:
                 return f"[FAILED] Failed to write file '{file_path}': {exc}"
@@ -333,11 +637,10 @@ class JarvisBrain:
             """Executes a shell command (such as npm, pip, python, node, git, build commands) inside safe project directory."""
             self.last_tool_steps.append(f"run_command('{command}')")
             try:
-                from tools.registry import execute_tool
                 args = {"command": command}
                 if cwd:
                     args["cwd"] = cwd
-                return execute_tool("run_command", args).to_llm_string()
+                return self._execute_registered_tool("run_command", args).to_llm_string()
             except Exception as exc:
                 return f"[FAILED] Failed to run command: {exc}"
 
@@ -362,13 +665,12 @@ class JarvisBrain:
             """Executes inline Python code or runs a Python script file."""
             self.last_tool_steps.append("run_python")
             try:
-                from tools.registry import execute_tool
                 args = {}
                 if code:
                     args["code"] = code
                 if file_path:
                     args["file_path"] = file_path
-                return execute_tool("run_python", args).to_llm_string()
+                return self._execute_registered_tool("run_python", args).to_llm_string()
             except Exception as exc:
                 return f"[FAILED] Failed to run python: {exc}"
 
@@ -770,7 +1072,7 @@ class JarvisBrain:
 
         discovered.append(create_document)
 
-        def send_telegram(text: str) -> str:
+        def send_telegram(text: str, file_path: str = "") -> str:
             """Sends an instant message notification or status alert to the owner's phone via Telegram.
 
             Args:
@@ -778,17 +1080,100 @@ class JarvisBrain:
             """
             self.last_tool_steps.append("send_telegram")
             try:
-                from tools.registry import execute_tool
-                return execute_tool("send_telegram", {"text": text}).to_llm_string()
+                args: Dict[str, Any] = {"text": text}
+                if file_path:
+                    args["file_path"] = file_path
+                return self._execute_registered_tool("send_telegram", args).to_llm_string()
             except Exception as exc:
                 return f"[FAILED] Failed to send Telegram message: {exc}"
 
         discovered.append(send_telegram)
 
+        # Keep Gemini and Groq capabilities aligned with the registry while
+        # preserving each tool's real JSON schema for both model providers.
+        try:
+            from tools.registry import (
+                auto_load_module_tools,
+                get_registered_tools,
+                get_tools_schema,
+            )
+
+            auto_load_module_tools()
+            schema_by_name = {
+                schema["name"]: schema for schema in get_tools_schema()
+            }
+
+            for registered_tool in get_registered_tools():
+                if registered_tool.name in {tool.__name__ for tool in discovered}:
+                    continue
+
+                def invoke_registered_tool(
+                    _tool_name: str = registered_tool.name,
+                    **kwargs: Any,
+                ) -> str:
+                    """Invoke a registered JARVIS capability by its canonical name."""
+                    self.last_tool_steps.append(f"{_tool_name}({kwargs})")
+                    try:
+                        return self._execute_registered_tool(
+                            _tool_name, kwargs
+                        ).to_llm_string()
+                    except Exception as exc:
+                        return f"[FAILED] Failed to execute {_tool_name}: {exc}"
+
+                invoke_registered_tool.__name__ = registered_tool.name
+                tool_schema = schema_by_name.get(registered_tool.name, {})
+                properties = tool_schema.get("parameters", {}).get("properties", {})
+                required = set(tool_schema.get("parameters", {}).get("required", []))
+                parameter_docs = []
+                schema_parameters: List[inspect.Parameter] = []
+                python_types = {
+                    "string": str,
+                    "integer": int,
+                    "number": float,
+                    "boolean": bool,
+                    "array": List[Any],
+                    "object": Dict[str, Any],
+                }
+                for parameter_name, parameter_schema in properties.items():
+                    description = parameter_schema.get("description", "").strip()
+                    if description:
+                        parameter_docs.append(f"{parameter_name}: {description}")
+                    parameter_type = python_types.get(
+                        parameter_schema.get("type", "string"), Any
+                    )
+                    default_value = (
+                        inspect.Parameter.empty
+                        if parameter_name in required
+                        else parameter_schema.get("default", None)
+                    )
+                    schema_parameters.append(
+                        inspect.Parameter(
+                            parameter_name,
+                            inspect.Parameter.KEYWORD_ONLY,
+                            default=default_value,
+                            annotation=parameter_type,
+                        )
+                    )
+                invoke_registered_tool.__signature__ = inspect.Signature(
+                    schema_parameters
+                )
+                invoke_registered_tool.__doc__ = registered_tool.description
+                if parameter_docs:
+                    invoke_registered_tool.__doc__ += "\nParameters:\n" + "\n".join(
+                        parameter_docs
+                    )
+                discovered.append(invoke_registered_tool)
+        except Exception as exc:
+            print(f"[WARN] Failed to expose all registered tools to Gemini: {exc}", file=sys.stderr)
+
         return discovered
 
     def _init_chat_session(self) -> None:
         """Initialize or reset the Gemini multi-turn chat session."""
+        if self.client is None:
+            self.chat_session = None
+            return
+
         config_kwargs: Dict[str, Any] = {
             "system_instruction": self.system_prompt,
         }
@@ -848,6 +1233,28 @@ class JarvisBrain:
 
         self.last_tool_steps = []
 
+        confirmation_match = re.fullmatch(
+            r"CONFIRM\s+([A-F0-9]{16})", cleaned_input, flags=re.IGNORECASE
+        )
+        if confirmation_match:
+            from core.confirm import execute_confirmation
+
+            confirmation = execute_confirmation(confirmation_match.group(1))
+            result = confirmation.get("result")
+            if confirmation.get("success") and getattr(result, "success", True):
+                response_text = getattr(result, "message", confirmation["message"])
+            else:
+                response_text = confirmation.get("message", "Confirmation could not be completed.")
+            self.history.extend(
+                [
+                    {"role": "user", "content": cleaned_input},
+                    {"role": "model", "content": response_text},
+                ]
+            )
+            self.compact_history()
+            yield response_text
+            return
+
         # Handle verbal mode switching
         lower_input = cleaned_input.lower()
         if any(k in lower_input for k in ("engage combat mode", "combat mode", "switch to combat mode", "enter combat mode")):
@@ -861,6 +1268,17 @@ class JarvisBrain:
             return
         if any(k in lower_input for k in ("go to attentive mode", "attentive mode", "always listen", "continuous mode", "listen continuously")):
             yield "Attentive mode activated. Always listening."
+            return
+
+        # Keep explicit multi-action desktop requests useful during cloud outages.
+        local_compound_response = self._execute_compound_local_request(cleaned_input)
+        if local_compound_response is not None:
+            yield local_compound_response
+            return
+
+        local_document_response = self._execute_local_document_request(cleaned_input)
+        if local_document_response is not None:
+            yield local_document_response
             return
 
         # Fast Sub-Millisecond Contextual Shortcuts (Zero Cloud Latency)
@@ -997,28 +1415,7 @@ class JarvisBrain:
                 try:
                     from tools.registry import get_tools_schema
                     schemas = get_tools_schema()
-                    tools_param = []
-                    for s in schemas:
-                        props = {}
-                        for p_name, p_val in s.get("parameters", {}).get("properties", {}).items():
-                            props[p_name] = {
-                                "type": p_val.get("type", "string"),
-                                "description": (p_val.get("description") or "")[:80]
-                            }
-                            if "enum" in p_val:
-                                props[p_name]["enum"] = p_val["enum"]
-                        tools_param.append({
-                            "type": "function",
-                            "function": {
-                                "name": s["name"],
-                                "description": (s.get("description") or "")[:140],
-                                "parameters": {
-                                    "type": "object",
-                                    "properties": props,
-                                    "required": s.get("parameters", {}).get("required", [])
-                                }
-                            }
-                        })
+                    tools_param = _groq_tool_definitions(schemas)
                 except Exception as exc:
                     print(f"[WARN] Failed to load tool schemas for Groq: {exc}", file=sys.stderr)
 
@@ -1126,70 +1523,73 @@ class JarvisBrain:
 
             if has_tool_calls:
                 from tools.registry import execute_tool
+                final_text = ""
+                tool_rounds = 0
+                while has_tool_calls and tool_rounds < 5:
+                    tool_rounds += 1
+                    assistant_tool_calls = []
+                    for idx in sorted(tool_calls_map.keys()):
+                        t_info = tool_calls_map[idx]
+                        assistant_tool_calls.append({
+                            "id": t_info["id"] or f"call_{idx}",
+                            "type": "function",
+                            "function": {
+                                "name": t_info["name"],
+                                "arguments": t_info["arguments"],
+                            },
+                        })
+                    messages.append({"role": "assistant", "tool_calls": assistant_tool_calls})
 
-                assistant_tool_calls = []
-                for idx in sorted(tool_calls_map.keys()):
-                    t_info = tool_calls_map[idx]
-                    assistant_tool_calls.append({
-                        "id": t_info["id"] or f"call_{idx}",
-                        "type": "function",
-                        "function": {
-                            "name": t_info["name"],
-                            "arguments": t_info["arguments"],
-                        },
-                    })
-
-                messages.append({
-                    "role": "assistant",
-                    "tool_calls": assistant_tool_calls,
-                })
-
-                for tc in assistant_tool_calls:
-                    if cancel_event and cancel_event.is_set():
-                        return
-                    fn_name = tc["function"]["name"]
-                    raw_args = tc["function"]["arguments"]
-                    fn_args = {}
-                    if raw_args:
+                    for tc in assistant_tool_calls:
+                        if cancel_event and cancel_event.is_set():
+                            return
+                        fn_name = tc["function"]["name"]
+                        raw_args = tc["function"]["arguments"]
                         try:
-                            fn_args = json.loads(raw_args)
-                        except Exception:
+                            fn_args = json.loads(raw_args) if raw_args else {}
+                        except (TypeError, ValueError):
                             fn_args = {}
-                    self.last_tool_steps.append(f"{fn_name}({fn_args})")
-                    tool_res = execute_tool(fn_name, fn_args)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "name": fn_name,
-                        "content": tool_res.to_llm_string(),
-                    })
+                        self.last_tool_steps.append(f"{fn_name}({fn_args})")
+                        tool_res = self._execute_registered_tool(fn_name, fn_args)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "name": fn_name,
+                            "content": tool_res.to_llm_string(),
+                        })
 
-                follow_up_stream = None
-                for attempt in range(len(backoff_delays) + 1):
-                    if cancel_event and cancel_event.is_set():
-                        return
-                    try:
-                        follow_up_stream = client.chat.completions.create(
-                            model=used_model,
-                            messages=messages,
-                            max_tokens=48 if is_combat else 64,
-                            temperature=0.2,
-                            stream=True,
-                        )
-                        break
-                    except Exception as fu_err:
-                        err_text = str(fu_err).lower()
-                        if ("429" in err_text or "rate" in err_text or "503" in err_text) and attempt < len(backoff_delays):
-                            delay = backoff_delays[attempt]
-                            if cancel_event and hasattr(cancel_event, "wait"):
-                                cancel_event.wait(timeout=delay)
-                            else:
-                                time.sleep(delay)
-                            continue
-                        break
+                    follow_up_stream = None
+                    follow_up_error = None
+                    for attempt in range(len(backoff_delays) + 1):
+                        if cancel_event and cancel_event.is_set():
+                            return
+                        try:
+                            follow_up_stream = client.chat.completions.create(
+                                model=used_model,
+                                messages=messages,
+                                max_tokens=256 if is_combat else 1024,
+                                temperature=0.2,
+                                stream=True,
+                                **extra_params,
+                            )
+                            break
+                        except Exception as fu_err:
+                            follow_up_error = fu_err
+                            err_text = str(fu_err).lower()
+                            if any(code in err_text for code in ("429", "rate", "503", "limit", "quota")) and attempt < len(backoff_delays):
+                                delay = backoff_delays[attempt]
+                                if cancel_event and hasattr(cancel_event, "wait"):
+                                    cancel_event.wait(timeout=delay)
+                                else:
+                                    time.sleep(delay)
+                                continue
+                            break
+                    if follow_up_stream is None:
+                        raise RuntimeError(f"Groq tool follow-up request failed: {follow_up_error}")
 
-                follow_up_chunks: List[str] = []
-                if follow_up_stream:
+                    next_tool_calls: Dict[int, Dict[str, Any]] = {}
+                    follow_up_chunks: List[str] = []
+                    has_tool_calls = False
                     for chunk in follow_up_stream:
                         if cancel_event and cancel_event.is_set():
                             if hasattr(follow_up_stream, "close"):
@@ -1200,23 +1600,35 @@ class JarvisBrain:
                             return
                         if not chunk.choices:
                             continue
-                        delta_content = chunk.choices[0].delta.content or ""
-                        if delta_content:
-                            follow_up_chunks.append(delta_content)
-                            yield delta_content
+                        delta = chunk.choices[0].delta
+                        if getattr(delta, "tool_calls", None):
+                            has_tool_calls = True
+                            for tc in delta.tool_calls:
+                                idx = tc.index
+                                if idx not in next_tool_calls:
+                                    next_tool_calls[idx] = {"id": tc.id or "", "name": "", "arguments": ""}
+                                if tc.id:
+                                    next_tool_calls[idx]["id"] = tc.id
+                                if tc.function and tc.function.name:
+                                    next_tool_calls[idx]["name"] += tc.function.name
+                                if tc.function and tc.function.arguments:
+                                    next_tool_calls[idx]["arguments"] += tc.function.arguments
+                        elif getattr(delta, "content", None):
+                            follow_up_chunks.append(delta.content)
+                    if has_tool_calls:
+                        tool_calls_map = next_tool_calls
+                    else:
+                        final_text = "".join(follow_up_chunks).strip()
 
-                if cancel_event and cancel_event.is_set():
-                    return
-
-                final_text = "".join(follow_up_chunks).strip()
-                if not final_text:
-                    default_ack = "Directive executed successfully, sir."
-                    yield default_ack
-                    final_text = default_ack
-                else:
-                    lines = [line.strip() for line in final_text.splitlines() if line.strip()]
-                    if lines:
-                        final_text = lines[0]
+                if has_tool_calls:
+                    final_text = "I completed five action steps, but the request needs more. Please tell me what to do next."
+                elif not final_text:
+                    final_text = "Directive executed successfully, sir."
+                for line in (line.strip() for line in final_text.splitlines()):
+                    if line:
+                        yield line
+                        break
+                final_text = next((line.strip() for line in final_text.splitlines() if line.strip()), final_text)
             else:
                 final_text = "".join(first_turn_chunks).strip()
 
@@ -1228,7 +1640,11 @@ class JarvisBrain:
         except Exception as exc:
             if cancel_event and cancel_event.is_set():
                 return
-            if not is_failover:
+            if is_failover:
+                print(f"[!] Groq failover execution exception: {exc}", file=sys.stderr)
+                yield "The backup reasoning service is unavailable, sir. Please retry shortly."
+                return
+            else:
                 print(f"[!] Groq execution exception: {exc}. Failing over to Gemini...", file=sys.stderr)
                 if hasattr(self, "chat_session") and self.chat_session:
                     try:
@@ -1236,6 +1652,7 @@ class JarvisBrain:
                         return
                     except Exception as gemini_err:
                         print(f"[!] Gemini failover also encountered an error: {gemini_err}", file=sys.stderr)
+            print(f"[!] Groq execution failed: {exc}", file=sys.stderr)
             yield f"I was unable to execute your directive, sir: {exc}"
 
     def _chat_with_groq(
@@ -1338,7 +1755,20 @@ class JarvisBrain:
                         yield from self._chat_stream_with_groq(cleaned_input, is_failover=True, cancel_event=cancel_event)
                         return
 
-                    yield "Gemini API quota limit reached, sir. Please retry in a few moments."
+                    if is_failover:
+                        yield "The backup reasoning service is rate-limited, sir. Please retry shortly."
+                    else:
+                        yield "Gemini API quota limit reached, sir. Please retry in a few moments."
+                    return
+
+                if self.groq_api_key and not is_failover:
+                    print(
+                        f"[!] Gemini API error ({err.message}). Failing over to Groq ({self.groq_model})...",
+                        file=sys.stderr,
+                    )
+                    yield from self._chat_stream_with_groq(
+                        cleaned_input, is_failover=True, cancel_event=cancel_event
+                    )
                     return
 
                 print(f"[!] Gemini API error occurred: {err.message}", file=sys.stderr)
@@ -1349,6 +1779,11 @@ class JarvisBrain:
                 if cancel_event and cancel_event.is_set():
                     return
                 print(f"[!] Unexpected error during Gemini streaming: {err}", file=sys.stderr)
+                if self.groq_api_key and not is_failover:
+                    yield from self._chat_stream_with_groq(
+                        cleaned_input, is_failover=True, cancel_event=cancel_event
+                    )
+                    return
                 yield "I encountered an internal error processing your request."
                 return
 

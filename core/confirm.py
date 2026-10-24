@@ -20,7 +20,7 @@ CONFIRMATION_TIMEOUT = 120.0  # seconds before token expires
 
 def requires_confirmation(operation: str, description: str, callback: Callable[..., Any], **kwargs) -> str:
     """Registers a high-risk operation and returns a confirmation prompt with a unique token."""
-    token = secrets.token_hex(4).upper()
+    token = secrets.token_hex(8).upper()
     _pending_confirmations[token] = {
         "operation": operation,
         "description": description,
@@ -50,6 +50,12 @@ def execute_confirmation(token: str) -> Dict[str, Any]:
     try:
         cb = entry["callback"]
         result = cb(**entry["kwargs"])
+        if getattr(result, "success", True) is False:
+            return {
+                "success": False,
+                "message": getattr(result, "message", "The operation failed."),
+                "result": result,
+            }
         return {"success": True, "message": f"Operation '{entry['operation']}' executed successfully.", "result": result}
     except Exception as exc:
         return {"success": False, "message": f"Operation failed during execution: {str(exc)}"}

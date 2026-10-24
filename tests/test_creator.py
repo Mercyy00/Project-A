@@ -77,6 +77,29 @@ from tools.base import ToolResult
 from tools.registry import TOOL_REGISTRY, execute_tool
 
 
+def test_outline_fallback_uses_retrieved_sources_without_claiming_synthesis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Current-topic fallback produces a cited source brief when both outline APIs fail."""
+    import creator.outline as outline_module
+
+    monkeypatch.setattr(outline_module, "_request_gemini_outline", lambda *args: None)
+    monkeypatch.setattr(outline_module, "_request_groq_outline", lambda *args: None)
+    sources = [{
+        "title": "Official announcement",
+        "body": "The publisher announced a new multiplayer update.",
+        "href": "https://example.com/announcement",
+    }]
+
+    result = generate_outline("Modern Warfare latest update", reference_material=sources)
+
+    sections = result["sections"]
+    assert result["title"] == "Modern Warfare latest update: Source-Grounded Brief"
+    assert any("publisher announced" in bullet for section in sections for bullet in section.get("bullets", []))
+    assert any("https://example.com/announcement" in bullet for section in sections for bullet in section.get("bullets", []))
+    assert any("rather than a fully synthesized analysis" in section.get("text", "") for section in sections)
+
+
 def _count_pdf_pages(file_path: str) -> int:
     """Helper to count the number of pages in a PDF file."""
     with open(file_path, "rb") as f:
@@ -298,7 +321,7 @@ def test_tools_registered_in_central_registry() -> None:
 
 
 def test_tool_schemas_conform_to_gemini_spec() -> None:
-    """Verify all document tool schemas include title, sections, theme, and auto_open."""
+    """Verify the document tool schemas expose their required arguments."""
     for tool_cls in [CreatePdfTool, CreateDocxTool, CreatePptxTool]:
         tool = tool_cls()
         schema = tool.get_schema()
@@ -309,8 +332,11 @@ def test_tool_schemas_conform_to_gemini_spec() -> None:
         assert "sections" in props
         assert "theme" in props
         assert "auto_open" in props
-        assert "title" in schema["parameters"]["required"]
         assert "sections" in schema["parameters"]["required"]
+        if tool_cls is CreatePdfTool:
+            assert "title" not in schema["parameters"]["required"]
+        else:
+            assert "title" in schema["parameters"]["required"]
 
 
 def test_execute_tool_create_pdf(tmp_path: Path) -> None:
@@ -421,11 +447,17 @@ def test_tools_handle_json_string_sections(tmp_path: Path) -> None:
     assert Path(result.data["file_path"]).exists()
 
 
-def test_tools_reject_empty_title() -> None:
-    """Verify that passing an empty title returns a structured ToolResult failure."""
-    result = create_pdf(title="", sections=[{"heading": "Test"}], auto_open=False)
-    assert result.success is False
-    assert "title cannot be empty" in result.message.lower()
+def test_pdf_tool_derives_title_from_empty_input(tmp_path: Path) -> None:
+    """An empty title should derive from the first section rather than fail."""
+    result = create_pdf(
+        title="",
+        sections=[{"heading": "Test"}],
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert result.success is True
+    assert result.data["title"] == "Test"
+    assert Path(result.data["file_path"]).exists()
 
 
 # =====================================================================
@@ -720,6 +752,44 @@ def test_day5_create_document_tool_schema() -> None:
     assert "topic" in schema["parameters"]["required"]
     assert "kind" in schema["parameters"]["properties"]
     assert "language" in schema["parameters"]["properties"]
+    assert "tech_innovation" in schema["parameters"]["properties"]["theme"]["enum"]
+
+
+def test_pdf_cover_uses_custom_subtitle_and_neutral_metadata(tmp_path: Path) -> None:
+    """PDF covers should not claim a fixed author or verification status."""
+    from pypdf import PdfReader
+
+    result = CreatePdfTool().run(
+        title="Custom Cover Test",
+        sections=[{"heading": "Brief", "text": "Original content."}],
+        subtitle="A custom dossier subtitle",
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert result.success
+    cover_text = PdfReader(result.data["file_path"]).pages[0].extract_text()
+    assert "A custom dossier subtitle" in cover_text
+    assert "Generated PDF" in cover_text
+    assert "Tech Innovation" in cover_text
+    assert "Vidhita" not in cover_text
+    assert "Production Verified" not in cover_text
+
+
+def test_pdf_tool_recovers_title_from_sections_when_model_omits_it(tmp_path: Path) -> None:
+    """A missing optional model-generated title should not abort a valid PDF request."""
+    from pypdf import PdfReader
+
+    result = CreatePdfTool().run(
+        sections=[{"heading": "Field Brief", "text": "Original report content."}],
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    assert result.success
+    assert result.data["title"] == "Field Brief"
+    assert "Field Brief" in PdfReader(result.data["file_path"]).pages[0].extract_text()
+    assert "title" not in CreatePdfTool().get_schema()["parameters"]["required"]
 
 
 def test_day5_create_document_tool_execution(tmp_path: Path) -> None:

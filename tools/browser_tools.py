@@ -147,11 +147,19 @@ class BrowserControlTool(BaseTool):
                     return ToolResult(success=False, message="Query is required for search action.")
                 import urllib.parse
                 search_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(q)}"
-                webbrowser.open_new_tab(search_url)
+                if browser and browser.lower() != "default":
+                    if not self._launch_specific_browser(browser.lower(), search_url):
+                        return ToolResult(
+                            success=False,
+                            data={"query": q, "browser": browser},
+                            message=f"Could not find or launch {browser} to search for '{q}'.",
+                        )
+                else:
+                    webbrowser.open_new_tab(search_url)
                 return ToolResult(
                     success=True,
-                    data={"query": q, "url": search_url, "action": act},
-                    message=f"Searched Google for '{q}'"
+                    data={"query": q, "url": search_url, "action": act, "browser": browser or "default"},
+                    message=f"Opened Google search for '{q}' in {browser or 'the default browser'}."
                 )
 
             else:
@@ -192,12 +200,12 @@ class BrowserControlTool(BaseTool):
                 os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
             ],
             "brave": [
-                os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Applicationrave.exe"),
-                os.path.expandvars(r"%LocalAppData%\BraveSoftware\Brave-Browser\Applicationrave.exe"),
+                os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+                os.path.expandvars(r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe"),
             ],
             "firefox": [
-                os.path.expandvars(r"%ProgramFiles%\Mozilla Firefoxirefox.exe"),
-                os.path.expandvars(r"%ProgramFiles(x86)%\Mozilla Firefoxirefox.exe"),
+                os.path.expandvars(r"%ProgramFiles%\Mozilla Firefox\firefox.exe"),
+                os.path.expandvars(r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"),
             ]
         }
         for candidate in known_paths.get(name, []):

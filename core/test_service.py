@@ -20,9 +20,9 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         reset_brain()
 
     def test_tool_discovery_count(self) -> None:
-        """Verify that all 38 tools are discovered and registered in the brain."""
+        """Verify that at least 50 registered tools are discovered in the brain."""
         brain = get_brain()
-        self.assertGreaterEqual(len(brain.tools), 38)
+        self.assertGreaterEqual(len(brain.tools), 50)
         tool_names = [t.__name__ for t in brain.tools]
         self.assertIn("open_file", tool_names)
         self.assertIn("open_settings_page", tool_names)
@@ -40,6 +40,17 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("list_windows", tool_names)
         self.assertIn("focus_window", tool_names)
         self.assertIn("minimize_window", tool_names)
+
+    def test_tool_discovery_matches_registry(self) -> None:
+        """Verify every registered capability is exposed to the Gemini brain."""
+        from tools.registry import get_tools_schema
+
+        brain = get_brain()
+        discovered_names = [tool.__name__ for tool in brain.tools]
+        registered_names = {schema["name"] for schema in get_tools_schema()}
+
+        self.assertEqual(len(discovered_names), len(set(discovered_names)))
+        self.assertEqual(set(discovered_names), registered_names)
 
     @patch.object(JarvisBrain, "chat")
     async def test_handle_text_multilingual(

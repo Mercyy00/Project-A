@@ -50,7 +50,8 @@ def send_whatsapp(contact: str, message: str) -> str:
         message_clean = str(message).strip()
 
         # Contact validation check
-        phone_number: Optional[str] = find_contact(contact_clean)
+        # Sample/example numbers are useful for tests but must never be deliverable.
+        phone_number: Optional[str] = find_contact(contact_clean, include_examples=False)
         if not phone_number:
             logger.warning("WhatsApp send refused: Contact '%s' is not in saved contacts.", contact_clean)
             return (

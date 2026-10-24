@@ -245,16 +245,27 @@ async def get_telemetry() -> Dict[str, Any]:
 
         tool = GetSystemStatsTool()
         result = tool.run()
+        stats = result.data or {}
+        cpu = stats.get("cpu_percent") or stats.get("cpu_usage_percent") or 0.0
+        memory = stats.get("ram_usage_percent") or stats.get("ram_used_pct") or 0.0
+        battery = stats.get("battery_pct") if stats.get("battery_pct") is not None else 100
         return {
             "success": result.success,
             "data": result.data,
+            "cpu": cpu,
+            "memory": memory,
+            "battery": battery,
+            "cpu_percent": cpu,
+            "ram_percent": memory,
             "message": result.message,
         }
     except Exception as exc:
-        # Fallback if tools module is temporarily unreachable
         return {
             "success": False,
             "data": None,
+            "cpu": 0.0,
+            "memory": 0.0,
+            "battery": 100,
             "message": f"Telemetry unavailable: {str(exc)}",
         }
 
@@ -384,7 +395,14 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
             raise HTTPException(status_code=400, detail="Audio buffer is empty")
 
         content_type = request.headers.get("content-type", "audio/webm").lower()
-        suffix = ".wav" if "wav" in content_type else (".mp3" if "mp3" in content_type else ".webm")
+        if "wav" in content_type:
+            suffix = ".wav"
+        elif "mp3" in content_type:
+            suffix = ".mp3"
+        elif "mp4" in content_type or "m4a" in content_type:
+            suffix = ".mp4"
+        else:
+            suffix = ".webm"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(audio_bytes)
@@ -426,13 +444,24 @@ async def http_chat(payload: ChatPayload) -> Dict[str, Any]:
     """Execute chat directive via HTTP fallback when WebSocket is offline."""
     try:
         from core.service import handle_text
-        return await asyncio.wait_for(
-            handle_text(payload.text or payload.prompt or payload.message or "", source="ui_http", mode=payload.mode),
-            timeout=5.0
+        result = await handle_text(
+            payload.text or payload.prompt or payload.message or "",
+            source="ui_http",
+            mode=payload.mode,
         )
-    except Exception:
-        reply = await _generate_response(payload.text)
-        return {"text": reply, "tool_steps": [], "source": "ui_http"}
+        if result.get("text", "").startswith("Subsystem execution error:"):
+            raise HTTPException(
+                status_code=503,
+                detail="JARVIS core could not complete this request.",
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="JARVIS core is unavailable; this request was not completed.",
+        ) from exc
 
 
 class KeyConfigRequest(BaseModel):
@@ -1305,7 +1334,7 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     # 11. Core Brain or GenAI Generation
     try:
         from core.service import handle_text
-        brain_res = await asyncio.wait_for(handle_text(user_text, source="ui_internal"), timeout=4.0)
+        brain_res = await handle_text(user_text, source="ui_internal")
         if brain_res and brain_res.get("text"):
             return brain_res["text"]
     except Exception:
@@ -1331,10 +1360,7 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
         except Exception:
             pass
 
-    return (
-        f"Jarvis Core acknowledged your directive: '{user_text}'. "
-        f"All local memory vaults and hardware telemetry are fully operational."
-    )
+    return "I couldn't reach the assistant service to answer that request, sir."
 
 
 @app.websocket("/ws")
@@ -1471,10 +1497,7 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     reply_text = ""
                     try:
                         from core.service import handle_text
-                        result = await asyncio.wait_for(
-                            handle_text(user_text, source="ui", mode=mode),
-                            timeout=4.5
-                        )
+                        result = await handle_text(user_text, source="ui", mode=mode)
                         reply_text = result.get("text", "")
                         tool_steps = result.get("tool_steps", [])
                     except Exception:

@@ -18,6 +18,8 @@ if sys.path[0] != PROJECT_ROOT:
 
 from tools.base import BaseTool, ToolResult
 from messaging.telegram_bot import send_telegram
+from messaging.whatsapp import send_whatsapp
+from messaging.contacts import load_saved_contacts
 
 logger = logging.getLogger("messaging.tools")
 
@@ -31,7 +33,7 @@ class SendTelegramTool(BaseTool):
         "to send a message, alert, notification, or greeting to their phone."
     )
 
-    def run(self, text: str = "", **kwargs: Any) -> ToolResult:
+    def run(self, text: str = "", file_path: str = "", **kwargs: Any) -> ToolResult:
         """Execute the tool by calling send_telegram with the provided text.
 
         Args:
@@ -49,14 +51,18 @@ class SendTelegramTool(BaseTool):
                 )
 
             cleaned_text = str(text).strip()
-            success = send_telegram(cleaned_text)
+            attachment = str(file_path or "").strip() or None
+            success = send_telegram(cleaned_text, file_path=attachment)
 
             if success:
                 preview = cleaned_text if len(cleaned_text) <= 50 else cleaned_text[:47] + "..."
                 return ToolResult(
                     success=True,
-                    data={"text": cleaned_text},
-                    message=f"Telegram message sent to owner: '{preview}'",
+                    data={"text": cleaned_text, "file_path": attachment},
+                    message=(
+                        f"Telegram message sent to owner: '{preview}'"
+                        + (f" with attachment '{os.path.basename(attachment)}'." if attachment else ".")
+                    ),
                 )
             else:
                 return ToolResult(
@@ -87,15 +93,106 @@ class SendTelegramTool(BaseTool):
                     "text": {
                         "type": "string",
                         "description": "The exact message content to send to the owner's phone on Telegram.",
-                    }
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Optional existing file path to attach, such as a generated PDF in workspace/.",
+                    },
                 },
                 "required": ["text"],
             },
         }
 
 
+class SearchWhatsAppContactsTool(BaseTool):
+    """Search locally saved WhatsApp contacts without exposing their phone numbers."""
+
+    name: str = "search_whatsapp_contacts"
+    description: str = "Search the user's locally saved, verified WhatsApp contacts by name."
+
+    def run(self, query: str, **kwargs: Any) -> ToolResult:
+        """Return saved contact names matching a query."""
+        try:
+            clean_query = str(query or "").strip().casefold()
+            if not clean_query:
+                return ToolResult(success=False, message="A contact name or search term is required.")
+            names = sorted(
+                name for name in load_saved_contacts()
+                if clean_query in name.casefold()
+            )
+            if not names:
+                return ToolResult(success=True, data={"contacts": []}, message="No saved contacts matched.")
+            return ToolResult(
+                success=True,
+                data={"contacts": names},
+                message="Saved contact matches: " + ", ".join(names),
+            )
+        except Exception as exc:
+            logger.exception("Contact search failed: %s", exc)
+            return ToolResult(success=False, message=f"Could not search saved contacts: {exc}")
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Return the function-calling schema."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Name to search for."}},
+                "required": ["query"],
+            },
+        }
+
+
+class SendWhatsAppTool(BaseTool):
+    """Send a text message to a verified saved WhatsApp contact."""
+
+    name: str = "send_whatsapp"
+    description: str = (
+        "Send a WhatsApp text message to a contact in the user's saved verified contacts. "
+        "The exact message and contact will require user confirmation before delivery."
+    )
+
+    def run(self, contact: str, message: str, **kwargs: Any) -> ToolResult:
+        """Dispatch a WhatsApp message only to a known saved contact."""
+        try:
+            if not contact or not str(contact).strip():
+                return ToolResult(success=False, message="A saved contact name is required.")
+            if not message or not str(message).strip():
+                return ToolResult(success=False, message="Cannot send an empty WhatsApp message.")
+            outcome = send_whatsapp(str(contact).strip(), str(message).strip())
+            succeeded = outcome.startswith("WhatsApp message successfully queued")
+            safe_outcome = (
+                f"WhatsApp message queued for {str(contact).strip()}."
+                if succeeded else outcome
+            )
+            return ToolResult(
+                success=succeeded,
+                data={"contact": str(contact).strip(), "message": str(message).strip()},
+                message=safe_outcome,
+            )
+        except Exception as exc:
+            logger.exception("WhatsApp message preparation failed: %s", exc)
+            return ToolResult(success=False, message=f"Could not send WhatsApp message: {exc}")
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Return the function-calling schema."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact": {"type": "string", "description": "Exact saved contact name."},
+                    "message": {"type": "string", "description": "Exact message body to send."},
+                },
+                "required": ["contact", "message"],
+            },
+        }
+
+
 # Export tools list as required by ARCHITECTURE.md and tools.registry
-TOOLS: List[BaseTool] = [SendTelegramTool()]
+TOOLS: List[BaseTool] = [SendTelegramTool(), SearchWhatsAppContactsTool(), SendWhatsAppTool()]
 
 
 def verify_tools() -> bool:

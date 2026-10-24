@@ -23,7 +23,7 @@ def test_service_worker_endpoint():
     res = client.get("/sw.js")
     assert res.status_code == 200
     assert "javascript" in res.headers["content-type"]
-    assert "jarvis-pwa" in res.text
+    assert "jarvis-pwa-v5" in res.text
 
 
 def test_icon_endpoint():
@@ -40,3 +40,11 @@ def test_index_html_contains_pwa_elements():
     assert res.status_code == 200
     assert '<link rel="manifest" href="/manifest.json">' in res.text
     assert 'id="installAppBtn"' in res.text
+
+
+def test_chat_renderer_escapes_user_and_model_content():
+    """Chat text is HTML-escaped before trusted formatting tags are inserted."""
+    res = client.get("/")
+    assert res.status_code == 200
+    assert "const escapedText = String(text).replace" in res.text
+    assert "const formatted = escapedText" in res.text

@@ -6,30 +6,33 @@
   <title>JARVIS Autonomous System</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <meta name="theme-color" content="#070a0f">
+  <meta name="theme-color" content="#0b0d10">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="preconnect" href="https://api.fontshare.com">
-  <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-base: #090a0f;
-      --bg-surface: #11131a;
-      --bg-card: #171a24;
-      --bg-active: #222634;
-      --accent: #0df2a6;
-      --accent-muted: #103a2e;
-      --accent-ink: #061a12;
-      --text-high: #f1f3f7;
-      --text-standard: #d1d7e2;
-      --text-dim: #9da7b8;
-      --danger: #ff5c5c;
-      --danger-surface: #2b1418;
-      --font-sans: 'General Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --radius-sm: 8px;
-      --radius-md: 14px;
-      --radius-lg: 20px;
+      color-scheme: dark;
+      --bg-base: #0b0d10;
+      --bg-surface: #111418;
+      --bg-card: #181d21;
+      --bg-active: #242b30;
+      --accent: #c4a977;
+      --accent-muted: #332c20;
+      --accent-ink: #15120c;
+      --text-high: #f2eee5;
+      --text-standard: #d3d0c8;
+      --text-dim: #969a98;
+      --danger: #ef7770;
+      --danger-surface: #321b1b;
+      --line: rgba(222, 218, 205, 0.10);
+      --font-sans: "Segoe UI Variable", "Segoe UI", Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+      --radius-sm: 7px;
+      --radius-md: 11px;
+      --radius-lg: 15px;
       --radius-full: 9999px;
     }
 
@@ -40,7 +43,7 @@
     }
 
     body {
-      background-color: var(--bg-base);
+      background: radial-gradient(ellipse at 50% -28%, rgba(196, 169, 119, .10), transparent 58%), var(--bg-base);
       color: var(--text-standard);
       font-family: var(--font-sans);
       font-size: 16px;
@@ -89,8 +92,10 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 20px 32px;
-      background: var(--bg-surface);
+      padding: 16px 30px;
+      background: rgba(17, 20, 24, .92);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(18px);
     }
 
     .brand-group {
@@ -102,7 +107,8 @@
     .brand-icon {
       width: 36px;
       height: 36px;
-      background: var(--bg-card);
+      background: linear-gradient(145deg, #25231d, #151719);
+      border: 1px solid rgba(196, 169, 119, .32);
       border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
@@ -114,7 +120,8 @@
       font-size: 16px;
       font-weight: 600;
       color: var(--text-high);
-      letter-spacing: -0.01em;
+      letter-spacing: .08em;
+      text-transform: uppercase;
     }
 
     .brand-tag {
@@ -132,7 +139,8 @@
       font-size: 14px;
       color: var(--text-dim);
       padding: 6px 12px;
-      background: var(--bg-card);
+      background: transparent;
+      border: 1px solid var(--line);
       border-radius: var(--radius-sm);
       letter-spacing: 0.02em;
     }
@@ -150,6 +158,7 @@
       cursor: pointer;
       text-decoration: none;
       transition: background-color 0.15s ease, color 0.15s ease;
+      border: 1px solid transparent;
     }
 
     .btn-subtle {
@@ -169,7 +178,7 @@
     }
 
     .btn-accent:hover {
-      background: #25f4b1;
+      background: #d6bd8e;
     }
 
     .badge-status {
@@ -177,7 +186,7 @@
       align-items: center;
       gap: 6px;
       padding: 6px 14px;
-      border-radius: var(--radius-full);
+      border-radius: var(--radius-sm);
       font-size: 13px;
       font-weight: 500;
       background: var(--accent-muted);
@@ -192,35 +201,35 @@
     }
 
     .hero-banner {
-      padding: 40px 32px 28px;
-      text-align: center;
-      max-width: 900px;
+      padding: 30px 32px 22px;
+      text-align: left;
+      max-width: 1480px;
+      width: 100%;
       margin: 0 auto;
     }
 
     .hero-title {
-      font-size: clamp(2.6rem, 5.5vw, 4.4rem);
-      font-weight: 700;
-      letter-spacing: -0.03em;
+      font-size: clamp(2rem, 4vw, 3.1rem);
+      font-weight: 600;
+      letter-spacing: -0.055em;
       line-height: 1.05;
       color: var(--text-high);
-      margin-bottom: 12px;
+      margin-bottom: 5px;
     }
 
     .hero-subtitle {
-      font-size: 18px;
+      font-size: 15px;
       color: var(--text-dim);
       font-weight: 400;
       max-width: 680px;
-      margin: 0 auto;
     }
 
     .main-layout {
       flex: 1;
       display: grid;
-      grid-template-columns: 380px 1fr;
-      gap: 28px;
-      padding: 12px 32px 40px;
+      grid-template-columns: minmax(290px, 350px) minmax(0, 1fr);
+      gap: 18px;
+      padding: 8px 32px 32px;
       max-width: 1480px;
       width: 100%;
       margin: 0 auto;
@@ -235,13 +244,14 @@
     .sidebar {
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 14px;
     }
 
     .surface-panel {
       background: var(--bg-surface);
       border-radius: var(--radius-lg);
-      padding: 24px;
+      border: 1px solid var(--line);
+      padding: 20px;
       display: flex;
       flex-direction: column;
     }
@@ -264,7 +274,7 @@
       flex-direction: column;
       align-items: center;
       text-align: center;
-      min-height: 280px;
+      min-height: 260px;
     }
 
     .pulse-orb-frame {
@@ -281,7 +291,8 @@
       position: absolute;
       inset: 0;
       border-radius: 50%;
-      background: rgba(13, 242, 166, 0.05);
+      background: rgba(196, 169, 119, 0.06);
+      border: 1px solid rgba(196, 169, 119, .14);
       transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease;
     }
 
@@ -289,7 +300,7 @@
       position: absolute;
       inset: 22px;
       border-radius: 50%;
-      background: rgba(13, 242, 166, 0.12);
+      background: rgba(196, 169, 119, 0.10);
       transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
@@ -299,7 +310,8 @@
       width: 80px;
       height: 80px;
       border-radius: 50%;
-      background: var(--bg-card);
+      background: linear-gradient(145deg, #25231d, #16191b);
+      border: 1px solid rgba(196, 169, 119, .42);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -309,12 +321,12 @@
 
     .listening .pulse-ring-outer {
       animation: pulseBreath 1.8s infinite ease-in-out;
-      background: rgba(13, 242, 166, 0.18);
+      background: rgba(196, 169, 119, 0.18);
     }
 
     .listening .pulse-ring-inner {
       animation: pulseBreath 1.2s infinite ease-in-out reverse;
-      background: rgba(13, 242, 166, 0.28);
+      background: rgba(196, 169, 119, 0.24);
     }
 
     .listening .pulse-core {
@@ -352,7 +364,8 @@
     .telemetry-item {
       background: var(--bg-card);
       padding: 16px;
-      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
       display: flex;
       flex-direction: column;
       gap: 6px;
@@ -391,20 +404,23 @@
       align-items: center;
       justify-content: space-between;
       transition: background-color 0.15s ease, color 0.15s ease;
+      border: 1px solid transparent;
     }
 
     .chip-btn:hover {
       background: var(--bg-active);
       color: var(--text-high);
+      border-color: var(--line);
     }
 
     .chat-section {
       background: var(--bg-surface);
       border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      min-height: 640px;
+      min-height: min(700px, calc(100dvh - 205px));
     }
 
     .chat-header {
@@ -413,6 +429,7 @@
       align-items: center;
       justify-content: space-between;
       background: var(--bg-surface);
+      border-bottom: 1px solid var(--line);
     }
 
     .chat-header-info {
@@ -433,7 +450,8 @@
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 18px;
+      scrollbar-color: #424640 transparent;
     }
 
     .message {
@@ -454,7 +472,7 @@
     .msg-avatar {
       width: 32px;
       height: 32px;
-      border-radius: var(--radius-sm);
+      border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -462,8 +480,8 @@
     }
 
     .user .msg-avatar {
-      background: var(--bg-active);
-      color: var(--text-high);
+      background: #252a2c;
+      color: var(--text-standard);
     }
 
     .assistant .msg-avatar {
@@ -481,12 +499,14 @@
     .user .msg-bubble {
       background: var(--bg-card);
       color: var(--text-high);
+      border: 1px solid var(--line);
       border-bottom-right-radius: 4px;
     }
 
     .assistant .msg-bubble {
-      background: var(--bg-card);
+      background: #14181a;
       color: var(--text-standard);
+      border: 1px solid rgba(222, 218, 205, .07);
       border-bottom-left-radius: 4px;
     }
 
@@ -530,6 +550,7 @@
       align-items: center;
       gap: 12px;
       background: var(--bg-card);
+      border: 1px solid var(--line);
       border-radius: var(--radius-md);
       padding: 6px 8px 6px 18px;
     }
@@ -546,6 +567,11 @@
       resize: none;
       height: 48px;
       padding: 12px 0;
+    }
+
+    :where(button, textarea, input, select):focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
     }
 
     .chat-textarea::placeholder {
@@ -596,6 +622,7 @@
 
     .modal-card {
       background: var(--bg-surface);
+      border: 1px solid var(--line);
       border-radius: var(--radius-lg);
       width: 100%;
       max-width: 540px;
@@ -689,6 +716,7 @@
 
     .note-card {
       background: var(--bg-card);
+      border: 1px solid var(--line);
       padding: 14px;
       border-radius: var(--radius-sm);
     }
@@ -705,149 +733,757 @@
       font-size: 14px;
       color: var(--text-standard);
     }
+
+    @media (max-width: 1080px) {
+      .main-layout { grid-template-columns: minmax(250px, .8fr) 1.2fr; }
+      .hero-banner { padding-top: 24px; }
+      .chat-section { min-height: 620px; }
+    }
+
+    @media (max-width: 760px) {
+      .app-header { padding: 13px 16px; gap: 12px; align-items: flex-start; }
+      .brand-group { gap: 10px; }
+      .brand-tag { font-size: 11px; }
+      .header-actions { gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+      .header-actions .btn { padding: 8px 10px; font-size: 12px; }
+      .header-actions .badge-status { display: none; }
+      .clock { font-size: 12px; padding: 5px 8px; }
+      .hero-banner { padding: 25px 18px 17px; }
+      .hero-title { font-size: clamp(1.9rem, 8vw, 2.7rem); }
+      .hero-subtitle { font-size: 14px; }
+      .main-layout { display: flex; flex-direction: column; gap: 14px; padding: 4px 14px 20px; }
+      .sidebar { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .voice-stage { grid-column: 1 / -1; }
+      .surface-panel { padding: 16px; }
+      .telemetry-grid { min-height: 0; gap: 8px; }
+      .telemetry-item { padding: 11px; }
+      .telem-val { font-size: 16px; }
+      .quick-chips-grid { min-height: 0; gap: 7px; }
+      .chip-btn { padding: 10px; font-size: 12px; }
+      .chat-section { min-height: 560px; min-height: 68dvh; }
+      .chat-header { padding: 15px 16px; }
+      .chat-feed { padding: 18px 14px; }
+      .message { max-width: 94%; gap: 9px; }
+      .msg-bubble { padding: 12px 14px; font-size: 14px; }
+      .chat-input-bar { padding: 13px 14px; }
+      .input-note { font-size: 11px; }
+    }
+
+    @media (max-width: 440px) {
+      .brand-title { font-size: 13px; }
+      .brand-tag { max-width: 160px; line-height: 1.3; }
+      .header-actions .btn { padding: 7px 8px; }
+      .sidebar { grid-template-columns: 1fr; }
+      .voice-stage { grid-column: auto; }
+      .chat-section { min-height: 65dvh; }
+      .input-tools { align-items: flex-start; gap: 6px; flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+
+    /* JARVIS HUD skin: animated reactor, instrument glass and command console. */
+    :root {
+      --bg-base: #050b11;
+      --bg-surface: rgba(7, 18, 27, .92);
+      --bg-card: rgba(10, 28, 39, .88);
+      --bg-active: #123342;
+      --accent: #61e8f2;
+      --accent-muted: rgba(28, 111, 128, .25);
+      --accent-ink: #031014;
+      --text-high: #e7fbff;
+      --text-standard: #b7d3dc;
+      --text-dim: #6e96a3;
+      --line: rgba(97, 232, 242, .16);
+    }
+
+    body {
+      background-color: var(--bg-base);
+      background-image:
+        radial-gradient(ellipse at 50% 35%, rgba(17, 92, 112, .18), transparent 48%),
+        linear-gradient(rgba(60, 143, 160, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(60, 143, 160, .035) 1px, transparent 1px);
+      background-size: auto, 36px 36px, 36px 36px;
+    }
+
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      min-height: 68px;
+      background: rgba(4, 11, 17, .88);
+      border-bottom-color: rgba(97, 232, 242, .22);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, .22);
+    }
+
+    .brand-icon {
+      position: relative;
+      background: #07151c;
+      border-color: rgba(97, 232, 242, .48);
+      box-shadow: inset 0 0 16px rgba(57, 221, 236, .12), 0 0 18px rgba(57, 221, 236, .1);
+    }
+
+    .brand-title { color: #e4fbff; letter-spacing: .17em; }
+    .brand-tag { letter-spacing: .045em; }
+
+    .clock {
+      color: var(--accent);
+      border-color: rgba(97, 232, 242, .23);
+      background: rgba(7, 22, 30, .7);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .btn-subtle {
+      background: rgba(8, 25, 34, .86);
+      border-color: rgba(97, 232, 242, .14);
+    }
+
+    .btn-subtle:hover, .chip-btn:hover {
+      border-color: rgba(97, 232, 242, .42);
+      box-shadow: inset 0 0 18px rgba(97, 232, 242, .05);
+    }
+
+    .badge-status {
+      background: rgba(19, 72, 76, .52);
+      border: 1px solid rgba(97, 232, 242, .22);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    .badge-dot {
+      box-shadow: 0 0 10px var(--accent);
+      animation: statusBlink 2.4s ease-in-out infinite;
+    }
+
+    @keyframes statusBlink { 50% { opacity: .45; } }
+
+    .hero-banner {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      padding-top: 25px;
+      padding-bottom: 16px;
+    }
+
+    .hero-title {
+      font-size: clamp(1.65rem, 3vw, 2.45rem);
+      letter-spacing: -.045em;
+      text-shadow: 0 0 30px rgba(97, 232, 242, .12);
+    }
+
+    .hero-subtitle { font-size: 13px; letter-spacing: .035em; }
+
+    .main-layout {
+      grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+      gap: 15px;
+      padding-top: 5px;
+    }
+
+    .surface-panel, .chat-section {
+      position: relative;
+      background: linear-gradient(145deg, rgba(10, 27, 37, .96), rgba(5, 13, 19, .97));
+      border: 1px solid rgba(97, 232, 242, .19);
+      border-radius: 10px;
+      box-shadow: inset 0 1px rgba(204, 252, 255, .035), 0 12px 36px rgba(0, 0, 0, .2);
+    }
+
+    .surface-panel::before, .chat-section::before {
+      content: "";
+      position: absolute;
+      top: -1px;
+      left: 18px;
+      width: 54px;
+      height: 1px;
+      background: var(--accent);
+      box-shadow: 0 0 12px rgba(97, 232, 242, .8);
+    }
+
+    .panel-title, .chat-header-title {
+      letter-spacing: .11em;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+
+    .panel-header { margin-bottom: 13px; }
+
+    .voice-stage {
+      min-height: 395px;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse at 50% 52%, rgba(29, 135, 153, .14), transparent 48%),
+        linear-gradient(145deg, rgba(9, 26, 35, .98), rgba(4, 12, 18, .98));
+    }
+
+    .voice-stage::after {
+      content: "CORE // VOICE ARRAY";
+      position: absolute;
+      bottom: 14px;
+      right: 18px;
+      color: rgba(110, 150, 163, .6);
+      font: 9px/1 ui-monospace, Consolas, monospace;
+      letter-spacing: .16em;
+    }
+
+    .pulse-orb-frame {
+      width: min(260px, 72vw);
+      height: min(260px, 72vw);
+      margin: 5px 0 3px;
+      isolation: isolate;
+      filter: drop-shadow(0 0 26px rgba(43, 206, 230, .1));
+    }
+
+    .pulse-orb-frame::before, .pulse-orb-frame::after {
+      content: "";
+      position: absolute;
+      inset: 7%;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .pulse-orb-frame::before {
+      inset: 1%;
+      background: repeating-conic-gradient(from 4deg, rgba(97,232,242,.75) 0deg 1deg, transparent 1deg 15deg);
+      mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+      animation: reactorSpin 42s linear infinite;
+      opacity: .62;
+    }
+
+    .pulse-orb-frame::after {
+      inset: 11%;
+      border: 1px dashed rgba(97, 232, 242, .24);
+      animation: reactorSpin 28s linear infinite reverse;
+    }
+
+    .reactor-track {
+      position: absolute;
+      display: block;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .reactor-track-a {
+      inset: 6%;
+      background: conic-gradient(from 205deg, transparent 0deg 20deg, #3ce3f2 24deg 25deg, transparent 27deg 53deg, rgba(97,232,242,.18) 54deg 162deg, transparent 165deg 270deg, #3ce3f2 274deg 275deg, transparent 278deg 360deg);
+      mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+      filter: drop-shadow(0 0 5px rgba(46, 226, 244, .7));
+      animation: reactorSpin 16s linear infinite;
+    }
+
+    .reactor-track-b {
+      inset: 17%;
+      border: 1px solid rgba(97, 232, 242, .3);
+      border-left-color: transparent;
+      border-right-color: rgba(97, 232, 242, .72);
+      box-shadow: 0 0 15px rgba(44, 201, 222, .09), inset 0 0 14px rgba(44, 201, 222, .07);
+      animation: reactorSpin 9s linear infinite reverse;
+    }
+
+    .reactor-track-c {
+      inset: 23%;
+      background: conic-gradient(from 0deg, transparent 0deg 32deg, rgba(97,232,242,.75) 33deg 35deg, transparent 36deg 119deg, rgba(97,232,242,.35) 120deg 121deg, transparent 122deg 239deg, rgba(97,232,242,.72) 240deg 242deg, transparent 243deg);
+      mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+      animation: reactorSpin 21s linear infinite;
+    }
+
+    .pulse-ring-outer {
+      inset: 29%;
+      background: radial-gradient(circle, rgba(34, 166, 186, .12), transparent 66%);
+      border: 1px solid rgba(97, 232, 242, .28);
+      box-shadow: 0 0 28px rgba(28, 186, 210, .15), inset 0 0 15px rgba(28, 186, 210, .12);
+      animation: reactorBreathe 3.2s ease-in-out infinite;
+    }
+
+    .pulse-ring-inner {
+      inset: 35%;
+      border: 1px solid rgba(97, 232, 242, .58);
+      background: radial-gradient(circle, rgba(14, 83, 102, .92), rgba(4, 17, 24, .98) 68%);
+      box-shadow: 0 0 24px rgba(97, 232, 242, .25), inset 0 0 18px rgba(97, 232, 242, .28);
+      animation: reactorBreathe 2.3s ease-in-out infinite reverse;
+    }
+
+    .pulse-core {
+      width: 54px;
+      height: 54px;
+      color: #d7fdff;
+      background: radial-gradient(circle at 50% 42%, #2eafc2, #0a3543 62%, #07151d);
+      border: 1px solid rgba(145, 248, 255, .9);
+      box-shadow: 0 0 18px rgba(71, 231, 248, .72), 0 0 48px rgba(38, 191, 220, .42), inset 0 0 11px rgba(209, 253, 255, .4);
+    }
+
+    .pulse-core svg { width: 23px; height: 23px; }
+    .listening .reactor-track-a, .listening .reactor-track-c { animation-duration: 4s; }
+    .listening .pulse-core { background: #5ce8f3; color: #032027; box-shadow: 0 0 25px #55e9f4, 0 0 70px rgba(62,220,245,.72); }
+    .listening .pulse-ring-inner { background: radial-gradient(circle, rgba(71, 231, 248, .48), rgba(4, 17, 24, .94) 72%); }
+
+    @keyframes reactorSpin { to { transform: rotate(360deg); } }
+    @keyframes reactorBreathe { 50% { transform: scale(1.07); opacity: .72; } }
+
+    .voice-status-text {
+      min-height: 23px;
+      margin: 0 0 13px;
+      color: #91b7c1;
+      font: 11px/1.5 ui-monospace, Consolas, monospace;
+      letter-spacing: .055em;
+      text-transform: uppercase;
+    }
+
+    .voice-btn {
+      width: min(100%, 270px);
+      min-height: 44px;
+      background: rgba(18, 62, 74, .88);
+      color: #c9fbff;
+      border: 1px solid rgba(97, 232, 242, .56);
+      box-shadow: inset 0 0 18px rgba(97, 232, 242, .08), 0 0 20px rgba(97, 232, 242, .07);
+      letter-spacing: .045em;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+
+    .voice-btn:hover { background: #17546a; }
+    .telemetry-grid { min-height: auto; gap: 8px; }
+    .telemetry-item { background: rgba(6, 20, 28, .86); }
+    .telem-label { font: 10px/1.4 ui-monospace, Consolas, monospace; text-transform: uppercase; letter-spacing: .08em; }
+    .telem-val { color: #d5faff; font-variant-numeric: tabular-nums; }
+    .quick-chips-grid { min-height: auto; }
+    .chip-btn { background: rgba(6, 20, 28, .82); }
+
+    .chat-section {
+      background: linear-gradient(180deg, rgba(7, 19, 27, .98), rgba(5, 12, 18, .98));
+      min-height: min(760px, calc(100dvh - 190px));
+    }
+
+    .chat-header {
+      position: relative;
+      z-index: 1;
+      background: rgba(7, 18, 25, .92);
+      border-bottom-color: rgba(97, 232, 242, .17);
+    }
+
+    .chat-header-info::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #62e9f2;
+      box-shadow: 0 0 11px #62e9f2;
+    }
+
+    .chat-feed {
+      background-image: linear-gradient(rgba(58, 134, 149, .025) 1px, transparent 1px);
+      background-size: 100% 28px;
+    }
+
+    .assistant .msg-avatar {
+      background: #0b3c49;
+      border: 1px solid rgba(97, 232, 242, .37);
+      box-shadow: 0 0 13px rgba(97, 232, 242, .1);
+    }
+
+    .assistant .msg-bubble {
+      background: linear-gradient(135deg, rgba(10, 34, 45, .96), rgba(8, 22, 30, .96));
+      border-color: rgba(97, 232, 242, .14);
+    }
+
+    .user .msg-bubble {
+      background: rgba(24, 36, 43, .96);
+      border-color: rgba(170, 211, 218, .14);
+    }
+
+    .input-box-wrapper {
+      background: rgba(7, 23, 31, .98);
+      border-color: rgba(97, 232, 242, .28);
+      box-shadow: inset 0 0 18px rgba(45, 193, 213, .035);
+    }
+
+    .send-btn {
+      background: #59dce9;
+      color: #032027;
+      box-shadow: 0 0 16px rgba(89, 220, 233, .2);
+    }
+
+    .send-btn:hover { background: #a0f5fb; }
+    .msg-bubble code { color: #73edf5; }
+
+    @media (max-width: 1080px) {
+      .main-layout { grid-template-columns: minmax(270px, .82fr) 1.18fr; }
+      .chat-section { min-height: 650px; }
+    }
+
+    @media (max-width: 760px) {
+      .main-layout { display: flex; }
+      .voice-stage { min-height: 360px; }
+      .pulse-orb-frame { width: min(240px, 65vw); height: min(240px, 65vw); }
+      .chat-section { min-height: 68dvh; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pulse-orb-frame::before, .pulse-orb-frame::after, .reactor-track,
+      .pulse-ring-outer, .pulse-ring-inner, .badge-dot { animation: none !important; }
+    }
+
+    /* Rebuilt from the supplied JARVIS HUD direction while retaining app IDs. */
+    :root {
+      --rgb: 92, 240, 255;
+      --accent-muted: rgba(92, 240, 255, .18);
+      --hud-panel: rgba(4, 15, 23, .78);
+      --hud-ok: #38ffa0;
+      --hud-warn: #ffb020;
+      --hud-bad: #ff4d6d;
+      --font-sans: Rajdhani, "Segoe UI", sans-serif;
+    }
+
+    body[data-mode="stealth"] { --accent: #b48cff; --accent-muted: rgba(180, 140, 255, .2); --rgb: 180, 140, 255; }
+    body[data-mode="combat"] { --accent: #ff4d6d; --accent-muted: rgba(255, 77, 109, .2); --rgb: 255, 77, 109; }
+
+    body {
+      height: 100dvh;
+      overflow: hidden;
+      background: #02070c;
+      background-image:
+        radial-gradient(ellipse at 50% 35%, rgba(var(--rgb), .095), transparent 56%),
+        linear-gradient(rgba(var(--rgb), .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(var(--rgb), .025) 1px, transparent 1px);
+      background-size: auto, 36px 36px, 36px 36px;
+      transition: background-image .3s ease;
+    }
+
+    body::before, body::after { content: ""; position: fixed; inset: 0; z-index: 4; pointer-events: none; }
+    body::before { background: repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 3px); opacity: .36; }
+    body::after { inset: -150px 0 auto; height: 130px; background: linear-gradient(180deg, transparent, rgba(var(--rgb), .065), transparent); animation: hudSweep 8s linear infinite; }
+    @keyframes hudSweep { to { transform: translateY(calc(100dvh + 300px)); } }
+
+    .app-header {
+      position: relative;
+      z-index: 5;
+      min-height: 68px;
+      padding: 10px 22px;
+      background: rgba(2, 8, 13, .92);
+      border-bottom: 1px solid rgba(var(--rgb), .22);
+      box-shadow: 0 8px 30px rgba(0,0,0,.22);
+    }
+
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      background: rgba(var(--rgb), .09);
+      border: 1px solid rgba(var(--rgb), .48);
+      color: var(--accent);
+      box-shadow: 0 0 18px rgba(var(--rgb), .12), inset 0 0 14px rgba(var(--rgb), .1);
+      clip-path: polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);
+    }
+
+    .brand-title {
+      font-family: Orbitron, var(--font-sans);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: .23em;
+    }
+
+    .brand-tag { font: 10px/1.4 "Space Mono", Consolas, monospace; letter-spacing: .12em; }
+    .header-actions { gap: 7px; }
+
+    .btn {
+      border-radius: 0;
+      clip-path: polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+      letter-spacing: .08em;
+    }
+
+    .btn-subtle {
+      background: rgba(var(--rgb), .06);
+      color: var(--text-standard);
+      border-color: rgba(var(--rgb), .24);
+    }
+
+    .btn-subtle:hover { background: rgba(var(--rgb), .16); color: #fff; }
+
+    .btn-accent {
+      background: var(--accent);
+      color: #001018;
+      box-shadow: 0 0 22px rgba(var(--rgb), .26);
+    }
+
+    .badge-status {
+      border-radius: 0;
+      background: rgba(var(--rgb), .08);
+      border: 1px solid rgba(var(--rgb), .22);
+      color: var(--accent);
+      font: 10px/1.2 "Space Mono", Consolas, monospace;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .badge-dot { box-shadow: 0 0 9px var(--accent); }
+
+    .hero-banner {
+      min-height: 62px;
+      padding: 9px 22px 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .hero-title {
+      margin: 0;
+      font: 700 clamp(17px, 2vw, 24px)/1.2 Orbitron, var(--font-sans);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .hero-subtitle {
+      margin-top: 3px;
+      font: 10px/1.5 "Space Mono", Consolas, monospace;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+
+    .hud-modes { display: flex; gap: 4px; border: 1px solid rgba(var(--rgb), .2); padding: 3px; background: rgba(0,0,0,.25); }
+    .hud-mode { padding: 7px 12px; border: 0; background: transparent; color: var(--text-dim); font: 10px Orbitron, sans-serif; letter-spacing: .12em; cursor: pointer; }
+    .hud-mode::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--mode-color, var(--accent)); box-shadow: 0 0 7px var(--mode-color, var(--accent)); }
+    .hud-mode[data-mode="classic"] { --mode-color: #5cf0ff; }
+    .hud-mode[data-mode="stealth"] { --mode-color: #b48cff; }
+    .hud-mode[data-mode="combat"] { --mode-color: #ff4d6d; }
+    .hud-mode[aria-pressed="true"] { color: var(--accent); background: rgba(var(--rgb), .13); }
+
+    .main-layout.hud-layout {
+      height: calc(100dvh - 143px);
+      min-height: 0;
+      grid-template-columns: minmax(220px, 285px) minmax(360px, 1fr) minmax(330px, 410px);
+      gap: 12px;
+      padding: 4px 20px 12px;
+      max-width: 1800px;
+    }
+
+    .hud-column { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+    .hud-panel, .voice-stage, .chat-section {
+      position: relative;
+      min-width: 0;
+      background: var(--hud-panel);
+      border: 1px solid rgba(var(--rgb), .2);
+      border-radius: 0;
+      box-shadow: inset 0 1px rgba(222, 252, 255, .035), 0 10px 28px rgba(0,0,0,.18);
+      backdrop-filter: blur(9px);
+    }
+
+    .hud-panel::before, .voice-stage::before, .chat-section::before {
+      content: "";
+      position: absolute;
+      top: -1px;
+      left: 12px;
+      width: 44px;
+      border-top: 2px solid var(--accent);
+      filter: drop-shadow(0 0 5px var(--accent));
+    }
+
+    .hud-panel { padding: 11px 12px; }
+    .hud-panel-title { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; color: var(--accent); font: 700 10px Orbitron, sans-serif; letter-spacing: .15em; text-transform: uppercase; }
+    .hud-metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .hud-metric { min-width: 0; padding: 8px; border: 1px solid rgba(var(--rgb), .13); background: rgba(0,0,0,.22); }
+    .hud-metric-label { display: block; color: var(--text-dim); font: 9px "Space Mono", Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .hud-metric-value { display: block; margin-top: 2px; color: #e6fcff; font: 700 17px Orbitron, sans-serif; font-variant-numeric: tabular-nums; }
+    .hud-meter { height: 3px; margin-top: 6px; background: rgba(var(--rgb), .12); }
+    .hud-meter-fill { display: block; width: 0; height: 100%; background: var(--accent); box-shadow: 0 0 9px var(--accent); transition: width .5s ease; }
+    #radarCanvas { display: block; width: 100%; height: 120px; }
+    .hud-subsystem-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font: 9px "Space Mono", Consolas, monospace; color: var(--text-dim); text-transform: uppercase; }
+    .hud-subsystem { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .hud-subsystem::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--hud-ok); box-shadow: 0 0 7px var(--hud-ok); }
+    .hud-subsystem.is-offline::before { background: var(--hud-bad); box-shadow: 0 0 7px var(--hud-bad); }
+    .hud-quick-actions { display: grid; gap: 5px; }
+    .hud-quick-actions .chip-btn { padding: 7px 9px; font: 9px "Space Mono", Consolas, monospace; letter-spacing: .04em; }
+
+    .voice-stage.hud-core {
+      height: 100%;
+      min-height: 0;
+      padding: 12px 16px;
+      justify-content: flex-start;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 42%, rgba(var(--rgb), .1), transparent 48%), rgba(2, 10, 16, .82);
+    }
+
+    .core-readout { width: 100%; display: flex; justify-content: space-between; color: var(--text-dim); font: 9px "Space Mono", Consolas, monospace; letter-spacing: .09em; }
+    .pulse-orb-frame.hud-reactor { width: min(440px, 100%); height: auto; aspect-ratio: 1; flex: 1 1 auto; min-height: 220px; max-height: min(52vh, 500px); margin: 4px auto; }
+    #coreCanvas { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
+    .pulse-orb-frame.hud-reactor::before { inset: 1%; z-index: 0; opacity: .6; }
+    .pulse-orb-frame.hud-reactor::after { inset: 12%; z-index: 0; }
+    .pulse-orb-frame.hud-reactor .reactor-track-a { inset: 6%; z-index: 0; }
+    .pulse-orb-frame.hud-reactor .reactor-track-b { inset: 16%; z-index: 0; }
+    .pulse-orb-frame.hud-reactor .reactor-track-c { inset: 24%; z-index: 0; }
+    .pulse-orb-frame.hud-reactor .pulse-ring-outer { inset: 30%; z-index: 2; }
+    .pulse-orb-frame.hud-reactor .pulse-ring-inner { inset: 35%; z-index: 2; }
+    .pulse-orb-frame.hud-reactor .pulse-core { width: 50px; height: 50px; z-index: 3; }
+    .core-caption { position: absolute; z-index: 4; left: 0; right: 0; bottom: 5%; text-align: center; pointer-events: none; }
+    .core-caption strong { display: block; color: #fff; font: 700 14px Orbitron, sans-serif; letter-spacing: .32em; text-shadow: 0 0 16px var(--accent); }
+    .core-caption span { display: block; margin-top: 4px; color: var(--accent); font: 9px "Space Mono", Consolas, monospace; letter-spacing: .13em; }
+    #waveCanvas { width: 100%; height: 48px; flex: none; }
+    .voice-status-text { min-height: 20px; margin: 0 0 5px; color: var(--accent); font: 9px "Space Mono", Consolas, monospace; letter-spacing: .07em; text-transform: uppercase; }
+    .voice-btn { width: min(100%, 270px); min-height: 40px; padding: 9px 12px; background: rgba(var(--rgb), .1); color: var(--accent); border: 1px solid rgba(var(--rgb), .55); font: 700 10px Orbitron, sans-serif; letter-spacing: .12em; }
+    .voice-btn:hover { background: rgba(var(--rgb), .22); color: white; }
+
+    .chat-section.hud-chat { height: 100%; min-height: 0; background: rgba(2, 10, 16, .88); }
+    .chat-header { padding: 12px 14px; background: rgba(3, 12, 18, .92); border-bottom: 1px solid rgba(var(--rgb), .16); }
+    .chat-feed { padding: 14px 12px; gap: 11px; background-image: linear-gradient(rgba(var(--rgb), .018) 1px, transparent 1px); background-size: 100% 28px; }
+    .message { max-width: 96%; gap: 8px; }
+    .msg-avatar { width: 26px; height: 26px; border-radius: 50%; }
+    .assistant .msg-avatar { border: 1px solid rgba(var(--rgb), .4); background: rgba(var(--rgb), .12); }
+    .assistant .msg-bubble { border: 1px solid rgba(var(--rgb), .18); border-left: 2px solid var(--accent); border-radius: 0; background: rgba(5, 22, 31, .92); }
+    .user .msg-bubble { border: 1px solid rgba(var(--rgb), .33); border-radius: 0; background: rgba(var(--rgb), .1); }
+    .msg-bubble { padding: 9px 11px; font-size: 14px; }
+    .chat-input-bar { padding: 11px 12px; background: rgba(2, 10, 16, .95); }
+    .input-box-wrapper { border: 1px solid rgba(var(--rgb), .3); border-radius: 0; background: rgba(0,0,0,.34); }
+    .send-btn { border-radius: 0; background: var(--accent); box-shadow: 0 0 14px rgba(var(--rgb), .25); }
+    .send-btn:hover { background: #d9fcff; }
+    .input-note { font: 9px "Space Mono", Consolas, monospace; }
+    .tool-trace { max-height: 125px; overflow: auto; display: grid; gap: 4px; font: 9px "Space Mono", Consolas, monospace; color: #a9c8d1; }
+    .tool-trace-entry { display: flex; gap: 8px; padding: 4px 6px; border-left: 2px solid var(--hud-warn); background: rgba(255,176,32,.045); }
+    .tool-trace-entry time { color: var(--hud-warn); }
+    .hud-footer { display: flex; justify-content: space-between; gap: 12px; padding: 3px 22px 9px; color: var(--text-dim); font: 9px "Space Mono", Consolas, monospace; letter-spacing: .08em; }
+
+    @media (max-width: 1180px) {
+      body { height: auto; min-height: 100dvh; overflow: auto; }
+      .main-layout.hud-layout { height: auto; min-height: calc(100dvh - 140px); grid-template-columns: minmax(240px, .8fr) 1.2fr; }
+      .hud-left { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); align-items: start; }
+      .hud-center { min-height: 580px; }
+      .hud-right { min-height: 580px; }
+      .voice-stage.hud-core, .chat-section.hud-chat { min-height: 580px; }
+      .pulse-orb-frame.hud-reactor { max-height: 390px; }
+      .hud-footer { padding-top: 8px; }
+    }
+
+    @media (max-width: 760px) {
+      .app-header { padding: 10px 13px; align-items: flex-start; }
+      .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+      .header-actions .btn { padding: 7px 9px; font-size: 11px; }
+      .header-actions .badge-status { display: none; }
+      .hero-banner { padding: 9px 14px; flex-wrap: wrap; }
+      .hero-title { font-size: 17px; }
+      .hud-layout.main-layout { display: flex; flex-direction: column; padding: 4px 12px 12px; }
+      .hud-left { display: grid; grid-template-columns: 1fr 1fr; }
+      .hud-left .subsystems-panel, .hud-left .actions-panel { grid-column: 1 / -1; }
+      .hud-center, .hud-right { min-height: 0; }
+      .voice-stage.hud-core { min-height: 540px; }
+      .chat-section.hud-chat { min-height: 68dvh; }
+      .hud-footer { padding: 5px 13px 12px; flex-wrap: wrap; }
+    }
+
+    @media (max-width: 480px) {
+      .brand-title { font-size: 13px; }
+      .brand-tag { max-width: 130px; font-size: 8px; }
+      .header-actions { gap: 4px; }
+      .header-actions .btn { padding: 6px 7px; }
+      .hud-modes { width: 100%; justify-content: space-between; }
+      .hud-mode { flex: 1; padding: 7px 4px; font-size: 9px; }
+      .hud-left { grid-template-columns: 1fr 1fr; }
+      .voice-stage.hud-core { min-height: 480px; }
+      .pulse-orb-frame.hud-reactor { min-height: 200px; max-height: 310px; }
+      .chat-section.hud-chat { min-height: 65dvh; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body::after { display: none; animation: none; }
+      .hud-mode, .hud-meter-fill { transition: none; }
+    }
   </style>
 </head>
-<body>
-  <header class="app-header animate-in stagger-1">
+<body data-mode="classic">
+  <header class="app-header hud-header animate-in stagger-1">
     <div class="brand-group">
-      <div class="brand-icon">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      </div>
-      <div>
-        <div class="brand-title">JARVIS System Core</div>
-        <div class="brand-tag">Autonomous Orchestration & Neural Voice Link</div>
-      </div>
+      <div class="brand-icon"><span style="font:700 18px Orbitron, sans-serif">J</span></div>
+      <div><div class="brand-title">J.A.R.V.I.S</div><div class="brand-tag">NEURAL COMMAND INTERFACE // OPERATOR CONSOLE</div></div>
     </div>
     <div class="header-actions">
       <div class="clock" id="clockDisplay">00:00:00</div>
-      <button class="btn btn-subtle" id="installAppBtn" title="Install Standalone Desktop App" style="display: none; border-color: rgba(13, 242, 166, 0.4); color: var(--accent);">Install App</button>
-      <button class="btn btn-subtle" id="notesBtn" title="Scratchpad & Notes">Notes</button>
-      <button class="btn btn-subtle" id="apiKeyBtn" title="API Key Management">Keys</button>
-      <button class="btn btn-subtle" id="settingsBtn" title="Voice & UI Settings">Config</button>
-      <div class="badge-status">
-        <div class="badge-dot"></div>
-        <span id="systemStatus">Active</span>
-      </div>
+      <button class="btn btn-subtle" id="installAppBtn" title="Install standalone app" style="display:none">Install</button>
+      <button class="btn btn-subtle" id="commandsBtn" title="Open command palette (Ctrl+K)">Commands</button>
+      <button class="btn btn-subtle" id="notesBtn" title="Open notes vault">Notes</button>
+      <button class="btn btn-subtle" id="apiKeyBtn" title="API key management">Keys</button>
+      <button class="btn btn-subtle" id="settingsBtn" title="Voice and system settings">Config</button>
     </div>
   </header>
 
-  <section class="hero-banner animate-in stagger-2">
-    <h1 class="hero-title">JARVIS AI</h1>
-    <p class="hero-subtitle">High-velocity autonomous execution with continuous memory and neural synthesis.</p>
+  <section class="hero-banner hud-titlebar animate-in stagger-2">
+    <div><h1 class="hero-title">NEURAL CORE <span style="color:var(--accent)">// ONLINE</span></h1><p class="hero-subtitle">Voice, tools and system telemetry standing by</p></div>
+    <nav class="hud-modes" aria-label="JARVIS operating mode">
+      <button class="hud-mode" data-mode="classic" aria-pressed="true">CLASSIC</button>
+      <button class="hud-mode" data-mode="stealth" aria-pressed="false">STEALTH</button>
+      <button class="hud-mode" data-mode="combat" aria-pressed="false">COMBAT</button>
+    </nav>
+    <div class="badge-status"><span class="badge-dot"></span><span id="systemStatus">SYSTEMS NOMINAL</span></div>
   </section>
 
-  <main class="main-layout">
-    <div class="sidebar">
-      <div class="surface-panel voice-stage animate-in stagger-3" data-ui id="voiceStageCard">
-        <div class="panel-header" style="width: 100%;">
-          <div class="panel-title">Neural Voice Link</div>
-          <div class="badge-status" id="voiceIndicator">
-            <div class="badge-dot"></div>
-            <span id="voiceBadgeText">Ready</span>
-          </div>
+  <main class="main-layout hud-layout">
+    <section class="hud-column hud-left" aria-label="System telemetry and actions">
+      <article class="hud-panel" id="telemetryCard">
+        <div class="hud-panel-title"><span>Processor</span><span class="tiny">LIVE</span></div>
+        <div class="hud-metric-grid">
+          <div class="hud-metric"><span class="hud-metric-label">CPU LOAD</span><span class="hud-metric-value" id="cpuVal">--%</span><div class="hud-meter"><i class="hud-meter-fill" id="cpuMeter"></i></div></div>
+          <div class="hud-metric"><span class="hud-metric-label">MEMORY</span><span class="hud-metric-value" id="memVal">--%</span><div class="hud-meter"><i class="hud-meter-fill" id="memMeter"></i></div></div>
+          <div class="hud-metric"><span class="hud-metric-label">POWER CELL</span><span class="hud-metric-value" id="batVal">--%</span><div class="hud-meter"><i class="hud-meter-fill" id="batMeter"></i></div></div>
+          <div class="hud-metric"><span class="hud-metric-label">LATENCY</span><span class="hud-metric-value" id="latVal">--ms</span><div class="hud-meter"><i class="hud-meter-fill" id="latMeter"></i></div></div>
         </div>
-        <div class="pulse-orb-frame animate-in stagger-4" id="pulseOrb">
-          <div class="pulse-ring-outer"></div>
-          <div class="pulse-ring-inner"></div>
-          <div class="pulse-core">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          </div>
+      </article>
+      <article class="hud-panel"><div class="hud-panel-title"><span>Proximity radar</span><span class="tiny">SWEEP</span></div><canvas id="radarCanvas" aria-label="Animated system radar"></canvas></article>
+      <article class="hud-panel subsystems-panel">
+        <div class="hud-panel-title"><span>Subsystems</span><span class="tiny" id="channelStatus">CONNECTING</span></div>
+        <div class="hud-subsystem-list"><span class="hud-subsystem" id="wsSubsystem">COMMS LINK</span><span class="hud-subsystem">MEMORY VAULT</span><span class="hud-subsystem">VOICE ARRAY</span><span class="hud-subsystem">TOOL REGISTRY</span></div>
+      </article>
+      <article class="hud-panel actions-panel" id="quickActionsCard">
+        <div class="hud-panel-title"><span>Quick directives</span><span class="tiny">READY</span></div>
+        <div class="hud-quick-actions">
+          <button class="chip-btn" onclick="sendQuickPrompt('Run complete system diagnostics')"><span>Run diagnostics</span><span>↗</span></button>
+          <button class="chip-btn" onclick="sendQuickPrompt('Open Chrome')"><span>Open Chrome</span><span>↗</span></button>
+          <button class="chip-btn" onclick="sendQuickPrompt('What time is it?')"><span>Current time</span><span>↗</span></button>
+          <button class="chip-btn" onclick="clearFeed()"><span>Clear conversation</span><span>×</span></button>
         </div>
-        <div class="voice-status-text" id="voiceStatus">Click to speak directly to JARVIS</div>
-        <button class="btn btn-accent voice-btn animate-in stagger-5" id="voiceToggleBtn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-          <span>Initialize Voice Link</span>
-        </button>
-      </div>
+      </article>
+    </section>
 
-      <div class="surface-panel animate-in stagger-4" data-ui id="telemetryCard">
-        <div class="panel-header">
-          <div class="panel-title">System Telemetry</div>
-          <span class="brand-tag">Live</span>
+    <section class="hud-column hud-center">
+      <div class="surface-panel voice-stage hud-core" data-ui id="voiceStageCard">
+        <div class="core-readout"><span>NEURAL QUANTUM CORE // 01</span><span id="coreMeta">ACOUSTIC ARRAY · STANDBY</span></div>
+        <div class="pulse-orb-frame hud-reactor animate-in stagger-3" id="pulseOrb" role="img" aria-label="JARVIS arc reactor visualization">
+          <span class="reactor-track reactor-track-a" aria-hidden="true"></span><span class="reactor-track reactor-track-b" aria-hidden="true"></span><span class="reactor-track reactor-track-c" aria-hidden="true"></span>
+          <canvas id="coreCanvas" aria-hidden="true"></canvas>
+          <div class="pulse-ring-outer"></div><div class="pulse-ring-inner"></div>
+          <div class="pulse-core"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div>
+          <div class="core-caption"><strong id="coreState">STANDBY</strong><span id="coreSub">AWAITING DIRECTIVE</span></div>
         </div>
-        <div class="telemetry-grid">
-          <div class="telemetry-item animate-in stagger-5">
-            <span class="telem-label">Processor</span>
-            <span class="telem-val" id="cpuVal">--%</span>
-          </div>
-          <div class="telemetry-item animate-in stagger-6">
-            <span class="telem-label">Memory</span>
-            <span class="telem-val" id="memVal">--%</span>
-          </div>
-          <div class="telemetry-item animate-in stagger-7">
-            <span class="telem-label">Battery</span>
-            <span class="telem-val" id="batVal">--%</span>
-          </div>
-          <div class="telemetry-item animate-in stagger-8">
-            <span class="telem-label">Latency</span>
-            <span class="telem-val" id="latVal">--ms</span>
-          </div>
-        </div>
+        <canvas id="waveCanvas" aria-hidden="true"></canvas>
+        <div class="voice-status-text" id="voiceStatus">Voice array idle · say “Hey Jarvis” or initialize</div>
+        <div class="badge-status" id="voiceIndicator"><span class="badge-dot"></span><span id="voiceBadgeText">READY</span></div>
+        <button class="btn voice-btn animate-in stagger-4" id="voiceToggleBtn"><span>Initialize voice link</span></button>
       </div>
+    </section>
 
-      <div class="surface-panel animate-in stagger-5" data-ui id="quickActionsCard">
-        <div class="panel-header">
-          <div class="panel-title">System Actions</div>
+    <section class="hud-column hud-right" aria-label="Conversation and tool trace">
+      <div class="chat-section hud-chat" data-ui id="chatCard">
+        <div class="chat-header"><div class="chat-header-info"><div class="chat-header-title">Live interaction terminal</div><span class="brand-tag" id="latencyIndicator">SECURE LINK</span></div><button class="btn btn-subtle" onclick="exportConversation()">Export</button></div>
+        <div class="chat-feed" id="chatFeed">
+          <div class="message assistant"><div class="msg-avatar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><div class="msg-bubble"><p>JARVIS online. Neural systems calibrated. Speak or send a directive.</p></div></div>
         </div>
-        <div class="quick-chips-grid">
-          <button class="chip-btn animate-in stagger-6" onclick="sendQuickPrompt('Run complete system diagnostics')">
-            <span>System Health Audit</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
-          <button class="chip-btn animate-in stagger-7" onclick="sendQuickPrompt('Inspect active memory state')">
-            <span>Query System Memory</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
-          <button class="chip-btn animate-in stagger-8" onclick="sendQuickPrompt('List running tasks and background services')">
-            <span>Task Monitor</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
-          <button class="chip-btn animate-in stagger-9" onclick="clearFeed()">
-            <span>Clear Conversation</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
+        <div class="chat-input-bar"><div class="input-box-wrapper"><textarea class="chat-textarea" id="promptInput" placeholder="Speak or type a directive…" rows="1" aria-label="Message JARVIS"></textarea><button class="send-btn" id="sendBtn" title="Send directive" aria-label="Send directive"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div><div class="input-tools"><span class="input-note">Enter to send · Shift+Enter for newline</span><span class="input-note" id="messageCount">0 MSG</span></div></div>
       </div>
-    </div>
-
-    <div class="chat-section animate-in stagger-6" data-ui id="chatCard">
-      <div class="chat-header animate-in stagger-7">
-        <div class="chat-header-info">
-          <div class="chat-header-title">Command Channel</div>
-          <span class="brand-tag" id="channelStatus">WebSocket Active</span>
-        </div>
-        <div class="header-actions">
-          <button class="btn btn-subtle" onclick="exportConversation()">Export</button>
-        </div>
-      </div>
-
-      <div class="chat-feed" id="chatFeed">
-        <div class="message assistant">
-          <div class="msg-avatar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-          </div>
-          <div class="msg-bubble">
-            <p>JARVIS interface initialized. Neural voice link, system telemetry, and command dispatch are standing by. What instructions do you have?</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="chat-input-bar">
-        <div class="input-box-wrapper animate-in stagger-8">
-          <textarea class="chat-textarea" id="promptInput" placeholder="Give an instruction or type a query..." rows="1"></textarea>
-          <button class="send-btn" id="sendBtn" title="Send Instruction">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
-        </div>
-        <div class="input-tools">
-          <span class="input-note">Press Enter to send, Shift+Enter for newline</span>
-          <span class="input-note" id="latencyIndicator">Latency: &lt;10ms</span>
-        </div>
-      </div>
-    </div>
+      <article class="hud-panel"><div class="hud-panel-title"><span>Tool execution trace</span><span class="tiny" id="traceCount">0 CALLS</span></div><div class="tool-trace" id="toolTrace"><div class="tiny">› no tools executed yet</div></div></article>
+    </section>
   </main>
-
+  <footer class="hud-footer"><span>J.A.R.V.I.S // SYSTEM INTERFACE</span><span>WAKE OPTIONS: “HEY JARVIS” · DOUBLE CLAP IN STEALTH MODE</span><span>LOCAL SESSION · <span id="systemStatusFooter">SECURE</span></span></footer>
   <!-- Modals -->
+  <div class="modal-overlay" id="commandPaletteModal" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle">
+    <div class="modal-card">
+      <div class="modal-header"><div class="modal-title" id="commandPaletteTitle">Command Palette</div><button class="close-btn" onclick="closeModal('commandPaletteModal')" aria-label="Close commands">×</button></div>
+      <p class="form-help">Choose a directive to send to JARVIS.</p>
+      <div class="hud-quick-actions">
+        <button class="chip-btn" onclick="closeModal('commandPaletteModal');sendQuickPrompt('Open Chrome')">Open Chrome <span>↗</span></button>
+        <button class="chip-btn" onclick="closeModal('commandPaletteModal');sendQuickPrompt('Open downloads folder')">Open Downloads <span>↗</span></button>
+        <button class="chip-btn" onclick="closeModal('commandPaletteModal');sendQuickPrompt('Play music')">Play music <span>↗</span></button>
+        <button class="chip-btn" onclick="closeModal('commandPaletteModal');sendQuickPrompt('Create a polished PDF about the latest Call of Duty Modern Warfare game')">Create a PDF <span>↗</span></button>
+        <button class="chip-btn" onclick="closeModal('commandPaletteModal');sendQuickPrompt('Take a screenshot and describe what is on screen')">Describe my screen <span>↗</span></button>
+      </div>
+      <div style="display:flex;justify-content:flex-end"><button class="btn btn-subtle" onclick="closeModal('commandPaletteModal')">Close</button></div>
+    </div>
+  </div>
   <div class="modal-overlay" id="apiKeyModal">
     <div class="modal-card">
       <div class="modal-header">
@@ -949,6 +1585,123 @@
   </div>
 
   <script>
+    (() => {
+      const coreCanvas = document.getElementById('coreCanvas');
+      const waveCanvas = document.getElementById('waveCanvas');
+      const radarCanvas = document.getElementById('radarCanvas');
+      if (!coreCanvas || !waveCanvas || !radarCanvas) return;
+      const coreCtx = coreCanvas.getContext('2d');
+      const waveCtx = waveCanvas.getContext('2d');
+      const radarCtx = radarCanvas.getContext('2d');
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const particleCount = 300;
+      const particles = Array.from({ length: particleCount }, (_, i) => {
+        const y = 1 - (i / (particleCount - 1)) * 2;
+        const radius = Math.sqrt(1 - y * y);
+        const angle = i * Math.PI * (3 - Math.sqrt(5));
+        return { x: Math.cos(angle) * radius, y, z: Math.sin(angle) * radius };
+      });
+      const color = (alpha = 1) => {
+        const values = getComputedStyle(document.body).getPropertyValue('--rgb').trim() || '92, 240, 255';
+        return `rgba(${values}, ${alpha})`;
+      };
+      const fit = (canvas, context) => {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const width = Math.max(1, Math.round(rect.width * dpr));
+        const height = Math.max(1, Math.round(rect.height * dpr));
+        if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        return { width, height, dpr };
+      };
+      function drawCore(time) {
+        const { width: w, height: h, dpr } = fit(coreCanvas, coreCtx);
+        coreCtx.clearRect(0, 0, w, h);
+        const cx = w / 2, cy = h * .46, radius = Math.min(w, h) * .25;
+        const listening = document.getElementById('pulseOrb').classList.contains('listening');
+        const thinking = /COMPUT|EXECUT/.test(document.getElementById('coreState').textContent);
+        const speed = reducedMotion ? 0 : listening ? 1.5 : thinking ? 2.2 : .42;
+        const rotation = time * speed;
+        const glow = coreCtx.createRadialGradient(cx, cy, 0, cx, cy, radius * 2.2);
+        glow.addColorStop(0, color(listening ? .28 : .15)); glow.addColorStop(1, 'rgba(0,0,0,0)');
+        coreCtx.fillStyle = glow; coreCtx.fillRect(0, 0, w, h);
+        coreCtx.save(); coreCtx.translate(cx, cy);
+        for (let ring = 0; ring < 3; ring++) {
+          coreCtx.save();
+          coreCtx.rotate(rotation * (ring % 2 ? -.27 : .19) + ring * 1.7);
+          coreCtx.scale(1, [.31, .62, .87][ring]);
+          coreCtx.beginPath(); coreCtx.arc(0, 0, radius * (1.35 + ring * .2), .18 + ring * .7, 5.1 + ring * .2);
+          coreCtx.strokeStyle = color(.4 + ring * .16); coreCtx.lineWidth = (ring === 1 ? 2 : 1) * dpr;
+          coreCtx.shadowColor = color(.9); coreCtx.shadowBlur = listening ? 14 : 7; coreCtx.stroke(); coreCtx.restore();
+        }
+        const tickRadius = radius * 1.73;
+        for (let i = 0; i < 96; i++) {
+          const a = i * Math.PI * 2 / 96 + rotation * .08;
+          const major = i % 8 === 0;
+          coreCtx.beginPath(); coreCtx.moveTo(Math.cos(a) * tickRadius, Math.sin(a) * tickRadius);
+          coreCtx.lineTo(Math.cos(a) * (tickRadius - (major ? 9 : 4) * dpr), Math.sin(a) * (tickRadius - (major ? 9 : 4) * dpr));
+          coreCtx.strokeStyle = color(major ? .8 : .28); coreCtx.lineWidth = (major ? 1.4 : .7) * dpr; coreCtx.stroke();
+        }
+        const projected = particles.map((p) => {
+          const x = p.x * Math.cos(rotation) - p.z * Math.sin(rotation);
+          const z = p.x * Math.sin(rotation) + p.z * Math.cos(rotation);
+          const perspective = 2.7 / (2.7 + z);
+          return { x: x * radius * perspective, y: p.y * radius * perspective, z, perspective };
+        });
+        coreCtx.beginPath();
+        for (let i = 0; i < projected.length; i++) {
+          const a = projected[i]; if (a.z > .38) continue;
+          for (const jump of [1, 7, 17]) {
+            const b = projected[(i + jump) % projected.length];
+            const dx = a.x - b.x, dy = a.y - b.y;
+            if (dx * dx + dy * dy < radius * radius * .16) { coreCtx.moveTo(a.x, a.y); coreCtx.lineTo(b.x, b.y); }
+          }
+        }
+        coreCtx.strokeStyle = color(.17); coreCtx.lineWidth = .65 * dpr; coreCtx.stroke();
+        coreCtx.globalCompositeOperation = 'lighter';
+        for (const p of projected) {
+          const depth = Math.max(.12, .8 - p.z * .25);
+          coreCtx.fillStyle = color(depth); coreCtx.beginPath();
+          coreCtx.arc(p.x, p.y, (1 + (1 - p.z) * .75) * dpr, 0, Math.PI * 2); coreCtx.fill();
+        }
+        coreCtx.globalCompositeOperation = 'source-over'; coreCtx.restore();
+      }
+      function drawWave(time) {
+        const { width: w, height: h, dpr } = fit(waveCanvas, waveCtx);
+        waveCtx.clearRect(0, 0, w, h);
+        const active = document.getElementById('pulseOrb').classList.contains('listening');
+        const count = 72, slot = w / count;
+        for (let i = 0; i < count; i++) {
+          const envelope = Math.sin(Math.PI * (i + .5) / count);
+          const pulse = .08 + (active ? .65 : .2) * Math.abs(Math.sin(time * (active ? 5 : .7) + i * .31));
+          const bar = Math.max(2 * dpr, envelope * pulse * h);
+          waveCtx.fillStyle = color(.3 + pulse * .7); waveCtx.fillRect(i * slot + slot * .3, (h - bar) / 2, slot * .38, bar);
+        }
+      }
+      function drawRadar(time) {
+        const { width: w, height: h, dpr } = fit(radarCanvas, radarCtx);
+        radarCtx.clearRect(0, 0, w, h);
+        const cx = w / 2, cy = h / 2, r = Math.min(w, h) * .43;
+        radarCtx.strokeStyle = color(.25); radarCtx.lineWidth = dpr;
+        for (let i = 1; i <= 3; i++) { radarCtx.beginPath(); radarCtx.arc(cx, cy, r * i / 3, 0, Math.PI * 2); radarCtx.stroke(); }
+        radarCtx.beginPath(); radarCtx.moveTo(cx - r, cy); radarCtx.lineTo(cx + r, cy); radarCtx.moveTo(cx, cy - r); radarCtx.lineTo(cx, cy + r); radarCtx.stroke();
+        const angle = reducedMotion ? 0 : time * .7;
+        if (typeof radarCtx.createConicGradient === 'function') {
+          const sector = radarCtx.createConicGradient(angle - .9, cx, cy);
+          sector.addColorStop(0, color(0)); sector.addColorStop(.21, color(.28)); sector.addColorStop(.25, color(0)); sector.addColorStop(1, color(0));
+          radarCtx.fillStyle = sector; radarCtx.beginPath(); radarCtx.arc(cx, cy, r, 0, Math.PI * 2); radarCtx.fill();
+        }
+        radarCtx.strokeStyle = color(.85); radarCtx.lineWidth = 1.5 * dpr; radarCtx.beginPath(); radarCtx.moveTo(cx, cy); radarCtx.lineTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r); radarCtx.stroke();
+        for (let i = 0; i < 5; i++) { const a = i * 2.4 + .5, d = r * (.28 + (i % 3) * .2); radarCtx.fillStyle = color(.55 + .35 * Math.sin(time * 2 + i)); radarCtx.beginPath(); radarCtx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 2.2 * dpr, 0, Math.PI * 2); radarCtx.fill(); }
+      }
+      function render(now) { const t = now / 1000; drawCore(t); drawWave(t); drawRadar(t); if (!reducedMotion) requestAnimationFrame(render); }
+      requestAnimationFrame(render);
+      window.addEventListener('resize', () => { if (reducedMotion) render(0); });
+      document.querySelectorAll('.hud-mode').forEach((button) => button.addEventListener('click', () => { if (reducedMotion) render(0); }));
+    })();
+  </script>
+
+  <script>
     (function() {
       // Configuration state
       const state = {
@@ -957,9 +1710,23 @@
         isVoiceActive: false,
         recognition: null,
         mediaRecorder: null,
+        recorderStartedAt: 0,
         audioChunks: [],
+        microphoneStream: null,
+        clapStream: null,
+        audioContext: null,
+        clapAnalyser: null,
+        clapAnimationFrame: null,
+        lastClapAt: 0,
+        clapCount: 0,
+        wakeArmedUntil: 0,
+        whisperLoopActive: false,
+        fallbackRequested: false,
+        whisperFrame: null,
+        whisperTimeout: null,
         autoSpeech: true,
         voiceLang: 'en',
+        operatingMode: 'classic',
         currentAudio: null
       };
 
@@ -978,6 +1745,21 @@
       const cpuValEl = document.getElementById('cpuVal');
       const memValEl = document.getElementById('memVal');
       const batValEl = document.getElementById('batVal');
+
+      function setHudMode(mode) {
+        if (!['classic', 'stealth', 'combat'].includes(mode)) return;
+        state.operatingMode = mode;
+        document.body.dataset.mode = mode;
+        document.querySelectorAll('.hud-mode').forEach((button) => {
+          button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+        });
+        const labels = { classic: 'AWAITING DIRECTIVE', stealth: 'WAKE WORD ARMED', combat: 'HIGH PERFORMANCE' };
+        document.getElementById('coreSub').textContent = labels[mode];
+        document.getElementById('systemStatus').textContent = `${mode.toUpperCase()} MODE`;
+      }
+      document.querySelectorAll('.hud-mode').forEach((button) => {
+        button.addEventListener('click', () => setHudMode(button.dataset.mode));
+      });
 
       // Modals
       const apiKeyModal = document.getElementById('apiKeyModal');
@@ -1046,8 +1828,10 @@
           state.ws = new WebSocket(wsUrl);
           state.ws.onopen = () => {
             state.wsConnected = true;
-            channelStatusEl.textContent = 'WebSocket Active';
+            channelStatusEl.textContent = 'LINK ONLINE';
             channelStatusEl.style.color = 'var(--accent)';
+            document.getElementById('wsSubsystem').classList.remove('is-offline');
+            document.getElementById('systemStatusFooter').textContent = 'LINK ONLINE';
           };
           state.ws.onmessage = (event) => {
             try {
@@ -1059,8 +1843,10 @@
           };
           state.ws.onclose = () => {
             state.wsConnected = false;
-            channelStatusEl.textContent = 'HTTP Fallback Active';
+            channelStatusEl.textContent = 'RECONNECTING';
             channelStatusEl.style.color = 'var(--text-dim)';
+            document.getElementById('wsSubsystem').classList.add('is-offline');
+            document.getElementById('systemStatusFooter').textContent = 'RECONNECTING';
             setTimeout(initWebSocket, 4000);
           };
           state.ws.onerror = () => {
@@ -1112,6 +1898,8 @@
       function startVoice() {
         state.isVoiceActive = true;
         pulseOrbEl.classList.add('listening');
+        document.getElementById('coreState').textContent = 'LISTENING';
+        document.getElementById('coreSub').textContent = 'ACOUSTIC RECEPTORS ENGAGED';
         voiceToggleBtnEl.innerHTML = `
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"/></svg>
           <span>Disconnect Voice</span>
@@ -1125,29 +1913,51 @@
           try {
             const rec = new SpeechRec();
             state.recognition = rec;
-            rec.continuous = false;
-            rec.interimResults = false;
+            rec.continuous = true;
+            // Keep interim speech visible so a working mic is distinguishable
+            // from a recognition service that has stopped returning results.
+            rec.interimResults = true;
             rec.lang = state.voiceLang === 'hi' ? 'hi-IN' : 'en-US';
+            rec.onstart = () => {
+              if (state.isVoiceActive && state.recognition === rec) {
+                voiceStatusEl.textContent = 'Microphone connected. Speak your command.';
+              }
+            };
 
             rec.onresult = (e) => {
-              const transcript = e.results[0][0].transcript;
-              if (transcript && transcript.trim()) {
-                submitPrompt(transcript);
+              for (let i = e.resultIndex || 0; i < e.results.length; i++) {
+                const transcript = e.results[i][0].transcript || '';
+                if (e.results[i].isFinal) {
+                  handleVoiceTranscript(transcript);
+                } else if (transcript.trim()) {
+                  voiceStatusEl.textContent = `Hearing: “${transcript.trim()}”`;
+                }
               }
             };
             rec.onerror = (err) => {
-              if (err.error === 'network' || err.error === 'no-speech') {
+              if (err.error === 'no-speech' || err.error === 'aborted') return;
+              if (err.error === 'not-allowed' || err.error === 'service-not-allowed') {
+                stopVoice('Microphone access denied. Allow it in browser site settings, then reconnect.');
+                return;
+              }
+              if (err.error === 'network' && !state.fallbackRequested) {
+                state.fallbackRequested = true;
                 fallbackToWhisperRecording();
-              } else {
-                stopVoice();
+              } else if (err.error !== 'network') {
+                voiceStatusEl.textContent = `Speech recognition error: ${err.error}`;
               }
             };
             rec.onend = () => {
-              if (state.isVoiceActive && !state.mediaRecorder) {
-                stopVoice();
+              if (state.isVoiceActive && state.recognition === rec && !state.fallbackRequested) {
+                setTimeout(() => {
+                  if (state.isVoiceActive && state.recognition === rec) {
+                    try { rec.start(); } catch (e) {}
+                  }
+                }, 250);
               }
             };
             rec.start();
+            startClapWakeListener();
             return;
           } catch (e) {
             fallbackToWhisperRecording();
@@ -1158,58 +1968,233 @@
       }
 
       function fallbackToWhisperRecording() {
+        if (state.mediaRecorder || !state.isVoiceActive) return;
+        if (state.clapStream) {
+          state.clapStream.getTracks().forEach(track => track.stop());
+          state.clapStream = null;
+          state.clapAnalyser = null;
+          if (state.clapAnimationFrame) cancelAnimationFrame(state.clapAnimationFrame);
+        }
+        if (state.recognition) {
+          try { state.recognition.stop(); } catch (e) {}
+          state.recognition = null;
+        }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          voiceStatusEl.textContent = 'Microphone access unavailable';
-          stopVoice();
+          stopVoice('Microphone access is unavailable in this browser.');
           return;
         }
 
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then((stream) => {
+            if (!state.isVoiceActive) {
+              stream.getTracks().forEach(t => t.stop());
+              state.whisperLoopActive = false;
+              return;
+            }
             state.audioChunks = [];
-            const mr = new MediaRecorder(stream);
+            state.microphoneStream = stream;
+            if (!window.MediaRecorder) {
+              stream.getTracks().forEach(track => track.stop());
+              state.microphoneStream = null;
+              stopVoice('This browser cannot record microphone audio. Try Chrome or Edge.');
+              return;
+            }
+            const preferredMime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+              .find(type => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(type));
+            const mr = preferredMime ? new MediaRecorder(stream, { mimeType: preferredMime }) : new MediaRecorder(stream);
             state.mediaRecorder = mr;
+            mr.onerror = (event) => {
+              console.error('Microphone recorder error:', event.error || event);
+              voiceStatusEl.textContent = 'Microphone recording failed. Check the selected input device and reconnect.';
+            };
             mr.ondataavailable = (e) => {
               if (e.data.size > 0) state.audioChunks.push(e.data);
             };
             mr.onstop = async () => {
+              let retryDelayMs = 0;
+              if (state.mediaRecorder === mr) state.mediaRecorder = null;
+              if (state.whisperFrame) cancelAnimationFrame(state.whisperFrame);
+              if (state.whisperTimeout) clearTimeout(state.whisperTimeout);
               stream.getTracks().forEach(t => t.stop());
-              if (state.audioChunks.length === 0) return;
-              const blob = new Blob(state.audioChunks, { type: 'audio/webm' });
-              const formData = new FormData();
-              formData.append('file', blob, 'recording.webm');
-              voiceStatusEl.textContent = 'Transcribing with local Whisper...';
+              state.microphoneStream = null;
+              state.clapAnalyser = null;
+              if (state.clapAnimationFrame) cancelAnimationFrame(state.clapAnimationFrame);
+              const chunks = state.audioChunks.splice(0);
+              if (chunks.length === 0) {
+                voiceStatusEl.textContent = 'No microphone audio was captured. Check microphone permission and input level.';
+                if (state.isVoiceActive) setTimeout(() => fallbackToWhisperRecording(), 2000);
+                return;
+              }
+              const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
+              const capturedSeconds = Math.max(1, Math.round((Date.now() - state.recorderStartedAt) / 1000));
+              voiceStatusEl.textContent = `Captured audio (${capturedSeconds}s). Transcribing…`;
               try {
-                const res = await fetch('/api/stt', { method: 'POST', body: formData });
-                if (res.ok) {
-                  const data = await res.json();
-                  if (data.text && data.text.trim()) {
-                    submitPrompt(data.text);
-                  }
+                const res = await fetch('/api/stt', {
+                  method: 'POST',
+                  headers: { 'Content-Type': blob.type || 'audio/webm' },
+                  body: blob
+                });
+                if (!res.ok) throw new Error(`Speech recognition failed (${res.status})`);
+                const data = await res.json();
+                if (data.text && data.text.trim()) {
+                  voiceStatusEl.textContent = `Recognized: “${data.text.trim()}”`;
+                  handleVoiceTranscript(data.text);
+                } else {
+                  voiceStatusEl.textContent = 'Audio reached Whisper, but no words were recognized. Speak closer to the microphone and try again.';
+                  retryDelayMs = 2000;
                 }
               } catch (err) {
                 console.warn('STT upload error:', err);
-              } finally {
-                stopVoice();
+                voiceStatusEl.textContent = `Transcription failed: ${err.message || 'Whisper is unavailable'}. Try again.`;
+                retryDelayMs = 2500;
+              }
+              if (state.isVoiceActive) {
+                state.whisperLoopActive = false;
+                if (retryDelayMs) {
+                  setTimeout(() => {
+                    if (state.isVoiceActive) fallbackToWhisperRecording();
+                  }, retryDelayMs);
+                } else {
+                  fallbackToWhisperRecording();
+                }
+              } else {
+                state.whisperLoopActive = false;
               }
             };
-            mr.start();
-            voiceStatusEl.textContent = 'Recording for Whisper transcription...';
+            state.recorderStartedAt = Date.now();
+            mr.start(250);
+            state.whisperLoopActive = true;
+            startClapWakeListener(stream);
+            voiceStatusEl.textContent = 'Listening... Say “Hey Jarvis” or speak your request';
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+              state.audioContext = state.audioContext || new AudioContextClass();
+              if (state.audioContext.state === 'suspended') state.audioContext.resume().catch(() => {});
+              const source = state.audioContext.createMediaStreamSource(stream);
+              const analyser = state.audioContext.createAnalyser();
+              analyser.fftSize = 512;
+              source.connect(analyser);
+              const samples = new Uint8Array(analyser.fftSize);
+              const startedAt = Date.now();
+              let heardSpeech = false;
+              let lastSpeechAt = startedAt;
+              let noiseFloor = 0.004;
+              const monitor = () => {
+                if (!state.isVoiceActive || state.mediaRecorder !== mr || mr.state !== 'recording') return;
+                analyser.getByteTimeDomainData(samples);
+                let energy = 0;
+                for (const sample of samples) {
+                  const amplitude = (sample - 128) / 128;
+                  energy += amplitude * amplitude;
+                }
+                const rms = Math.sqrt(energy / samples.length);
+                const speechThreshold = Math.min(0.035, Math.max(0.009, noiseFloor * 1.4));
+                if (!heardSpeech && rms < 0.08) noiseFloor = noiseFloor * 0.97 + rms * 0.03;
+                if (rms > speechThreshold) {
+                  heardSpeech = true;
+                  lastSpeechAt = Date.now();
+                }
+                if ((heardSpeech && Date.now() - lastSpeechAt > 1400) || Date.now() - startedAt > 15000) {
+                  mr.stop();
+                  return;
+                }
+                state.whisperFrame = requestAnimationFrame(monitor);
+              };
+              state.whisperFrame = requestAnimationFrame(monitor);
+            } else {
+              state.whisperTimeout = setTimeout(() => {
+                if (state.isVoiceActive && mr.state === 'recording') mr.stop();
+              }, 15000);
+            }
           })
           .catch(() => {
-            voiceStatusEl.textContent = 'Microphone permission denied';
-            stopVoice();
+            stopVoice('Microphone permission denied. Allow it in browser site settings, then reconnect.');
           });
       }
 
-      function stopVoice() {
+      function handleVoiceTranscript(rawText) {
+        const transcript = (rawText || '').trim();
+        if (!transcript) return;
+        const wake = transcript.match(/^\s*(?:(?:hey|uh|um|okay|ok)\s+)*(?:jarvis|computer|friday)\b[\s,.:;-]*/i);
+        const command = wake ? transcript.slice(wake[0].length).trim() : transcript;
+        if (state.operatingMode === 'stealth' && !wake && Date.now() > state.wakeArmedUntil) {
+          voiceStatusEl.textContent = 'Stealth mode active · waiting for “Hey Jarvis” or a double clap';
+          return;
+        }
+        if (state.operatingMode === 'stealth' && !wake) state.wakeArmedUntil = 0;
+        if (wake && !command) {
+          appendMessage('user', transcript);
+          state.wakeArmedUntil = Date.now() + 15000;
+          voiceStatusEl.textContent = 'Yes, sir. I’m listening for your command.';
+          voiceBadgeTextEl.textContent = 'Awake';
+          appendMessage('assistant', 'Yes, sir. I’m listening.');
+          return;
+        }
+        submitPrompt(command || transcript);
+        voiceStatusEl.textContent = 'Listening... Say “Hey Jarvis” or speak your request';
+      }
+
+      async function startClapWakeListener(existingStream) {
+        if (state.clapAnalyser || !state.isVoiceActive) return;
+        try {
+          const stream = existingStream || await navigator.mediaDevices.getUserMedia({ audio: true });
+          if (!state.isVoiceActive) {
+            if (!existingStream) stream.getTracks().forEach(track => track.stop());
+            return;
+          }
+          if (!existingStream) state.clapStream = stream;
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!state.audioContext && AudioContextClass) state.audioContext = new AudioContextClass();
+          if (!state.audioContext) return;
+          const source = state.audioContext.createMediaStreamSource(stream);
+          const analyser = state.audioContext.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          state.clapAnalyser = analyser;
+          const samples = new Uint8Array(analyser.fftSize);
+          let priorRms = 0;
+          const monitor = () => {
+            if (!state.isVoiceActive || state.clapAnalyser !== analyser) return;
+            analyser.getByteTimeDomainData(samples);
+            let energy = 0;
+            let peak = 0;
+            for (const sample of samples) {
+              const amplitude = Math.abs(sample - 128) / 128;
+              energy += amplitude * amplitude;
+              peak = Math.max(peak, amplitude);
+            }
+            const rms = Math.sqrt(energy / samples.length);
+            const now = Date.now();
+            if (peak > 0.72 && rms > 0.08 && peak > Math.max(0.2, priorRms * 2.8) && now - state.lastClapAt > 150) {
+              state.clapCount = now - state.lastClapAt <= 850 ? state.clapCount + 1 : 1;
+              state.lastClapAt = now;
+              if (state.clapCount >= 2) {
+                state.clapCount = 0;
+                state.wakeArmedUntil = now + 15000;
+                voiceStatusEl.textContent = 'Double clap detected. I’m listening for your command.';
+                voiceBadgeTextEl.textContent = 'Awake';
+                appendMessage('assistant', 'I’m listening.');
+              }
+            }
+            priorRms = rms;
+            state.clapAnimationFrame = requestAnimationFrame(monitor);
+          };
+          state.clapAnimationFrame = requestAnimationFrame(monitor);
+        } catch (error) {
+          console.info('Clap wake listener unavailable:', error);
+        }
+      }
+
+      function stopVoice(statusMessage = 'Click to speak directly to JARVIS') {
         state.isVoiceActive = false;
         pulseOrbEl.classList.remove('listening');
+        document.getElementById('coreState').textContent = state.operatingMode === 'stealth' ? 'STEALTH' : state.operatingMode === 'combat' ? 'TACTICAL' : 'STANDBY';
+        document.getElementById('coreSub').textContent = 'AWAITING DIRECTIVE';
         voiceToggleBtnEl.innerHTML = `
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
           <span>Initialize Voice Link</span>
         `;
-        voiceStatusEl.textContent = 'Click to speak directly to JARVIS';
+        voiceStatusEl.textContent = statusMessage;
         voiceIndicatorEl.style.background = 'var(--accent-muted)';
         voiceBadgeTextEl.textContent = 'Ready';
 
@@ -1220,6 +2205,24 @@
         if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
           try { state.mediaRecorder.stop(); } catch(e){}
           state.mediaRecorder = null;
+        }
+        if (state.whisperFrame) cancelAnimationFrame(state.whisperFrame);
+        if (state.whisperTimeout) clearTimeout(state.whisperTimeout);
+        if (state.clapAnimationFrame) cancelAnimationFrame(state.clapAnimationFrame);
+        state.clapAnalyser = null;
+        state.whisperLoopActive = false;
+        state.fallbackRequested = false;
+        if (state.microphoneStream) {
+          state.microphoneStream.getTracks().forEach(track => track.stop());
+          state.microphoneStream = null;
+        }
+        if (state.clapStream) {
+          state.clapStream.getTracks().forEach(track => track.stop());
+          state.clapStream = null;
+        }
+        if (state.audioContext) {
+          state.audioContext.close().catch(() => {});
+          state.audioContext = null;
         }
       }
 
@@ -1239,8 +2242,11 @@
         const bubble = document.createElement('div');
         bubble.className = 'msg-bubble';
 
-        // Format basic markdown
-        const formatted = text
+        // Escape all user/model content before adding the small trusted markdown subset.
+        const escapedText = String(text).replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[char]));
+        const formatted = escapedText
           .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
           .replace(/`([^`]+)`/g, '<code>$1</code>')
           .replace(/\n\n/g, '</p><p>')
@@ -1251,6 +2257,8 @@
         msgDiv.appendChild(bubble);
         chatFeedEl.appendChild(msgDiv);
         chatFeedEl.scrollTop = chatFeedEl.scrollHeight;
+        const messageCountEl = document.getElementById('messageCount');
+        if (messageCountEl) messageCountEl.textContent = `${chatFeedEl.querySelectorAll('.message').length} MSG`;
 
         if (sender === 'assistant') {
           speakText(text);
@@ -1258,9 +2266,44 @@
       }
 
       function handleIncomingMessage(data) {
-        if (data.type === 'response' || data.text) {
+        if (data.type === 'status') {
+          const coreStateEl = document.getElementById('coreState');
+          const coreSubEl = document.getElementById('coreSub');
+          if (data.status === 'thinking') {
+            coreStateEl.textContent = 'COMPUTING';
+            coreSubEl.textContent = 'NEURAL PATHWAYS ACTIVE';
+          } else if (data.status === 'idle' && !state.isVoiceActive) {
+            coreStateEl.textContent = state.operatingMode === 'stealth' ? 'STEALTH' : state.operatingMode === 'combat' ? 'TACTICAL' : 'STANDBY';
+            coreSubEl.textContent = 'AWAITING DIRECTIVE';
+          }
+        } else if (data.type === 'tool_steps') {
+          (data.steps || []).forEach(appendToolTrace);
+        } else if (data.type === 'tool_step') {
+          appendToolTrace(data.text || 'Tool action');
+        } else if (data.type === 'response' || data.text) {
           appendMessage('assistant', data.text || data.response);
+        } else if (data.type === 'telemetry' && data.data) {
+          updateTelemetryUI(data.data);
         }
+      }
+
+      let toolTraceCount = 0;
+      function appendToolTrace(step) {
+        const trace = document.getElementById('toolTrace');
+        if (!trace) return;
+        const empty = trace.querySelector('.tiny');
+        if (empty) empty.remove();
+        const row = document.createElement('div');
+        row.className = 'tool-trace-entry';
+        const time = document.createElement('time');
+        time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const label = document.createElement('span');
+        label.textContent = String(step || 'Tool action');
+        row.append(time, label);
+        trace.prepend(row);
+        toolTraceCount += 1;
+        document.getElementById('traceCount').textContent = `${toolTraceCount} CALLS`;
+        while (trace.children.length > 12) trace.lastElementChild.remove();
       }
 
       async function submitPrompt(customText) {
@@ -1270,24 +2313,55 @@
 
         appendMessage('user', text);
         const startTime = Date.now();
+        const prompts = splitCompoundPrompt(text);
 
         if (state.wsConnected && state.ws && state.ws.readyState === WebSocket.OPEN) {
-          state.ws.send(JSON.stringify({ prompt: text, query: text }));
+          // The server processes websocket messages in order. Send each
+          // action separately so a search tool never receives the whole task.
+          const mode = ({ classic: 'attentive', stealth: 'silent', combat: 'combat' })[state.operatingMode] || 'normal';
+          prompts.forEach((prompt) => state.ws.send(JSON.stringify({ prompt, query: prompt, text: prompt, mode })));
           latValEl.textContent = `${Date.now() - startTime}ms`;
         } else {
           try {
-            const res = await fetch('/api/chat', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: text, prompt: text, message: text, query: text })
-            });
-            const data = await res.json();
+            for (const prompt of prompts) {
+              const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: prompt, prompt, message: prompt, query: prompt, mode: ({ classic: 'attentive', stealth: 'silent', combat: 'combat' })[state.operatingMode] || 'normal' })
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+              const reply = data.response || data.text || data.reply;
+              if (reply) appendMessage('assistant', reply);
+            }
             latValEl.textContent = `${Date.now() - startTime}ms`;
-            appendMessage('assistant', data.response || data.text || data.reply || 'Execution completed.');
           } catch (err) {
-            appendMessage('assistant', 'Execution failed: unable to connect to API server.');
+            appendMessage('assistant', `Execution failed: ${err.message || 'unable to connect to API server.'}`);
           }
         }
+      }
+
+      function splitCompoundPrompt(rawText) {
+        let text = String(rawText || '').trim();
+        text = text.replace(/^\s*(?:uh|um|okay|ok)?\s*(?:jarvis[, ]*)?(?:on|in)\s+(chrome|google chrome)\s+/i,
+          'open Chrome and then ');
+        // Keep longer multi-target commands intact so the local compound router
+        // can plan the entire batch and preserve the requested browser context.
+        const searchCount = (text.match(/\bsearch\b/gi) || []).length;
+        if (searchCount >= 2 && /\b(?:downloads?|calculator|time|what(?:'s|\s+is))\b/i.test(text)) {
+          return [text];
+        }
+        const parts = text.split(/\s+(?:and\s+then|then|and\s+also|also)\s+/i)
+          .map((part) => part.trim().replace(/^[,;:.\s]+|[,;:.\s]+$/g, ''))
+          .filter(Boolean);
+        if (parts.length < 2) return [text];
+
+        const actionable = /^(?:open|launch|start|close|search|google|find|look\s+up|tell\s+me|what(?:'s|\s+is)|calculate|compute|another\s+tab|a\s+new\s+tab|new\s+tab|go\s+to|visit|create|make|play|set|turn|switch|show|check)\b/i;
+        if (!parts.every((part) => actionable.test(part))) return [text];
+        return parts.map((part) => {
+          const tabAction = part.replace(/^another\s+tab\s+(?:open\s+)?(?:and\s+)?/i, 'open a new tab and ');
+          return tabAction.replace(/^open\s+my\s+downloads(?:\s+folder)?$/i, 'open downloads folder');
+        });
       }
 
       sendBtnEl.addEventListener('click', () => submitPrompt());
@@ -1321,19 +2395,59 @@
         a.click();
       };
 
+      function updateTelemetryUI(stats, elapsedMs) {
+        if (!stats) return;
+        const cpu = stats.cpu ?? stats.cpu_percent ?? stats.cpu_usage_percent;
+        const mem = stats.memory ?? stats.ram_usage_percent ?? stats.ram_used_pct;
+        const bat = stats.battery ?? stats.battery_pct;
+        const setMeter = (id, value) => {
+          const meter = document.getElementById(id);
+          if (meter && Number.isFinite(Number(value))) meter.style.width = `${Math.max(0, Math.min(100, Number(value)))}%`;
+        };
+
+        if (cpu !== undefined && cpuValEl) {
+          cpuValEl.textContent = `${Math.round(Number(cpu))}%`;
+          setMeter('cpuMeter', cpu);
+        }
+        if (mem !== undefined && memValEl) {
+          memValEl.textContent = `${Math.round(Number(mem))}%`;
+          setMeter('memMeter', mem);
+        }
+        if (bat !== undefined && batValEl) {
+          if (typeof bat === 'number') {
+            batValEl.textContent = `${Math.round(bat)}%`;
+            setMeter('batMeter', bat);
+          } else {
+            const first = String(bat).split(' ')[0];
+            batValEl.textContent = first.includes('%') ? first : `${first}%`;
+            setMeter('batMeter', first.replace('%', ''));
+          }
+        }
+        if (elapsedMs !== undefined && latValEl) {
+          latValEl.textContent = `${elapsedMs}ms`;
+          setMeter('latMeter', Math.max(0, 100 - elapsedMs / 10));
+          const status = document.getElementById('latencyIndicator');
+          if (status) status.textContent = `LATENCY ${elapsedMs}ms`;
+        }
+      }
+
       // Telemetry Polling
       async function pollTelemetry() {
+        const t0 = performance.now();
         try {
           const res = await fetch('/api/telemetry');
+          const elapsed = Math.round(performance.now() - t0);
           if (res.ok) {
-            const data = await res.json();
-            if (data.cpu !== undefined) cpuValEl.textContent = `${Math.round(data.cpu)}%`;
-            if (data.memory !== undefined) memValEl.textContent = `${Math.round(data.memory)}%`;
-            if (data.battery !== undefined) batValEl.textContent = `${Math.round(data.battery)}%`;
+            const json = await res.json();
+            const stats = json.data || json;
+            if (json.cpu !== undefined) stats.cpu = json.cpu;
+            if (json.memory !== undefined) stats.memory = json.memory;
+            if (json.battery !== undefined) stats.battery = json.battery;
+            updateTelemetryUI(stats, elapsed);
           }
         } catch(e){}
       }
-      setInterval(pollTelemetry, 3000);
+      setInterval(pollTelemetry, 2500);
       pollTelemetry();
 
       // Modal Controls
@@ -1345,6 +2459,7 @@
         const m = document.getElementById(id);
         if (m) m.style.display = 'none';
       };
+      document.getElementById('commandsBtn').addEventListener('click', () => openModal('commandPaletteModal'));
 
       apiKeyBtn.addEventListener('click', async () => {
         openModal('apiKeyModal');
@@ -1508,7 +2623,15 @@
 
       // Close modal on escape
       document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          const palette = document.getElementById('commandPaletteModal');
+          if (palette.style.display === 'flex') closeModal('commandPaletteModal');
+          else openModal('commandPaletteModal');
+          return;
+        }
         if (e.key === 'Escape') {
+          closeModal('commandPaletteModal');
           closeModal('apiKeyModal');
           closeModal('settingsModal');
           closeModal('notesModal');

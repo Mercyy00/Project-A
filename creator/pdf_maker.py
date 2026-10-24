@@ -409,9 +409,9 @@ def make_pdf(
             story.append(Paragraph(title, cover_title_style))
 
             # Subtitle
-            sub_text = subtitle or "JARVIS Autonomous Intelligence • Executive Document"
-            sub_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(sub_text) and dev_registered) else body_font
-            story.append(Paragraph(sub_text, ParagraphStyle("ExecSub", parent=cover_sub_style, fontName=sub_font)))
+            if subtitle:
+                sub_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(subtitle) and dev_registered) else body_font
+                story.append(Paragraph(subtitle, ParagraphStyle("ExecSub", parent=cover_sub_style, fontName=sub_font)))
 
             story.append(
                 HRFlowable(
@@ -426,19 +426,13 @@ def make_pdf(
             # Executive Metadata Card
             meta_table_data = [
                 [
-                    Paragraph("<b>AUTHOR:</b>", meta_label_style),
-                    Paragraph("Vidhita (Document Engineer) • Pair D", meta_value_style),
-                    Paragraph("<b>STATUS:</b>", meta_label_style),
-                    Paragraph("Production Verified", meta_value_style),
-                ],
-                [
-                    Paragraph("<b>THEME:</b>", meta_label_style),
+                    Paragraph("<b>FORMAT:</b>", meta_label_style),
+                    Paragraph("Generated PDF", meta_value_style),
+                    Paragraph("<b>STYLE:</b>", meta_label_style),
                     Paragraph(theme_cfg["name"].replace("_", " ").title(), meta_value_style),
-                    Paragraph("<b>ENGINE:</b>", meta_label_style),
-                    Paragraph("ReportLab Platypus", meta_value_style),
                 ],
             ]
-            meta_table = Table(meta_table_data, colWidths=[65, 185, 65, 175])
+            meta_table = Table(meta_table_data, colWidths=[85, 165, 65, 175])
             meta_table.setStyle(
                 TableStyle([
                     ("BACKGROUND", (0, 0), (-1, -1), card_bg_col),

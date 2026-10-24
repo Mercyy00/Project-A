@@ -3,6 +3,8 @@
 import pytest
 import os
 import sys
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 # Ensure project root in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -115,6 +117,92 @@ async def test_dynamic_multi_user_introduction_and_reset():
     reset_resp = await _generate_response("reset user", session_user=session)
     assert "cleared" in reset_resp or "neutral" in reset_resp
     assert session["is_known"] is False
+
+
+@pytest.mark.asyncio
+async def test_http_chat_waits_for_core_and_returns_its_response(monkeypatch):
+    """HTTP chat must return the actual core result without a short timeout."""
+    from core import service
+    from ui import server
+
+    core_handler = AsyncMock(return_value={
+        "text": "The requested operation completed.",
+        "tool_steps": ["open_app({'app_name': 'chrome'})"],
+        "source": "ui_http",
+    })
+    monkeypatch.setattr(service, "handle_text", core_handler)
+    monkeypatch.setattr(
+        server.asyncio,
+        "wait_for",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected timeout")),
+    )
+
+    result = await server.http_chat(server.ChatPayload(text="open Chrome"))
+
+    assert result["text"] == "The requested operation completed."
+    assert result["tool_steps"] == ["open_app({'app_name': 'chrome'})"]
+    core_handler.assert_awaited_once_with("open Chrome", source="ui_http", mode="normal")
+
+
+@pytest.mark.asyncio
+async def test_http_chat_reports_core_failure_without_fabricating_success(monkeypatch):
+    """A core failure must surface as an HTTP error rather than a canned success."""
+    from fastapi import HTTPException
+    from core import service
+    from ui import server
+
+    monkeypatch.setattr(service, "handle_text", AsyncMock(return_value={
+        "text": "Subsystem execution error: provider unavailable",
+        "tool_steps": [],
+        "source": "ui_http",
+    }))
+
+    with pytest.raises(HTTPException) as error:
+        await server.http_chat(server.ChatPayload(text="open Chrome"))
+
+    assert error.value.status_code == 503
+
+
+def test_stt_endpoint_accepts_raw_browser_audio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The browser posts raw WebM, matching the local Whisper endpoint contract."""
+    from fastapi.testclient import TestClient
+    from ui import server
+
+    expected_audio = b"webm-audio" * 16
+
+    class FakeTranscriber:
+        def transcribe_file(self, audio_path: str | Path) -> dict[str, str]:
+            assert Path(audio_path).read_bytes() == expected_audio
+            return {"text": "Open Chrome", "language": "en"}
+
+    monkeypatch.setattr("voice.stt.get_transcriber", lambda: FakeTranscriber())
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/stt",
+            content=expected_audio,
+            headers={"Content-Type": "audio/webm"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "text": "Open Chrome", "language": "en"}
+
+
+@pytest.mark.asyncio
+async def test_generate_response_does_not_claim_success_when_services_are_down(monkeypatch):
+    """The HUD fallback must be transparent if neither the core nor Gemini is available."""
+    from core import service
+    from ui import server
+
+    async def fail_core(*_args, **_kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(service, "handle_text", fail_core)
+    monkeypatch.setattr(server, "get_genai_client", lambda: None)
+
+    response = await server._generate_response("Explain quantum computing")
+
+    assert "couldn't reach" in response.lower()
+    assert "acknowledged your directive" not in response.lower()
 
 
 @pytest.mark.asyncio
