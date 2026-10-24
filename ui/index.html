@@ -645,10 +645,10 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       <div class="eyebrow mono">ADAPTIVE INTELLIGENCE INTERFACE</div>
     </div>
   </div>
-  <div style="display:flex;align-items:center;gap:18px;">
-    <button id="btn-api-key" class="mono" style="background:rgba(var(--rgb),.08);border:1px solid var(--border);color:var(--accent);padding:7px 14px;font-size:12px;letter-spacing:.12em;display:flex;align-items:center;gap:8px;border-radius:2px;cursor:pointer;transition:all .3s ease;" title="Configure Google Gemini Neural Core">
-      <span style="font-size:14px;">🔑</span>
-      <span id="key-chip-text">API KEY CONFIG</span>
+  <div style="display:flex;align-items:center;gap:14px;">
+    <button type="button" class="btn mono" id="tts-toggle" title="Neural Speech Active - Click to Mute" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid var(--border);border-radius:20px;cursor:pointer;background:rgba(var(--rgb),.08);color:var(--text);font-size:12px;letter-spacing:.08em;transition:all .2s ease;">
+      <span id="tts-icon" style="font-size:14px;">🔊</span>
+      <span id="tts-label">SPEECH: ON</span>
     </button>
     <div class="clock mono">
       <strong id="clock">--:--:--</strong>
@@ -842,6 +842,8 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   <div class="tiny mono">J.A.R.V.I.S. / ADAPTIVE INTELLIGENCE HUD / V 7.02</div>
   <div class="action-buttons">
     <button class="btn mono" id="diagnostic">RUN DIAGNOSTIC</button>
+    <button class="btn mono" id="btn-notes-vault">NOTES VAULT</button>
+    <button class="btn mono" id="btn-settings">SETTINGS</button>
     <button class="btn mono" id="reset">RESET SYSTEM</button>
   </div>
 </footer>
@@ -888,6 +890,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   let activeMode = 'classic';
   let isListening = false;
   let isJarvisSpeaking = false;
+  let isAwaitingReplyOrSpeaking = false;
   let currentAudio = null;
   let ws = null;
   let pingInterval = null;
@@ -1021,6 +1024,8 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   const chatForm = $('#chat-form');
   const userInput = $('#user-input');
 
+  let ttsEnabled = true;
+
   function appendFeedMessage(role, text) {
     const row = document.createElement('div');
     row.className = `msg-row ${role}`;
@@ -1030,6 +1035,32 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     const contentEl = document.createElement('div');
     contentEl.className = 'msg-content';
     contentEl.textContent = text;
+
+    // Day 7: Inspect text for generated document files or screenshot images
+    const docMatch = text.match(/(?:workspace[\/\\]([a-zA-Z0-9_\-\.\s]+\.(?:pdf|docx|pptx|txt|csv|xlsx)))/i);
+    if (docMatch) {
+      const docName = docMatch[1].trim();
+      const link = document.createElement('a');
+      link.href = `/workspace/${encodeURIComponent(docName)}`;
+      link.target = '_blank';
+      link.download = docName;
+      link.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:4px 10px;background:rgba(var(--rgb),.15);border:1px solid var(--accent);color:var(--text);border-radius:4px;font-size:11px;text-decoration:none;font-weight:600;letter-spacing:.05em;';
+      link.innerHTML = `📥 Download Generated Document: <span style="color:var(--accent);">${docName}</span>`;
+      contentEl.appendChild(document.createElement('br'));
+      contentEl.appendChild(link);
+    }
+
+    const imgMatch = text.match(/(?:(?:temp_vision[\/\\]|\/temp_vision\/)([a-zA-Z0-9_\-\.]+\.(?:png|jpg|jpeg)))/i);
+    if (imgMatch) {
+      const imgName = imgMatch[1].trim();
+      const img = document.createElement('img');
+      img.src = `/temp_vision/${encodeURIComponent(imgName)}`;
+      img.alt = 'Screen Capture';
+      img.style.cssText = 'display:block;max-width:280px;border-radius:4px;margin-top:8px;border:1px solid var(--border);cursor:pointer;';
+      img.onclick = () => window.open(img.src, '_blank');
+      contentEl.appendChild(img);
+    }
+
     row.appendChild(roleEl);
     row.appendChild(contentEl);
     feedBox.appendChild(row);
@@ -1127,6 +1158,19 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     log(`INPUT: "${clean.substring(0, 24)}..."`);
     setCoreState('thinking');
 
+    // Immediately stop microphone if listening so speaker output is not captured
+    isAwaitingReplyOrSpeaking = true;
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+    }
+    clearTimeout(directiveWatchdogTimer);
+    directiveWatchdogTimer = setTimeout(() => {
+      if (isAwaitingReplyOrSpeaking) {
+        log('SAFETY TIMEOUT: RELEASING VOICE LINK');
+        releaseSpeakingLock();
+      }
+    }, 6000);
+
     // Check for verbal mode switching
     const lower = clean.toLowerCase();
     if (lower.includes('combat mode') || lower.includes('engage combat')) {
@@ -1192,6 +1236,25 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   // -------------------------------------------------------------
   // 7. TEXT-TO-SPEECH (Edge-TTS Neural & Fast Fallback)
   // -------------------------------------------------------------
+  let directiveWatchdogTimer = null;
+
+  function releaseSpeakingLock() {
+    clearTimeout(directiveWatchdogTimer);
+    isJarvisSpeaking = false;
+    isAwaitingReplyOrSpeaking = false;
+    setCoreState(isListening ? 'listening' : 'idle');
+    if (isListening) {
+      btnVoice.classList.add('active-voice');
+      btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
+      if (recognition) {
+        try { recognition.start(); } catch (e) {}
+      }
+    } else {
+      btnVoice.classList.remove('active-voice');
+      btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
+    }
+  }
+
   function stopAudio() {
     isJarvisSpeaking = false;
     if (currentAudio) {
@@ -1209,8 +1272,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
   function speakBrowserSpeech(clean) {
     if (!window.speechSynthesis) {
-      isJarvisSpeaking = false;
-      setCoreState(isListening ? 'listening' : 'idle');
+      releaseSpeakingLock();
       return;
     }
     window.speechSynthesis.cancel();
@@ -1229,18 +1291,19 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       setCoreState('speaking');
     };
     utterance.onend = () => {
-      setTimeout(() => { isJarvisSpeaking = false; }, 300);
-      setCoreState(isListening ? 'listening' : 'idle');
+      setTimeout(releaseSpeakingLock, 200);
     };
     utterance.onerror = () => {
-      isJarvisSpeaking = false;
-      setCoreState(isListening ? 'listening' : 'idle');
+      releaseSpeakingLock();
     };
     window.speechSynthesis.speak(utterance);
   }
 
   function speakText(rawText) {
-    if (!rawText) return;
+    if (!ttsEnabled || !rawText) {
+      releaseSpeakingLock();
+      return;
+    }
     stopAudio();
 
     const clean = rawText
@@ -1250,7 +1313,10 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       .replace(/https?:\/\/\S+/g, 'link')
       .trim();
 
-    if (!clean) return;
+    if (!clean) {
+      releaseSpeakingLock();
+      return;
+    }
 
     // Instant local speech for Tactical Combat Mode
     if (activeMode === 'combat') {
@@ -1273,8 +1339,48 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
       audio.onended = () => {
         if (currentAudio === audio) currentAudio = null;
-        setTimeout(() => { isJarvisSpeaking = false; }, 350);
-        setCoreState(isListening ? 'listening' : 'idle');
+        setTimeout(releaseSpeakingLock, 250);
+      };
+
+      audio.onerror = () => {
+        if (currentAudio === audio) currentAudio = null;
+        speakBrowserSpeech(clean);
+      };
+
+      audio.play().catch(() => {
+        speakBrowserSpeech(clean);
+      });
+    } catch (e) {
+      speakBrowserSpeech(clean);
+    }
+  }
+
+
+    // High-fidelity Microsoft Edge Neural TTS stream
+    isJarvisSpeaking = true;
+    setCoreState('speaking');
+
+    try {
+      const audio = new Audio(`/api/tts?text=${encodeURIComponent(clean)}`);
+      currentAudio = audio;
+
+      audio.onplay = () => {
+        isJarvisSpeaking = true;
+        setCoreState('speaking');
+      };
+
+      audio.onended = () => {
+        if (currentAudio === audio) currentAudio = null;
+        setTimeout(() => {
+          isJarvisSpeaking = false;
+          isAwaitingReplyOrSpeaking = false;
+          setCoreState(isListening ? 'listening' : 'idle');
+          if (isListening && recognition) {
+            btnVoice.classList.add('active-voice');
+            btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
+            try { recognition.start(); } catch (e) {}
+          }
+        }, 350);
       };
 
       audio.onerror = () => {
@@ -1317,7 +1423,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   const btnVoice = $('#voice');
 
   function handleVoiceInput(candidate) {
-    if (isJarvisSpeaking) return;
+    if (isJarvisSpeaking || isAwaitingReplyOrSpeaking) return;
     const text = (candidate || '').trim();
     if (!text || text.length < 2) return;
 
@@ -1326,6 +1432,15 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     if (text === lastSpokenSubmission && (now - lastSpokenTime) < 1500) return;
     lastSpokenSubmission = text;
     lastSpokenTime = now;
+
+    // Immediately stop the microphone so it doesn't hear ambient noise or Jarvis speaking!
+    isAwaitingReplyOrSpeaking = true;
+    if (recognition) {
+      try { recognition.stop(); } catch (e) {}
+    }
+    btnVoice.classList.remove('active-voice');
+    btnVoice.textContent = '◎ PROCESSING DIRECTIVE...';
+    setCoreState('thinking');
 
     // Stealth Mode Wake-Word Check
     if (activeMode === 'stealth') {
@@ -1402,6 +1517,9 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       if (e.error === 'network') {
         consecutiveNetworkErrors++;
         log('MIC: CLOUD STT NETWORK HICCUP');
+        if (isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
+          releaseSpeakingLock();
+        }
         if (consecutiveNetworkErrors >= 2) {
           log('TIP: USE KEYBOARD OR RETRY VOICE LINK');
           appendFeedMessage('jarvis', 'Browser speech recognition network timed out connecting to Google speech servers. You can transmit directives by keyboard or check your internet/VPN connection.');
@@ -1411,6 +1529,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
       if (e.error === 'not-allowed') {
         log('MIC ERROR: PERMISSION BLOCKED IN BROWSER');
+        appendFeedMessage('jarvis', '⚠️ Microphone access is not allowed. Please click the lock icon in your browser address bar next to 127.0.0.1:8000 and select "Allow Microphone", then reload the page.');
         isListening = false;
         btnVoice.classList.remove('active-voice');
         btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
@@ -1422,10 +1541,10 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     };
 
     rec.onend = () => {
-      if (isListening) {
+      if (isListening && !isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
         const restartDelay = consecutiveNetworkErrors > 0 ? 2500 : 350;
         setTimeout(() => {
-          if (isListening && recognition) {
+          if (isListening && !isAwaitingReplyOrSpeaking && !isJarvisSpeaking && recognition) {
             try {
               recognition.start();
             } catch (e) {
@@ -1435,25 +1554,42 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
         }, restartDelay);
       } else {
         btnVoice.classList.remove('active-voice');
-        btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
-        setCoreState('idle');
+        btnVoice.textContent = (isAwaitingReplyOrSpeaking || isJarvisSpeaking) ? '◎ PROCESSING DIRECTIVE...' : '◎ INITIALIZE VOICE LINK';
+        if (!isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
+          setCoreState('idle');
+        }
       }
     };
 
     return rec;
   }
 
-  btnVoice.addEventListener('click', () => {
-    if (isListening) {
+  btnVoice.addEventListener('click', async () => {
+    if (isListening || isAwaitingReplyOrSpeaking) {
       isListening = false;
+      stopAudio();
       if (recognition) {
         try { recognition.stop(); } catch (e) {}
       }
-      btnVoice.classList.remove('active-voice');
-      btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
-      setCoreState('idle');
+      releaseSpeakingLock();
       log('VOICE RECEPTORS DISENGAGED');
     } else {
+      releaseSpeakingLock();
+
+      // Explicitly prompt for browser microphone access if not already granted
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+          log('MIC ACCESS VERIFIED');
+        } catch (permErr) {
+          log('MIC ACCESS DENIED');
+          appendFeedMessage('jarvis', '⚠️ Microphone access blocked. Please click the lock or site settings icon in your browser address bar next to http://127.0.0.1:8000 and set Microphone to "Allow".');
+          return;
+        }
+      }
+
+      isListening = true;
       if (!recognition) recognition = initSpeech();
       if (recognition) {
         try {
@@ -1508,6 +1644,195 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   });
 
   // -------------------------------------------------------------
+  // 9a. MUTE BUTTON, NOTES VAULT, SETTINGS & CONFIRMATION (DAYS 2, 6, 8)
+  // -------------------------------------------------------------
+  const ttsBtn = $('#tts-toggle');
+  const ttsIcon = $('#tts-icon');
+  const ttsLabel = $('#tts-label');
+
+  function updateTtsUi() {
+    if (!ttsBtn) return;
+    if (ttsEnabled) {
+      if (ttsIcon) ttsIcon.textContent = '🔊';
+      if (ttsLabel) ttsLabel.textContent = 'SPEECH: ON';
+      ttsBtn.style.opacity = '1';
+      ttsBtn.style.borderColor = 'var(--border)';
+      ttsBtn.setAttribute('title', 'Neural Speech Active - Click to Mute');
+      $('#setting-voice-on')?.classList.add('active');
+      $('#setting-voice-off')?.classList.remove('active');
+    } else {
+      if (ttsIcon) ttsIcon.textContent = '🔇';
+      if (ttsLabel) ttsLabel.textContent = 'MUTED';
+      ttsBtn.style.opacity = '0.65';
+      ttsBtn.style.borderColor = 'rgba(239,68,68,0.4)';
+      ttsBtn.setAttribute('title', 'Neural Speech Muted - Click to Unmute');
+      $('#setting-voice-off')?.classList.add('active');
+      $('#setting-voice-on')?.classList.remove('active');
+    }
+  }
+
+  if (ttsBtn) {
+    ttsBtn.addEventListener('click', () => {
+      ttsEnabled = !ttsEnabled;
+      if (!ttsEnabled) {
+        stopAudio();
+        log('NEURAL VOICE MUTED');
+      } else {
+        log('NEURAL VOICE ACTIVE');
+      }
+      updateTtsUi();
+    });
+  }
+
+  // Settings Modal Listeners (Day 8)
+  const settingsModal = $('#settings-modal');
+  $('#btn-settings')?.addEventListener('click', () => {
+    settingsModal?.classList.add('active');
+    updateTtsUi();
+    log('SETTINGS OPENED');
+  });
+  $('#close-settings-modal')?.addEventListener('click', () => settingsModal?.classList.remove('active'));
+  settingsModal?.addEventListener('click', (e) => {
+    if (e.target === settingsModal) settingsModal.classList.remove('active');
+  });
+
+  $('#setting-voice-on')?.addEventListener('click', () => {
+    ttsEnabled = true;
+    updateTtsUi();
+    log('NEURAL VOICE ENABLED');
+  });
+  $('#setting-voice-off')?.addEventListener('click', () => {
+    ttsEnabled = false;
+    stopAudio();
+    updateTtsUi();
+    log('NEURAL VOICE MUTED');
+  });
+
+  $('#setting-lang-select')?.addEventListener('change', (e) => {
+    activeSpeechLang = e.target.value;
+    if (recognition) recognition.lang = activeSpeechLang;
+    document.querySelectorAll('.chip-lang').forEach(b => {
+      b.classList.toggle('active', b.dataset.lang === activeSpeechLang);
+    });
+    log(`VOICE LANG SET TO: ${activeSpeechLang}`);
+  });
+
+  // Action Confirmation Modal Listeners (Day 6)
+  const confirmModal = $('#confirm-modal');
+  let pendingConfirmCallback = null;
+
+  function requestActionConfirmation(message, onConfirm) {
+    if ($('#confirm-message')) $('#confirm-message').textContent = message;
+    pendingConfirmCallback = onConfirm;
+    confirmModal?.classList.add('active');
+  }
+
+  $('#close-confirm-modal')?.addEventListener('click', () => {
+    confirmModal?.classList.remove('active');
+    pendingConfirmCallback = null;
+  });
+  $('#confirm-cancel-btn')?.addEventListener('click', () => {
+    confirmModal?.classList.remove('active');
+    pendingConfirmCallback = null;
+    log('ACTION CANCELLED BY USER');
+  });
+  $('#confirm-yes-btn')?.addEventListener('click', () => {
+    confirmModal?.classList.remove('active');
+    if (pendingConfirmCallback) {
+      pendingConfirmCallback();
+      pendingConfirmCallback = null;
+    }
+    log('ACTION CONFIRMED');
+  });
+
+  // Notes Vault Modal Listeners (Day 2/3)
+  const notesModal = $('#notes-modal');
+  const btnNotesVault = $('#btn-notes-vault');
+  const closeNotesModal = $('#close-notes-modal');
+  const notesListContainer = $('#notes-list-container');
+  const newNoteForm = $('#new-note-form');
+  const searchNotesInput = $('#search-notes-input');
+
+  function openNotesModal() {
+    notesModal?.classList.add('active');
+    loadNotes();
+    log('NOTES VAULT OPENED');
+  }
+
+  function closeNotesModalFn() {
+    notesModal?.classList.remove('active');
+  }
+
+  btnNotesVault?.addEventListener('click', openNotesModal);
+  closeNotesModal?.addEventListener('click', closeNotesModalFn);
+  notesModal?.addEventListener('click', (e) => {
+    if (e.target === notesModal) closeNotesModalFn();
+  });
+
+  async function loadNotes(query = '') {
+    if (!notesListContainer) return;
+    notesListContainer.innerHTML = '<div class="tiny mono" style="color:var(--muted);padding:4px 0;">Loading SQLite records...</div>';
+    try {
+      const url = query ? `/api/notes/search?q=${encodeURIComponent(query)}` : '/api/notes';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const notes = await res.json();
+      if (!Array.isArray(notes) || notes.length === 0) {
+        notesListContainer.innerHTML = '<div class="tiny mono" style="color:var(--muted);padding:8px 0;">No notes found in SQLite vault.</div>';
+        return;
+      }
+      notesListContainer.innerHTML = '';
+      notes.forEach(n => {
+        const item = document.createElement('div');
+        item.style.cssText = 'background:rgba(var(--rgb),.05);border:1px solid var(--border);padding:9px 12px;border-radius:4px;';
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = 'font-weight:600;font-size:12px;color:var(--accent);';
+        titleEl.textContent = n.title;
+        const bodyEl = document.createElement('div');
+        bodyEl.style.cssText = 'font-size:11px;color:var(--text);margin-top:3px;white-space:pre-wrap;';
+        bodyEl.textContent = n.content;
+        const dateEl = document.createElement('div');
+        dateEl.style.cssText = 'font-size:9px;color:var(--muted);margin-top:4px;text-align:right;';
+        dateEl.textContent = n.created_at || '';
+        item.appendChild(titleEl);
+        item.appendChild(bodyEl);
+        item.appendChild(dateEl);
+        notesListContainer.appendChild(item);
+      });
+    } catch (err) {
+      notesListContainer.innerHTML = `<div class="tiny mono" style="color:#ef4444;">Error loading notes: ${err.message}</div>`;
+    }
+  }
+
+  newNoteForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = $('#note-title')?.value.trim();
+    const content = $('#note-content')?.value.trim();
+    if (!title || !content) return;
+    try {
+      const res = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content })
+      });
+      if (res.ok) {
+        if ($('#note-title')) $('#note-title').value = '';
+        if ($('#note-content')) $('#note-content').value = '';
+        log('NOTE SAVED TO SQLITE');
+        loadNotes();
+      } else {
+        alert('Failed to save note to database');
+      }
+    } catch (err) {
+      alert('Error saving note: ' + err.message);
+    }
+  });
+
+  searchNotesInput?.addEventListener('input', (e) => {
+    loadNotes(e.target.value.trim());
+  });
+
+  // -------------------------------------------------------------
   // 10. NEURAL CORE API KEY MODAL CONTROLLER
   // -------------------------------------------------------------
   const modalOverlay = $('#key-modal-overlay');
@@ -1547,7 +1872,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   }
 
   modalCloseBtn.addEventListener('click', closeKeyModal);
-  btnApiKeyConfig.addEventListener('click', () => openKeyModal(isCoreEngaged));
+  btnApiKeyConfig?.addEventListener('click', () => openKeyModal(isCoreEngaged));
 
   toggleVisBtn.addEventListener('click', () => {
     const isPass = modalGeminiKey.type === 'password';
@@ -1569,7 +1894,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       const data = await res.json();
       if (data.configured) {
         isCoreEngaged = true;
-        keyChipText.textContent = `KEY: ${data.masked_key}`;
+        if (keyChipText) keyChipText.textContent = `KEY: ${data.masked_key}`;
         modalGeminiKey.value = '';
         modalGeminiKey.placeholder = `Active Key: ${data.masked_key} (Enter new to replace)`;
         showModalFeedback('info', `ACTIVE KEY DETECTED (${data.masked_key}). Click below to start JARVIS or enter a new key.`);
@@ -1577,7 +1902,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
         openKeyModal(true);
       } else {
         isCoreEngaged = false;
-        keyChipText.textContent = 'CONFIGURE API KEY';
+        if (keyChipText) keyChipText.textContent = 'CONFIGURE API KEY';
         showModalFeedback('error', 'AUTHORIZATION REQUIRED: Please provide your Google Gemini API Key to engage JARVIS.');
         engageBtnText.textContent = '⚡ ENGAGE NEURAL CORE & START JARVIS';
         openKeyModal(false);
@@ -1627,7 +1952,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
         showModalFeedback('success', 'NEURAL CORE AUTHENTICATED // CORE ONLINE');
         isCoreEngaged = true;
         const masked = geminiKey.length > 8 ? `${geminiKey.substring(0, 4)}••••••••${geminiKey.slice(-4)}` : '••••••••';
-        keyChipText.textContent = `KEY: ${masked}`;
+        if (keyChipText) keyChipText.textContent = `KEY: ${masked}`;
         log('NEURAL CORE AUTHENTICATED & ENGAGED');
 
         setTimeout(() => {
@@ -1733,3 +2058,100 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
 </body>
 </html>
+
+
+<!-- ========================================================================= -->
+<!-- 1. NOTES VAULT MODAL (SQLITE CRUD - DAY 2/3) -->
+<!-- ========================================================================= -->
+<div id="notes-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width: 600px;">
+    <div class="modal-header">
+      <div class="modal-brand">
+        <div class="modal-logo">📝</div>
+        <div>
+          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">PERSISTENT MEMORY</div>
+          <h2 class="modal-title" style="font-size:18px;margin:0;">SQLITE NOTES VAULT</h2>
+        </div>
+      </div>
+      <button id="close-notes-modal" class="modal-close" title="Close">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+      <form id="new-note-form" style="display:flex;flex-direction:column;gap:8px;">
+        <input type="text" class="modal-input" id="note-title" placeholder="Note Title (e.g. Project Architecture Plan)" required style="width:100%;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;" />
+        <textarea class="modal-textarea" id="note-content" placeholder="Type note content to store persistently in SQLite..." required style="width:100%;min-height:75px;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;resize:vertical;"></textarea>
+        <button type="submit" class="btn mono" style="align-self:flex-end;padding:6px 14px;">+ SAVE TO SQLITE</button>
+      </form>
+      <input type="text" class="modal-input" id="search-notes-input" placeholder="🔍 Search saved notes in database..." style="width:100%;padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);color:var(--text);border-radius:4px;margin-top:6px;" />
+      <div class="notes-list" id="notes-list-container" style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;margin-top:6px;">
+        <!-- Dynamically rendered -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 2. SETTINGS & PREFERENCES MODAL (DAY 8) -->
+<!-- ========================================================================= -->
+<div id="settings-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width: 520px;">
+    <div class="modal-header">
+      <div class="modal-brand">
+        <div class="modal-logo">⚙️</div>
+        <div>
+          <div class="eyebrow mono" style="color:var(--accent);letter-spacing:.25em;">SYSTEM PREFERENCES</div>
+          <h2 class="modal-title" style="font-size:18px;margin:0;">JARVIS CONFIGURATION</h2>
+        </div>
+      </div>
+      <button id="close-settings-modal" class="modal-close" title="Close">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;">
+      <div>
+        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:6px;letter-spacing:.1em;">NEURAL VOICE AUDIO (EDGE-TTS)</label>
+        <div style="display:flex;gap:10px;">
+          <button type="button" class="btn mono" id="setting-voice-on" style="flex:1;">🔊 ON (STREAM SPEECH)</button>
+          <button type="button" class="btn mono" id="setting-voice-off" style="flex:1;">🔇 MUTED</button>
+        </div>
+      </div>
+      <div>
+        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:6px;letter-spacing:.1em;">VOICE RECOGNITION LANGUAGE</label>
+        <select id="setting-lang-select" style="width:100%;padding:9px 12px;background:rgba(var(--rgb),.08);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;">
+          <option value="en-IN">English (India) - en-IN</option>
+          <option value="hi-IN">Hindi (India) - hi-IN</option>
+          <option value="mr-IN">Marathi (India) - mr-IN</option>
+          <option value="en-US">English (United States) - en-US</option>
+        </select>
+      </div>
+      <div>
+        <label class="tiny mono" style="color:var(--accent);display:block;margin-bottom:4px;letter-spacing:.1em;">ACTIVE ASSISTANT PERSONA</label>
+        <div class="note mono" style="padding:8px 12px;background:rgba(var(--rgb),.05);border:1px solid var(--border);border-radius:4px;color:var(--text);">JARVIS 8.02 / MULTI-USER ADAPTIVE CORE (PAIR A: ROHIT + JAYESH)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 3. ACTION CONFIRMATION MODAL (RISK GUARDRAILS - DAY 6) -->
+<!-- ========================================================================= -->
+<div id="confirm-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width: 460px;border-color:#ef4444;">
+    <div class="modal-header" style="border-bottom-color:rgba(239,68,68,0.3);">
+      <div class="modal-brand">
+        <div class="modal-logo" style="border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,0.12);">⚠️</div>
+        <div>
+          <div class="eyebrow mono" style="color:#ef4444;letter-spacing:.25em;">SAFETY GUARDRAIL</div>
+          <h2 class="modal-title" style="font-size:18px;margin:0;color:#ef4444;">CONFIRMATION REQUIRED</h2>
+        </div>
+      </div>
+      <button id="close-confirm-modal" class="modal-close" title="Cancel">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-message" style="font-size:13px;line-height:1.6;color:var(--text);margin:6px 0 16px;">
+        This action involves system modifications or irreversible file execution. Please confirm to execute.
+      </p>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button type="button" class="btn mono" id="confirm-cancel-btn" style="border-color:var(--muted);color:var(--muted);">CANCEL</button>
+        <button type="button" class="btn mono" id="confirm-yes-btn" style="background:#ef4444;border-color:#ef4444;color:#fff;">CONFIRM (YES)</button>
+      </div>
+    </div>
+  </div>
+</div>

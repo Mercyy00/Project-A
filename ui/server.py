@@ -65,6 +65,36 @@ def normalize_command(text: str) -> str:
     return " ".join(norm.split())
 
 
+def strip_unnecessary_filler(text: str) -> str:
+    """Strip unnecessary AI conversational filler and polite fluff.
+    Ensures user gets ONLY the exact answer requested and nothing extra.
+    """
+    if not text:
+        return text
+
+    boilerplate_patterns = [
+        r"(?i)\s*(?:please\s+)?let me know (?:if|what|how)[\s\S]*$",
+        r"(?i)\s*feel free to (?:ask|reach out|let me know)[\s\S]*$",
+        r"(?i)\s*how (?:else )?(?:can|may) i (?:assist|help) you[\s\S]*$",
+        r"(?i)\s*is there anything (?:else )?(?:i can help|you need)[\s\S]*$",
+        r"(?i)\s*if you (?:need|require) (?:anything|any) (?:else|further)[\s\S]*$",
+        r"(?i)\s*i(?:'m| am) here to help[\s\S]*$",
+        r"(?i)\s*standing by for your (?:next directive|command)[\s\S]*$",
+        r"(?i)\s*do you (?:need|require) (?:any|anything) (?:further|else)[\s\S]*$",
+        r"(?i)\s*happy to help[\s\S]*$",
+        r"(?i)\s*hope that helps[\s\S]*$",
+        r"(?i)\s*hope this helps[\s\S]*$",
+        r"(?i)\s*what else can i (?:do|help with)[\s\S]*$",
+        r"(?i)\s*ready for your (?:next directive|command)[\s\S]*$",
+        r"(?i)\s*let me know if you (?:need|have|require)[\s\S]*$",
+    ]
+    cleaned = text.strip()
+    for pattern in boilerplate_patterns:
+        cleaned = re.sub(pattern, "", cleaned).strip()
+
+    return cleaned if cleaned else text
+
+
 class NoteCreate(BaseModel):
     """Payload schema for creating a new note."""
 
@@ -125,6 +155,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure Day 7 workspace documents & temp_vision screenshot directories are served statically
+workspace_dir = Path("workspace")
+workspace_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/workspace", StaticFiles(directory="workspace"), name="workspace")
+
+temp_vision_dir = Path("temp_vision")
+temp_vision_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/temp_vision", StaticFiles(directory="temp_vision"), name="temp_vision")
 
 
 @app.get("/health", status_code=status.HTTP_200_OK)
@@ -383,8 +422,15 @@ class ChatPayload(BaseModel):
 @app.post("/api/chat")
 async def http_chat(payload: ChatPayload) -> Dict[str, Any]:
     """Execute chat directive via HTTP fallback when WebSocket is offline."""
-    from core.service import handle_text
-    return await handle_text(payload.text, source="ui_http", mode=payload.mode)
+    try:
+        from core.service import handle_text
+        return await asyncio.wait_for(
+            handle_text(payload.text, source="ui_http", mode=payload.mode),
+            timeout=5.0
+        )
+    except Exception:
+        reply = await _generate_response(payload.text)
+        return {"text": reply, "tool_steps": [], "source": "ui_http"}
 
 
 class KeyConfigRequest(BaseModel):
@@ -1046,6 +1092,26 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     norm = normalize_command(user_text)
     active_name = session_user.get("name", "User")
 
+    # 0. Pure greeting / Wake acknowledgment
+    greeting_triggers = (
+        "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
+        "hey", "hello", "hi", "are you there", "namaste", "namaskar",
+        "namaste jarvis", "namaskar jarvis", "suno jarvis", "bol jarvis", "uth jarvis"
+    )
+    norm_words = norm.split()
+    greeting_tokens = {"hey", "hi", "hello", "jarvis", "namaste", "namaskar", "suno", "bol", "uth", "ok", "there"}
+    is_pure_greeting = (
+        norm in greeting_triggers
+        or (norm_words and all(w in greeting_tokens for w in norm_words))
+        or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
+    )
+    if is_pure_greeting:
+        user_suffix = f", {active_name}" if session_user.get("is_known") else ", Sir"
+        is_mr_hi = any("ऀ" <= c <= "ॿ" for c in user_text) or any(w in norm_words for w in ("namaste", "namaskar", "suno", "bol", "ahes", "ka"))
+        if is_mr_hi:
+            return "हो, मी ऐकतोय. सांगा काय करू?"
+        return f"Greetings! Standing by{user_suffix}. How may I assist you?"
+
     # 1. User Identity Introduction
     detected_name = detect_user_intro(user_text)
     if detected_name:
@@ -1128,14 +1194,23 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
 
     # 8. Live Time / Date
     time_triggers = (
-        "current time", "what time", "what is the time", "tell me the time",
-        "tell me the current time", "clock", "date today", "what date",
-        "whats today", "aajchi tarikh", "kiti vajle"
+        "current time", "what time", "what is the time", "tell me the time", "tell me time",
+        "tell time", "what is time", "whats the time", "what time is it", "what is date",
+        "tell me the current time", "clock", "date today", "what date", "today date",
+        "whats today", "aajchi tarikh", "kiti vajle", "vel kay zali", "samay kya hua", "kitne baje"
     )
-    if any(k in norm for k in time_triggers):
+    is_meta = any(w in norm.split() for w in ("why", "wrong", "before", "mistake", "told", "yesterday", "ago"))
+    if not is_meta and (any(k in norm for k in time_triggers) or any(w in norm.split() for w in ("time", "clock", "date", "tarikh", "samay", "vajle", "vel"))):
         now = datetime.datetime.now()
         time_str = now.strftime("%I:%M %p").lstrip("0")
         date_str = now.strftime("%A, %B %d, %Y")
+        norm_words = norm.split()
+        has_date_word = any(w in norm_words for w in ("date", "day", "tarikh", "aajchi", "today"))
+        has_time_word = any(w in norm_words for w in ("time", "clock", "vajle", "samay", "baje", "vel"))
+        if has_time_word and not has_date_word:
+            return f"The current time is {time_str}."
+        elif has_date_word and not has_time_word:
+            return f"Today is {date_str}."
         return f"The current time is {time_str} on {date_str}."
 
     # 9. Real Hardware Telemetry Specs
@@ -1156,7 +1231,7 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     # 11. Core Brain or GenAI Generation
     try:
         from core.service import handle_text
-        brain_res = await handle_text(user_text, source="ui_internal")
+        brain_res = await asyncio.wait_for(handle_text(user_text, source="ui_internal"), timeout=4.0)
         if brain_res and brain_res.get("text"):
             return brain_res["text"]
     except Exception:
@@ -1166,9 +1241,10 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     if client:
         try:
             prompt = (
-                f"You are J.A.R.V.I.S., a witty, highly capable desktop AI assistant. "
+                f"You are J.A.R.V.I.S., a precise, ultra-concise desktop AI assistant. "
                 f"User name: {active_name}. "
-                f"Answer the following query concisely and clearly in 1-3 sentences. "
+                f"Provide ONLY the direct answer to what was asked in 1-2 short sentences. "
+                f"Do NOT include conversational filler, polite boilerplate, or offers for extra help. "
                 f"If the user addresses you in Hindi or Marathi, reply in that language.\n\n"
                 f"User Query: {user_text}"
             )
@@ -1177,7 +1253,7 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
                 contents=prompt,
             )
             if response and response.text:
-                return response.text.strip()
+                return strip_unnecessary_filler(response.text.strip())
         except Exception:
             pass
 
@@ -1241,7 +1317,33 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 # 1. Push thinking status to HUD
                 await websocket.send_json({"type": "status", "status": "thinking"})
 
-                # 2. Check for quick app launcher helper or direct desktop shortcut
+                # 2. Check routing
+                norm_words = norm.split()
+                time_triggers = (
+                    "what time", "what is the time", "tell me the time", "tell me time",
+                    "tell time", "current time", "time please", "what time is it", "whats the time",
+                    "what s the time", "what is time", "what is date", "what is the date",
+                    "today date", "what date", "todays date", "date today",
+                    "what day is it", "kiti vajle", "vel kay zali", "samay kya hua", "kitne baje", "aajchi tarikh"
+                )
+                is_meta_time = any(w in norm_words for w in ("why", "wrong", "before", "mistake", "told", "yesterday", "ago", "spent", "table", "timeline", "schedule", "plan"))
+                is_time_query = not is_meta_time and (
+                    any(t in norm for t in time_triggers)
+                    or any(w in norm_words for w in ("time", "clock", "date", "tarikh", "vajle", "samay"))
+                )
+
+                greeting_triggers = (
+                    "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
+                    "hey", "hello", "hi", "are you there", "namaste", "namaskar",
+                    "namaste jarvis", "namaskar jarvis", "suno jarvis", "bol jarvis", "uth jarvis"
+                )
+                greeting_tokens = {"hey", "hi", "hello", "jarvis", "namaste", "namaskar", "suno", "bol", "uth", "ok", "there"}
+                is_pure_greeting = (
+                    norm in greeting_triggers
+                    or (norm_words and all(w in greeting_tokens for w in norm_words))
+                    or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
+                )
+
                 launch_info = try_launch_system_app(user_text)
                 tool_steps = []
                 if launch_info:
@@ -1258,12 +1360,46 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                         await memory_manager.save_interaction(role="assistant", content=reply_text)
                     except Exception:
                         pass
+                elif is_pure_greeting:
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    is_mr_hi = any("ऀ" <= c <= "ॿ" for c in user_text) or any(w in norm_words for w in ("namaste", "namaskar", "suno", "bol", "ahes", "ka"))
+                    if is_mr_hi:
+                        reply_text = "हो, मी ऐकतोय. सांगा काय करू?"
+                    else:
+                        reply_text = f"Greetings! Standing by{user_suffix}. How may I assist you?"
+                    tool_steps = ["wake_listener()"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif is_time_query:
+                    now = datetime.datetime.now()
+                    time_str = now.strftime("%I:%M %p").lstrip("0")
+                    date_str = now.strftime("%A, %B %d, %Y")
+                    has_date_word = any(w in norm_words for w in ("date", "day", "tarikh", "aajchi", "today"))
+                    has_time_word = any(w in norm_words for w in ("time", "clock", "vajle", "samay", "baje", "vel"))
+                    if has_time_word and not has_date_word:
+                        reply_text = f"The current time is {time_str}."
+                    elif has_date_word and not has_time_word:
+                        reply_text = f"Today is {date_str}."
+                    else:
+                        reply_text = f"The current time is {time_str} on {date_str}."
+                    tool_steps = ["get_system_time()"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
                 else:
                     # 3. Delegate directly to Core Brain Engine via handle_text
                     reply_text = ""
                     try:
                         from core.service import handle_text
-                        result = await handle_text(user_text, source="ui", mode=mode)
+                        result = await asyncio.wait_for(
+                            handle_text(user_text, source="ui", mode=mode),
+                            timeout=4.5
+                        )
                         reply_text = result.get("text", "")
                         tool_steps = result.get("tool_steps", [])
                     except Exception:
@@ -1271,6 +1407,9 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
                     if not reply_text:
                         reply_text = await _generate_response(user_text, session_user=session_user)
+
+                    # Strip conversational filler to ensure exact answers only
+                    reply_text = strip_unnecessary_filler(reply_text)
 
                     try:
                         await memory_manager.save_interaction(role="user", content=user_text)
