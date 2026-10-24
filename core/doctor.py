@@ -18,7 +18,11 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args: Any, **kwargs: Any) -> bool:
+        return False
 
 
 def check_environment() -> Dict[str, Any]:

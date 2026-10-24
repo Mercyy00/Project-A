@@ -79,7 +79,15 @@ def launch_ui(
     app_mode: bool = True,
 ) -> None:
     """Launch the FastAPI Web HUD backend and open the desktop application window."""
-    import uvicorn
+    try:
+        import uvicorn
+    except ImportError:
+        print("\n" + "=" * 65)
+        print(" [ERROR] Required module 'uvicorn' is not installed in this Python environment!")
+        print("=" * 65)
+        print("[*] Please run START_JARVIS.bat to set up all dependencies automatically,")
+        print("[*] or activate the virtual environment: call .\\venv\\Scripts\\activate.bat\n")
+        sys.exit(1)
 
     url = f"http://{host}:{port}"
     mode_desc = "Standalone Desktop Application Window" if app_mode else "Standard Web Browser Tab"
@@ -137,7 +145,15 @@ def launch_all(
     app_mode: bool = True,
 ) -> None:
     """Launch FastAPI Web HUD server and background services concurrently."""
-    import uvicorn
+    try:
+        import uvicorn
+    except ImportError:
+        print("\n" + "=" * 65)
+        print(" [ERROR] Required module 'uvicorn' is not installed in this Python environment!")
+        print("=" * 65)
+        print("[*] Please run START_JARVIS.bat to set up all dependencies automatically,")
+        print("[*] or activate the virtual environment: call .\\venv\\Scripts\\activate.bat\n")
+        sys.exit(1)
 
     print("=" * 65)
     print("      PROJECT JARVIS - FULL STACK CONCURRENT LAUNCH")

@@ -64,10 +64,13 @@ echo.
 :: STEP 3: Setup & Activate Virtual Environment (venv)
 :: ---------------------------------------------------------------------------
 echo [*] [3/5] Setting up virtual environment...
-if not exist "venv\Scripts\activate.bat" (
+set "VENV_DIR=%~dp0venv"
+set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
+
+if not exist "%VENV_PYTHON%" (
     echo [*] Virtual environment not found at .\venv.
     echo [*] Creating fresh Python virtual environment - please wait...
-    %PY_CMD% -m venv venv
+    %PY_CMD% -m venv "%VENV_DIR%"
     if %errorlevel% neq 0 (
         echo [ERROR] Failed to create virtual environment!
         pause
@@ -76,8 +79,8 @@ if not exist "venv\Scripts\activate.bat" (
     echo [OK] Virtual environment created successfully.
 )
 
-call ".\venv\Scripts\activate.bat"
-echo [OK] Virtual environment activated: %VIRTUAL_ENV%
+call "%VENV_DIR%\Scripts\activate.bat"
+echo [OK] Virtual environment active.
 echo.
 
 :: ---------------------------------------------------------------------------
@@ -101,11 +104,17 @@ echo.
 :: STEP 5: Verify and Install Dependencies (Fast Smart Cache)
 :: ---------------------------------------------------------------------------
 echo [*] [5/5] Checking dependencies...
-python core\doctor.py --check-deps %*
-if %errorlevel% equ 0 (
-    echo [OK] Dependencies verified and ready - fast cache active.
+"%VENV_PYTHON%" core\check_deps.py %*
+if %errorlevel% neq 0 (
+    echo.
+    echo [ERROR] Dependency installation encountered an issue!
+    echo Please verify your internet connection or install manually with:
+    echo "%VENV_PYTHON%" -m pip install -r requirements.txt
+    echo.
+    pause
+    exit /b 1
 ) else (
-    echo [!] Dependency verification notice. Proceeding with launch...
+    echo [OK] All dependencies satisfied and ready.
 )
 echo.
 
@@ -132,7 +141,7 @@ echo [*] Starting JARVIS in standalone native application window...
 echo [*] Dedicated window mode without browser tabs or address bars.
 echo.
 
-python main.py --app %*
+"%VENV_PYTHON%" main.py --app %*
 
 if %errorlevel% neq 0 (
     echo.
