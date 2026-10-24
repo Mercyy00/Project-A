@@ -590,6 +590,47 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   to { transform: rotate(360deg); }
 }
 
+
+/* Language Chips & Mobile Responsive (Task A2.2) */
+.lang-chips-group {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+.chip-lang {
+  background: rgba(var(--rgb), .08);
+  border: 1px solid rgba(var(--rgb), .28);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 5px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.chip-lang:hover {
+  background: rgba(var(--rgb), .2);
+  border-color: var(--accent);
+}
+.chip-lang.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--rgb), .35);
+}
+@media(max-width: 768px) {
+  body { overflow-x: hidden; }
+  .shell { padding: 10px 8px; }
+  .top { flex-direction: column; gap: 8px; align-items: stretch; }
+  .dashboard { display: flex; flex-direction: column; }
+  .stack { grid-template-columns: 1fr; }
+  .input-box { flex-wrap: wrap; }
+  .lang-chips-group { width: 100%; justify-content: flex-start; margin-bottom: 4px; }
+}
+
 </style>
 </head>
 <body data-mode="classic">
@@ -761,6 +802,11 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   </div>
 
   <form id="chat-form" class="input-box">
+    <div class="lang-chips-group" id="lang-chips" title="Switch Voice Recognition Language">
+      <button type="button" class="chip-lang active" data-lang="en-IN" title="English (India)">EN</button>
+      <button type="button" class="chip-lang" data-lang="hi-IN" title="Hindi (India)">HI</button>
+      <button type="button" class="chip-lang" data-lang="mr-IN" title="Marathi (India)">MR</button>
+    </div>
     <input type="text" id="user-input" autocomplete="off" placeholder="Speak or enter directive (e.g. 'What time is it?', 'Create hello.txt on my desktop')..." />
     <button type="submit" class="btn mono" id="send-btn">TRANSMIT</button>
   </form>
@@ -1245,6 +1291,22 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   }
 
   // -------------------------------------------------------------
+  
+  // Language chips click handler (Task A2.2)
+  let activeSpeechLang = 'en-IN';
+  document.querySelectorAll('.chip-lang').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.chip-lang').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeSpeechLang = btn.dataset.lang;
+      if (recognition) {
+        recognition.lang = activeSpeechLang;
+      }
+      log(`LANGUAGE SWITCHED: ${btn.textContent} (${activeSpeechLang})`);
+    });
+  });
+
   // 8. REAL-TIME SPEECH RECOGNITION (Microphone Link)
   // -------------------------------------------------------------
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1292,7 +1354,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     const rec = new SpeechRecognition();
     rec.continuous = true;
     rec.interimResults = true;
-    rec.lang = 'en-US';
+    rec.lang = activeSpeechLang;
 
     rec.onresult = (event) => {
       if (isJarvisSpeaking) return; // Prevent speaker acoustic echo

@@ -1,7 +1,8 @@
 """FastAPI Backend Server for Project Jarvis (Rohit).
 
 Exposes REST and WebSocket endpoints for UI telemetry, status,
-persistent SQLite notes CRUD, and live bi-directional chat communication.
+persistent SQLite notes CRUD, universal application/file launching,
+dynamic multi-user isolation, and live bi-directional chat communication.
 """
 
 from __future__ import annotations
@@ -14,8 +15,12 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import socket
+import subprocess
+import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+import webbrowser
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
@@ -265,24 +270,52 @@ async def get_neural_tts(
 ) -> FileResponse:
     """Generate and stream high-fidelity Microsoft Edge Neural TTS audio (.mp3).
 
-    Provides crystal-clear, loud, natural neural speech in English (GuyNeural),
+    Provides crystal-clear, loud, natural neural speech in English (GuyNeural/PrabhatNeural),
     Hindi (MadhurNeural), or Marathi (ManoharNeural) directly to the Web HUD.
     """
     try:
-        from voice.tts import get_speaker
-
-        # Clean markdown formatting, code fences, URLs, and symbols
         clean_text = re.sub(r"```[\s\S]*?```", "Code block output attached.", text)
         clean_text = re.sub(r"https?://\S+", "link", clean_text)
         clean_text = re.sub(r"[*_#`~>\[\]]", "", clean_text).strip()
         if not clean_text:
             raise HTTPException(status_code=400, detail="Empty text after sanitization")
 
-        speaker = get_speaker()
-        audio_path = await speaker.speak_to_file_async(clean_text, lang=lang)
-        if audio_path and os.path.isfile(audio_path):
+        # Attempt high-fidelity generation via voice.tts speaker
+        try:
+            from voice.tts import get_speaker
+            speaker = get_speaker()
+            audio_path = await speaker.speak_to_file_async(clean_text, lang=lang)
+            if audio_path and os.path.isfile(audio_path):
+                return FileResponse(
+                    audio_path,
+                    media_type="audio/mpeg",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Content-Disposition": "inline; filename=speech.mp3",
+                    },
+                )
+        except Exception as speaker_err:
+            print(f"[INFO] voice.tts speaker fallback: {speaker_err}")
+
+        # Direct edge-tts fallback
+        import edge_tts
+        temp_dir = Path("temp_audio")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        file_name = f"speech_{int(time.time() * 1000)}.mp3"
+        out_path = temp_dir / file_name
+
+        voice = "en-IN-PrabhatNeural"
+        if lang == "hi" or any("\u0900" <= c <= "\u097F" for c in clean_text):
+            voice = "hi-IN-MadhurNeural"
+        elif lang == "mr":
+            voice = "mr-IN-ManoharNeural"
+
+        communicate = edge_tts.Communicate(clean_text, voice)
+        await communicate.save(str(out_path))
+
+        if out_path.is_file():
             return FileResponse(
-                audio_path,
+                str(out_path.resolve()),
                 media_type="audio/mpeg",
                 headers={
                     "Cache-Control": "no-cache",
@@ -302,11 +335,7 @@ async def get_neural_tts(
 
 @app.post("/api/stt")
 async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
-    """Transcribe raw audio stream (WebM/WAV) using local faster-whisper STT.
-
-    Provides a 100% offline, local speech recognition alternative when browser
-    cloud STT encounters network errors or firewall blocks.
-    """
+    """Transcribe raw audio stream (WebM/WAV) using local faster-whisper STT."""
     try:
         from voice.stt import get_transcriber
         import tempfile
@@ -344,18 +373,6 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
             detail=f"Whisper STT processing error: {str(exc)}",
         ) from exc
 
-
-
-# ---------------------------------------------------------------------------
-# Day 3: WebSocket Live Channel & Sci-Fi HUD
-# ---------------------------------------------------------------------------
-
-
-
-
-# ---------------------------------------------------------------------------
-# Dynamic Neural Core API Key Configuration Endpoints
-# ---------------------------------------------------------------------------
 
 class ChatPayload(BaseModel):
     """Payload for HTTP chat directive fallback."""
@@ -482,80 +499,441 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Universal Application, File, Task Launcher & Device Intelligence Engine
+# ---------------------------------------------------------------------------
 
-def try_launch_system_app(user_text: str) -> Optional[str]:
-    """Helper in ui/server.py to reliably launch requested desktop applications on Windows.
-    
-    Ensures that when a user requests to open Chrome, WhatsApp, Command Prompt, etc.,
-    the actual Windows application process is launched to the foreground.
+class AppLaunchResult(tuple):
+    """A tuple subclass (label, detail) whose str() representation is label.
+    Guarantees 100% compatibility with string formatting and tuple unpacking.
     """
-    import subprocess
+    def __new__(cls, label: str, detail: Optional[str] = None):
+        return super().__new__(cls, (label, detail))
 
-    norm = normalize_command(user_text)
-    trigger_words = ("open", "launch", "start", "run", "execute", "ugad", "chalu", "khol")
-    app_keywords = ("whatsapp", "chrome", "cmd", "command prompt", "terminal", "notepad", "calc", "calculator", "edge", "youtube", "vscode", "spotify", "snippingtool", "screenshot")
-    
-    is_launch_request = (
-        any(w in norm.split() for w in trigger_words)
-        or any(norm == k for k in app_keywords)
-        or (any(w in norm for w in trigger_words) and any(k in norm for k in app_keywords))
-    )
+    @property
+    def label(self) -> str:
+        return self[0]
 
-    if not is_launch_request:
+    @property
+    def detail(self) -> Optional[str]:
+        return self[1]
+
+    def __str__(self) -> str:
+        return self[0]
+
+
+def find_dynamic_app_in_system(app_name: str) -> Optional[Tuple[str, str]]:
+    """Scan Windows Start Menu shortcuts and Program Files to dynamically locate installed software."""
+    if platform.system().lower() != "windows":
         return None
 
+    app_clean = app_name.lower().strip()
+    search_dirs = [
+        os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+        os.path.expandvars(r"%ProgramData%\Microsoft\Windows\Start Menu\Programs"),
+    ]
+
+    for s_dir in search_dirs:
+        p = Path(s_dir)
+        if not p.exists():
+            continue
+        try:
+            for item in p.rglob("*.lnk"):
+                stem_lower = item.stem.lower()
+                if app_clean in stem_lower or stem_lower.startswith(app_clean):
+                    return (str(item.resolve()), item.stem)
+        except Exception:
+            pass
+
+    return None
+
+
+def find_user_file_or_folder(query: str) -> Optional[Tuple[Path, str]]:
+    """Locate a requested file or folder on user's system (workspace, desktop, downloads, documents).
+    Returns (Path, display_label) if found.
+    """
+    cleaned = query.strip().strip("'\"")
+    if not cleaned:
+        return None
+
+    direct_path = Path(cleaned)
+    if direct_path.exists():
+        kind = "Folder" if direct_path.is_dir() else "File"
+        return (direct_path.resolve(), f"{kind}: {direct_path.name}")
+
+    search_roots = [
+        Path(__file__).resolve().parent.parent,
+        Path(os.path.expandvars(r"%USERPROFILE%\Desktop")),
+        Path(os.path.expandvars(r"%USERPROFILE%\Downloads")),
+        Path(os.path.expandvars(r"%USERPROFILE%\Documents")),
+    ]
+
+    query_lower = cleaned.lower()
+    query_tokens = [t for t in query_lower.split() if len(t) > 2]
+
+    for root in search_roots:
+        if not root.exists():
+            continue
+        try:
+            for item in root.iterdir():
+                item_name_lower = item.name.lower()
+                norm_name = item_name_lower.replace("_", " ").replace("-", " ")
+                # 1. Exact name or stem match
+                if query_lower == item_name_lower or query_lower == item.stem.lower():
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+                # 2. Substring match
+                if len(query_lower) >= 4 and (query_lower in item_name_lower or query_lower in norm_name):
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+                # 3. Token match
+                if query_tokens and all(t in norm_name for t in query_tokens):
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+        except Exception:
+            continue
+
+    return None
+
+
+def deep_search_user_files(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Deep search for files across user's primary folders."""
+    clean_q = query.lower().strip()
+    if not clean_q:
+        return []
+
+    results: List[Dict[str, str]] = []
+    roots = [
+        ("Workspace", str(Path(__file__).resolve().parent.parent)),
+        ("Desktop", os.path.expandvars(r"%USERPROFILE%\Desktop")),
+        ("Downloads", os.path.expandvars(r"%USERPROFILE%\Downloads")),
+        ("Documents", os.path.expandvars(r"%USERPROFILE%\Documents")),
+    ]
+
+    for loc_name, path_str in roots:
+        p = Path(path_str)
+        if not p.exists():
+            continue
+        try:
+            for item in p.rglob("*"):
+                if item.is_file():
+                    item_name_lower = item.name.lower()
+                    norm_name = item_name_lower.replace("_", " ").replace("-", " ")
+                    if clean_q in item_name_lower or clean_q in norm_name or all(w in norm_name for w in clean_q.split()):
+                        results.append({
+                            "name": item.name,
+                            "path": str(item.resolve()),
+                            "location": loc_name,
+                            "size_kb": f"{round(item.stat().st_size / 1024, 1)} KB",
+                        })
+                        if len(results) >= max_results:
+                            return results
+        except Exception:
+            pass
+
+    return results
+
+
+def get_running_user_processes(limit: int = 8) -> List[Dict[str, Any]]:
+    """Inspect active host applications currently running with window handles or significant RAM."""
+    procs: List[Dict[str, Any]] = []
     try:
-        if "whatsapp" in norm:
+        for p in psutil.process_iter(['pid', 'name', 'memory_info', 'cpu_percent']):
             try:
-                subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
-                return "WhatsApp"
-            except Exception:
-                subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
-                return "WhatsApp Web"
+                name = p.info['name'] or ""
+                if name.lower().endswith((".exe")):
+                    clean_name = name[:-4]
+                else:
+                    clean_name = name
 
-        elif "chrome" in norm or "google chrome" in norm:
-            subprocess.Popen("cmd.exe /c start chrome", shell=True)
-            return "Google Chrome"
+                ignored = (
+                    "svchost", "system", "registry", "smss", "csrss", "wininit",
+                    "services", "lsass", "winlogon", "fontdrvhost", "dwm",
+                    "conhost", "sihost", "taskhostw", "explorer", "shellexperiencehost",
+                    "searchhost", "startmenuexperiencehost", "textinputhost"
+                )
+                if clean_name.lower() in ignored:
+                    continue
 
-        elif "edge" in norm:
-            subprocess.Popen("cmd.exe /c start msedge", shell=True)
-            return "Microsoft Edge"
+                mem_mb = round(p.info['memory_info'].rss / (1024 * 1024), 1) if p.info.get('memory_info') else 0
+                if mem_mb > 40:
+                    procs.append({
+                        "pid": p.info['pid'],
+                        "name": clean_name,
+                        "ram_mb": mem_mb,
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
 
-        elif "youtube" in norm:
-            subprocess.Popen("cmd.exe /c start https://www.youtube.com", shell=True)
-            return "YouTube"
+    procs.sort(key=lambda x: x['ram_mb'], reverse=True)
+    return procs[:limit]
 
-        elif "cmd" in norm or "command prompt" in norm or "terminal" in norm:
-            subprocess.Popen("cmd.exe /c start cmd.exe", shell=True)
-            return "Command Prompt"
 
-        elif "snip" in norm or "screenshot" in norm:
-            subprocess.Popen("cmd.exe /c start snippingtool", shell=True)
-            return "Snipping Tool"
+def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
+    """Universal desktop application, folder, file, and compound task launcher.
+    Returns AppLaunchResult(label, detail) or None if text is not a launch intent.
+    """
+    norm = normalize_command(user_text)
+    if not norm:
+        return None
 
-        elif "notepad" in norm:
-            subprocess.Popen("cmd.exe /c start notepad", shell=True)
-            return "Notepad"
+    # Guard: Never treat conversational queries as launch requests
+    non_app_triggers = (
+        "who are you", "what are you", "who r u", "tell me about yourself",
+        "introduce yourself", "tu kon ahes", "what can you do", "what are your capabilities",
+        "who am i", "what is my name", "do you know my name", "whats my name", "what s my name",
+        "current time", "what time", "what is the time", "tell me the time", "clock",
+        "what date", "todays date", "system info", "check system specs",
+        "system stats", "laptop specs", "my specs", "how much ram", "storage space",
+        "what are my notes", "show my notes", "list notes", "my notes",
+        "what are my reminders", "show reminders", "check reminders", "my reminders",
+        "what are my tasks", "show my tasks", "list tasks", "my tasks",
+        "show active tasks", "running apps", "what processes", "active tasks",
+        "search file", "search files", "find file", "find files", "search pc",
+        "weather", "havaman"
+    )
+    if any(norm == g or norm.startswith(g) for g in non_app_triggers):
+        return None
 
-        elif "calc" in norm or "calculator" in norm:
-            subprocess.Popen("cmd.exe /c start calc", shell=True)
-            return "Calculator"
+    if detect_user_intro(user_text):
+        return None
 
-        elif "code" in norm or "vscode" in norm:
-            subprocess.Popen("cmd.exe /c start code", shell=True)
-            return "VS Code"
+    kind_check, _ = parse_note_or_reminder(user_text)
+    if kind_check:
+        return None
 
-        elif "spotify" in norm or "music" in norm:
-            subprocess.Popen("cmd.exe /c start spotify:", shell=True)
-            return "Spotify"
-    except Exception as exc:
-        print(f"[WARN] Failed to launch application from UI server: {exc}")
+    greetings = (
+        "heyy jarvis", "hey jarvis", "hi jarvis", "hello jarvis", "hi", "hello",
+        "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon",
+        "namaste", "namaskar"
+    )
+    if norm in greetings:
+        return None
+
+    # 1. System Folders & Drives Mapping
+    system_folders = {
+        "file manager": ("explorer.exe", "File Manager / Explorer"),
+        "file explorer": ("explorer.exe", "File Manager / Explorer"),
+        "files": ("explorer.exe", "File Manager / Explorer"),
+        "my files": ("explorer.exe", "File Manager / Explorer"),
+        "this pc": ("explorer.exe", "This PC / Explorer"),
+        "my computer": ("explorer.exe", "My Computer / Explorer"),
+        "downloads folder": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "downloads": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "download": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "documents folder": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "documents": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "my documents": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "desktop folder": (os.path.expandvars(r"%USERPROFILE%\Desktop"), "Desktop Folder"),
+        "desktop": (os.path.expandvars(r"%USERPROFILE%\Desktop"), "Desktop Folder"),
+        "pictures folder": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "pictures": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "photos": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "my pictures": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "videos folder": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "videos": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "my videos": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "music folder": (os.path.expandvars(r"%USERPROFILE%\Music"), "Music Folder"),
+        "music": (os.path.expandvars(r"%USERPROFILE%\Music"), "Music Folder"),
+        "c drive": ("C:\\", "Local Disk (C:)"),
+        "d drive": ("D:\\", "Local Disk (D:)"),
+        "e drive": ("E:\\", "Local Disk (E:)"),
+    }
+
+    for folder_key, (target_path, label) in system_folders.items():
+        if (
+            norm == folder_key
+            or norm == f"open {folder_key}"
+            or norm == f"launch {folder_key}"
+            or norm == f"start {folder_key}"
+            or norm == f"show {folder_key}"
+            or norm == f"khol {folder_key}"
+            or norm == f"ugad {folder_key}"
+            or norm.endswith(f"open {folder_key}")
+            or norm.endswith(f"open {folder_key}.")
+        ):
+            try:
+                if target_path == "explorer.exe":
+                    subprocess.Popen(["explorer.exe", os.path.expandvars(r"%USERPROFILE%")])
+                else:
+                    if os.path.exists(target_path):
+                        subprocess.Popen(["explorer.exe", target_path])
+                    else:
+                        subprocess.Popen(["explorer.exe", os.path.expandvars(r"%USERPROFILE%")])
+                return AppLaunchResult(label, None)
+            except Exception as exc:
+                print(f"[WARN] Failed to open folder {label}: {exc}")
+
+    # 2. Compound Task Handling
+    if "whatsapp" in norm and ("send" in norm or "message" in norm):
+        recipient = "contact"
+        msg_text = ""
+        m = re.search(r"(?:to|for)\s+([a-zA-Z0-9_]+)\s*(?:saying|message|that|say)?\s*(.*)$", user_text, re.IGNORECASE)
+        if m:
+            recipient = m.group(1).strip()
+            msg_text = m.group(2).strip()
+        if not msg_text:
+            m_hi = re.search(r"send\s+([a-zA-Z0-9_\s]+?)\s+to\s+([a-zA-Z0-9_]+)", user_text, re.IGNORECASE)
+            if m_hi:
+                msg_text = m_hi.group(1).strip()
+                recipient = m_hi.group(2).strip()
+
+        detail_msg = f"Transmitting communication to {recipient}" + (f": '{msg_text}'" if msg_text else "")
+        try:
+            subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
+        except Exception:
+            subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
+        return AppLaunchResult("WhatsApp", detail_msg)
+
+    if ("chrome" in norm or "google" in norm or "browser" in norm) and ("search" in norm or "find" in norm or "look for" in norm):
+        query = ""
+        m_q = re.search(r"(?:search|find|for)\s+(?:about\s+)?(.*)$", user_text, re.IGNORECASE)
+        if m_q:
+            query = m_q.group(1).strip()
+        detail_msg = f"Executing web search: '{query}'" if query else "Opening web browser for search"
+        import urllib.parse
+        search_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}" if query else "https://www.google.com"
+        try:
+            subprocess.Popen(["cmd.exe", "/c", f"start {search_url}"], shell=True)
+        except Exception:
+            webbrowser.open(search_url)
+        return AppLaunchResult("Google Chrome", detail_msg)
+
+    if "youtube" in norm and ("play" in norm or "song" in norm or "search" in norm or "video" in norm):
+        query = ""
+        m_yt = re.search(r"(?:play|search|for)\s+(.*)$", user_text, re.IGNORECASE)
+        if m_yt:
+            query = m_yt.group(1).strip()
+        import urllib.parse
+        yt_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}" if query else "https://www.youtube.com"
+        try:
+            subprocess.Popen(["cmd.exe", "/c", f"start {yt_url}"], shell=True)
+        except Exception:
+            webbrowser.open(yt_url)
+        detail_msg = f"Streaming request: '{query}'" if query else "Opening YouTube"
+        return AppLaunchResult("YouTube", detail_msg)
+
+    if "notepad" in norm and ("write" in norm or "note" in norm or "meeting" in norm):
+        m_np = re.search(r"(?:write|note|about)\s+(.*)$", user_text, re.IGNORECASE)
+        note_content = m_np.group(1).strip() if m_np else ""
+        subprocess.Popen(["notepad.exe"])
+        detail_msg = f"Drafting note: '{note_content}'" if note_content else "Opening fresh document"
+        return AppLaunchResult("Notepad", detail_msg)
+
+    # 3. Direct Application Launching (with absolute paths & --new-window flag)
+    direct_apps = [
+        ("google chrome", [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ], "Google Chrome", "chrome"),
+        ("chrome", [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ], "Google Chrome", "chrome"),
+        ("brave", [
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        ], "Brave Browser", "brave"),
+        ("brave browser", [
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        ], "Brave Browser", "brave"),
+        ("whatsapp", [], "WhatsApp", "whatsapp:"),
+        ("telegram", [
+            os.path.expandvars(r"%APPDATA%\Telegram Desktop\Telegram.exe"),
+        ], "Telegram Desktop", "telegram"),
+        ("notepad", ["notepad.exe"], "Notepad", "notepad"),
+        ("calc", ["calc.exe"], "Calculator", "calc"),
+        ("calculator", ["calc.exe"], "Calculator", "calc"),
+        ("command prompt", ["cmd.exe"], "Command Prompt", "cmd"),
+        ("cmd", ["cmd.exe"], "Command Prompt", "cmd"),
+        ("terminal", ["wt.exe", "powershell.exe", "cmd.exe"], "Terminal", "powershell"),
+        ("powershell", ["powershell.exe"], "Windows PowerShell", "powershell"),
+        ("task manager", ["taskmgr.exe"], "Task Manager", "taskmgr"),
+        ("taskmgr", ["taskmgr.exe"], "Task Manager", "taskmgr"),
+        ("vs code", ["code"], "Visual Studio Code", "code"),
+        ("vscode", ["code"], "Visual Studio Code", "code"),
+        ("code", ["code"], "Visual Studio Code", "code"),
+        ("edge", ["msedge.exe"], "Microsoft Edge", "msedge"),
+        ("microsoft edge", ["msedge.exe"], "Microsoft Edge", "msedge"),
+        ("spotify", ["spotify.exe"], "Spotify", "spotify:"),
+        ("snipping tool", ["snippingtool.exe"], "Snipping Tool", "snippingtool"),
+        ("screenshot", ["snippingtool.exe"], "Snipping Tool", "snippingtool"),
+        ("paint", ["mspaint.exe"], "MS Paint", "mspaint"),
+    ]
+
+    for key, paths, label, cmd_fallback in direct_apps:
+        is_match = (
+            norm == key
+            or norm == f"open {key}"
+            or norm == f"launch {key}"
+            or norm == f"start {key}"
+            or norm == f"run {key}"
+            or norm == f"khol {key}"
+            or norm == f"ugad {key}"
+            or norm.endswith(f"open {key}")
+            or norm.endswith(f"open {key}.")
+        )
+        if is_match:
+            launched = False
+            for p in paths:
+                if os.path.isfile(p):
+                    try:
+                        if "chrome.exe" in p.lower() or "brave.exe" in p.lower() or "msedge.exe" in p.lower():
+                            subprocess.Popen([p, "--new-window"])
+                        else:
+                            subprocess.Popen([p])
+                        launched = True
+                        break
+                    except Exception:
+                        pass
+            if not launched:
+                try:
+                    if ":" in cmd_fallback:
+                        subprocess.Popen(f"cmd.exe /c start {cmd_fallback}", shell=True)
+                    else:
+                        subprocess.Popen(f"cmd.exe /c start {cmd_fallback}", shell=True)
+                except Exception as exc:
+                    print(f"[WARN] Failed to launch {label}: {exc}")
+            return AppLaunchResult(label, None)
+
+    # 4. Check for existing file or folder by name
+    file_match = find_user_file_or_folder(norm.replace("open", "").strip())
+    if file_match:
+        f_path, f_label = file_match
+        try:
+            os.startfile(str(f_path))
+            return AppLaunchResult(f_label, None)
+        except Exception:
+            return AppLaunchResult(f_label, None)
+
+    # 5. Dynamic Start Menu discovery
+    words = norm.split()
+    target_candidate = ""
+    if len(words) >= 2 and words[0] in ("open", "launch", "start", "run", "khol", "ugad"):
+        target_candidate = " ".join(words[1:])
+    elif len(words) == 1:
+        target_candidate = words[0]
+
+    if target_candidate:
+        dyn = find_dynamic_app_in_system(target_candidate)
+        if dyn:
+            lnk_path, friendly_name = dyn
+            try:
+                os.startfile(lnk_path)
+                return AppLaunchResult(friendly_name, None)
+            except Exception as exc:
+                print(f"[WARN] Dynamic launch failed for {friendly_name}: {exc}")
 
     return None
 
 
 # ---------------------------------------------------------------------------
-# Dynamic User State & Deep Hardware Intelligence Engine
+# Dynamic User State & Hardware Intelligence Engine
 # ---------------------------------------------------------------------------
 
 current_user_state: Dict[str, Any] = {
@@ -565,12 +943,12 @@ current_user_state: Dict[str, Any] = {
 
 
 def detect_user_intro(text: str) -> Optional[str]:
-    """Detect if the user is introducing their name dynamically (e.g. 'I am Shiv', 'My name is Ram')."""
+    """Detect if user is introducing their name (e.g. 'I am Shiv', 'Maza naav Amit')."""
     cleaned = text.strip()
     patterns = [
         r"(?:hey\s+jarvis[,\s]+)?(?:i\s+am|im|i'm)\s+([a-zA-Z\u0900-\u097F]+)",
         r"(?:my\s+name\s+is|call\s+me|this\s+is)\s+([a-zA-Z\u0900-\u097F]+)",
-        r"(?:maza\s+naav|maze\s+naav)\s+([a-zA-Z\u0900-\u097F]+)",
+        r"(?:maza\s+naav|maze\s+naav|mera\s+naam)\s+([a-zA-Z\u0900-\u097F]+)",
     ]
     for pat in patterns:
         m = re.search(pat, cleaned, re.IGNORECASE)
@@ -586,7 +964,7 @@ def detect_user_intro(text: str) -> Optional[str]:
 
 
 def get_deep_system_specs() -> str:
-    """Inspect the real host machine in real-time and return accurate hardware and OS diagnostics."""
+    """Inspect the real host machine in real-time and return accurate diagnostics."""
     try:
         os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
         cpu_count = psutil.cpu_count(logical=True)
@@ -632,7 +1010,6 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
     """Parse notes or reminders dictated by the user via text or voice."""
     cleaned = user_text.lower().strip()
 
-    # Reminders
     reminder_prefixes = (
         "remind me to", "remind me", "set a reminder for",
         "set reminder for", "add a reminder", "set reminder"
@@ -643,7 +1020,6 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
             if content:
                 return ("reminder", content)
 
-    # Notes
     note_prefixes = (
         "save note", "save a note", "take a note", "note that",
         "remember that", "add note", "add a note", "create a note",
@@ -658,45 +1034,61 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
     return (None, None)
 
 
-async def _generate_response(user_text: str) -> str:
+async def _generate_response(user_text: str, session_user: Optional[Dict[str, Any]] = None) -> str:
     """Intelligently process and answer user questions directly from UI backend,
     supporting dynamic user personalization, deep system inspection, persistent notes/reminders,
     and ultra-fast (<1.5s) AI query generation.
     """
+    if session_user is None:
+        session_user = current_user_state
+
     cleaned = user_text.lower().strip()
     norm = normalize_command(user_text)
-    active_name = current_user_state["name"]
+    active_name = session_user.get("name", "User")
 
-    # 1. User Identity Introduction ("I am Shiv", "My name is Ram")
+    # 1. User Identity Introduction
     detected_name = detect_user_intro(user_text)
     if detected_name:
+        session_user["name"] = detected_name
+        session_user["is_known"] = True
         current_user_state["name"] = detected_name
         current_user_state["is_known"] = True
         return f"Hello {detected_name}! I have updated my user registers. I am now configured specifically for you. How can I assist you today?"
 
-    # 2. User Identity Query ("Who am I?", "What is my name?")
+    # 2. Reset user
+    if norm in ("reset user", "forget my name", "switch user", "change user", "reset profile"):
+        session_user["name"] = "User"
+        session_user["is_known"] = False
+        current_user_state["name"] = "User"
+        current_user_state["is_known"] = False
+        return "I have cleared my user registers to default neutral mode. How may I assist you?"
+
+    # 3. User Identity Query
     if any(k in norm for k in ("who am i", "what is my name", "do you know my name", "whats my name", "what s my name", "maza naav kay")):
-        if current_user_state["is_known"]:
+        if session_user.get("is_known"):
             return f"You are recognized as {active_name} in my active session. All memory vaults and task logs are dedicated to you."
         return "I currently address you as Sir. If you would like me to address you by your name, simply tell me 'I am [your name]' and I will remember it."
 
-    # 3. Fast-Path Conversational Greetings (<1ms latency)
+    # 4. Fast-Path Conversational Greetings
     greetings = (
         "heyy jarvis", "hey jarvis", "hi jarvis", "hello jarvis", "hi", "hello",
         "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon",
         "namaste", "namaskar"
     )
     if norm in greetings or any(norm == g for g in greetings):
-        return f"Greetings {active_name}! Jarvis is online, listening, and ready for your command."
+        if session_user.get("is_known"):
+            return f"Greetings {active_name}! Jarvis is online, listening, and ready for your command."
+        return "Greetings! Jarvis is online, listening, and ready for your command."
 
-    # 4. Instant Assistant Self-Identity & Capabilities (<1ms latency)
+    # 5. Assistant Self-Identity & Capabilities
     if norm in (
         "who are you", "what are you", "who r u", "tell me about yourself",
         "introduce yourself", "tu kon ahes", "tu kon aahes", "what is your name",
         "whats your name"
     ):
+        target = active_name if session_user.get("is_known") else "you"
         return (
-            f"I am J.A.R.V.I.S., an autonomous desktop AI assistant configured for {active_name}. "
+            f"I am J.A.R.V.I.S., an autonomous desktop AI assistant configured for {target}. "
             "I manage your PC applications, hardware telemetry, notes & reminders, and answer questions with high-speed intelligence."
         )
 
@@ -713,137 +1105,82 @@ async def _generate_response(user_text: str) -> str:
         )
 
     if norm in ("how are you", "how are you doing", "how r u", "kasa ahes", "kasa ahes tu", "kase ahat"):
-        return f"All quantum registers and neural core systems are operating at peak efficiency, {active_name}. How may I serve you?"
+        target = active_name if session_user.get("is_known") else "Sir"
+        return f"All quantum registers and neural core systems are operating at peak efficiency, {target}. How may I serve you?"
 
-    # 5. Live Time / Date / Day (<1ms latency)
+    # 6. Active Tasks Inspection
+    if any(k in norm for k in ("show active tasks", "running apps", "what processes", "active tasks", "running processes")):
+        procs = get_running_user_processes(limit=8)
+        if procs:
+            lines = [f"• **{p['name']}** (PID: {p['pid']}, RAM: {p['ram_mb']} MB)" for p in procs]
+            return "Active PC Tasks / Running Applications:\n" + "\n".join(lines)
+        return "No significant background user tasks detected on this machine."
+
+    # 7. Device File Search
+    if norm.startswith(("search file", "search files", "find file", "find files", "search pc")):
+        q = re.sub(r"^(?:search|find)\s+(?:files|file|pc)?\s*(?:for)?\s*", "", user_text, flags=re.IGNORECASE).strip()
+        if q:
+            matches = deep_search_user_files(q, max_results=5)
+            if matches:
+                lines = [f"• **{m['name']}** ({m['size_kb']}) in *{m['location']}*\n  `{m['path']}`" for m in matches]
+                return f"Device File Search Results for '{q}':\n" + "\n".join(lines)
+            return f"No files matching '{q}' were found across Desktop, Downloads, Documents, or Workspace."
+
+    # 8. Live Time / Date
     time_triggers = (
         "current time", "what time", "what is the time", "tell me the time",
         "tell me the current time", "clock", "date today", "what date",
-        "todays date", "which day", "kiti vajle", "vel kay zali", "time please"
+        "whats today", "aajchi tarikh", "kiti vajle"
     )
-    if any(k in norm for k in time_triggers) or norm in ("time", "date"):
+    if any(k in norm for k in time_triggers):
         now = datetime.datetime.now()
-        t = now.strftime("%I:%M %p")
-        d = now.strftime("%A, %B %d, %Y")
-        return f"The current time is {t} on {d}."
+        time_str = now.strftime("%I:%M %p").lstrip("0")
+        date_str = now.strftime("%A, %B %d, %Y")
+        return f"The current time is {time_str} on {date_str}."
 
-    # 6. Deep Real-Time Host Machine Diagnostics (<50ms latency)
-    sys_triggers = (
-        "system info", "system stats", "laptop specs", "my specs",
-        "tell me about my system", "tell me about the system", "hardware info",
-        "hardware diagnostics", "laptop status", "storage space",
-        "how much storage", "how much ram", "what processor", "my system",
-        "report system status", "cpu usage", "ram usage", "battery status"
-    )
-    if any(k in norm for k in sys_triggers) or norm in ("specs", "system", "cpu", "ram"):
+    # 9. Real Hardware Telemetry Specs
+    if any(k in norm for k in ("system info", "check system specs", "laptop specs", "my specs", "hardware specs", "specs")):
         return get_deep_system_specs()
 
-    # 7. Dynamic Notes & Reminders Parsing (Voice or Text)
-    kind, item_content = parse_note_or_reminder(user_text)
-    if kind == "reminder" and item_content:
+    # 10. Persistent Notes / Reminders
+    kind, content = parse_note_or_reminder(user_text)
+    if kind and content:
         try:
-            await memory_manager.add_note(title="[REMINDER]", content=item_content)
-            return f"Reminder recorded: '{item_content}'. I have logged it into your persistent memory vault."
-        except Exception:
-            return f"Recorded reminder: '{item_content}'."
+            prefix = "[REMINDER] " if kind == "reminder" else "[NOTE] "
+            title = prefix + (content[:30] + "..." if len(content) > 30 else content)
+            note_id = await memory_manager.add_note(title=title, content=content)
+            return f"Understood. I have logged this {kind} to SQLite memory (Reference ID #{note_id}): '{content}'."
+        except Exception as exc:
+            return f"Logged your {kind}: '{content}'."
 
-    if kind == "note" and item_content:
-        try:
-            title = "Personal Note"
-            content = item_content
-            if ":" in item_content:
-                parts = item_content.split(":", 1)
-                title, content = parts[0].strip(), parts[1].strip()
-            await memory_manager.add_note(title=title, content=content)
-            return f"I have saved that to your memory vault:\n**{title}**: {content}"
-        except Exception:
-            return f"Saved note: '{item_content}'."
+    # 11. Core Brain or GenAI Generation
+    try:
+        from core.service import handle_text
+        brain_res = await handle_text(user_text, source="ui_internal")
+        if brain_res and brain_res.get("text"):
+            return brain_res["text"]
+    except Exception:
+        pass
 
-    # 8. Querying Saved Notes & Reminders
-    if any(k in norm for k in ("what are my notes", "show my notes", "list notes", "my notes", "what did i ask you to remember")):
-        try:
-            notes = await memory_manager.list_notes(limit=10)
-            clean_notes = [n for n in notes if not n["title"].startswith("[REMINDER]")]
-            if not clean_notes:
-                return "Your SQLite memory vault is currently empty. Tell me 'Note that...' or 'Remember that...' anytime to store something."
-            bullet_list = "\n".join([f"• **{n['title']}**: {n['content']}" for n in clean_notes])
-            return f"Here are your saved notes from memory:\n{bullet_list}"
-        except Exception as err:
-            print(f"[WARN] Failed to read notes: {err}")
-
-    if any(k in norm for k in ("what are my reminders", "show reminders", "check reminders", "my reminders")):
-        try:
-            notes = await memory_manager.list_notes(limit=10)
-            reminders = [n for n in notes if n["title"].startswith("[REMINDER]")]
-            if not reminders:
-                return "You currently have no pending reminders. Say 'Remind me to [task] at [time]' to schedule one."
-            bullet_list = "\n".join([f"⏰ {n['content']}" for n in reminders])
-            return f"Here are your active reminders:\n{bullet_list}"
-        except Exception as err:
-            print(f"[WARN] Failed to read reminders: {err}")
-
-    # 9. Weather query
-    if "weather" in norm or "havaman" in norm:
-        return (
-            "Current weather conditions: Clear skies, approximately 26°C with 65% humidity. "
-            "Optimal conditions for desktop operations."
-        )
-
-    # 10. Check Fast In-Memory LRU Cache
-    if norm in _response_cache:
-        return _response_cache[norm]
-
-    # 11. Advanced AI Generative Response using Persistent GenAI SDK (with ultra-fast gemini-3.5-flash-lite)
     client = get_genai_client()
     if client:
         try:
-            from google.genai import types
-
-            # Fetch recent conversation context (last 2 turns) for lightweight multi-turn awareness
-            context_history = []
-            try:
-                recent = await memory_manager.get_recent_history(limit=2)
-                for msg in recent:
-                    role_tag = active_name if msg["role"] == "user" else "Jarvis"
-                    context_history.append(f"{role_tag}: {msg['content']}")
-            except Exception:
-                pass
-
-            history_snippet = "\n".join(context_history)
-            prompt_content = (
-                f"Recent Context:\n{history_snippet}\n\nUser Question: {user_text}"
-                if history_snippet
-                else user_text
+            prompt = (
+                f"You are J.A.R.V.I.S., a witty, highly capable desktop AI assistant. "
+                f"User name: {active_name}. "
+                f"Answer the following query concisely and clearly in 1-3 sentences. "
+                f"If the user addresses you in Hindi or Marathi, reply in that language.\n\n"
+                f"User Query: {user_text}"
             )
+            response = await client.aio.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=prompt,
+            )
+            if response and response.text:
+                return response.text.strip()
+        except Exception:
+            pass
 
-            # High-speed gemini-3.5-flash-lite with gemini-flash-lite-latest fallback
-            for model_candidate in ("gemini-3.5-flash-lite", "gemini-flash-lite-latest"):
-                try:
-                    response = await client.aio.models.generate_content(
-                        model=model_candidate,
-                        contents=prompt_content,
-                        config=types.GenerateContentConfig(
-                            system_instruction=(
-                                f"You are JARVIS, an autonomous AI desktop assistant. The active user is {active_name}. "
-                                "Address them politely. Provide concise, direct, intelligent, and helpful answers in 1-2 short paragraphs. "
-                                "If the user asks in Marathi or Hindi, feel free to respond in that language or English as appropriate."
-                            ),
-                            max_output_tokens=250,
-                        ),
-                    )
-                    if response.text and response.text.strip():
-                        ans = response.text.strip()
-                        if len(_response_cache) < 150:
-                            _response_cache[norm] = ans
-                        return ans
-                except Exception as model_err:
-                    print(f"[INFO] Model {model_candidate} retry: {model_err}")
-                    continue
-
-        except Exception as exc:
-            print(f"[WARN] GenAI chat generation error: {exc}")
-
-    # 12. Fallback if offline or network failure
     return (
         f"Jarvis Core acknowledged your directive: '{user_text}'. "
         f"All local memory vaults and hardware telemetry are fully operational."
@@ -854,6 +1191,7 @@ async def _generate_response(user_text: str) -> str:
 async def websocket_jarvis(websocket: WebSocket) -> None:
     """Real-time bi-directional WebSocket channel for HUD chat and telemetry."""
     await websocket.accept()
+    session_user: Dict[str, Any] = {"name": "User", "is_known": False}
     last_chat_msg = ""
     last_chat_time = 0.0
     try:
@@ -872,31 +1210,49 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 if not user_text:
                     continue
 
-                import time
-
                 now_ts = time.time()
                 if user_text.lower() == last_chat_msg.lower() and (now_ts - last_chat_time) < 2.0:
-                    # Guard against rapid duplicate voice recognition bursts
                     continue
                 last_chat_msg = user_text
                 last_chat_time = now_ts
 
-                # Detect if user introduced their name dynamically
+                norm = normalize_command(user_text)
+
+                # Reset user request
+                if norm in ("reset user", "forget my name", "switch user", "change user", "reset profile"):
+                    session_user["name"] = "User"
+                    session_user["is_known"] = False
+                    current_user_state["name"] = "User"
+                    current_user_state["is_known"] = False
+                    await websocket.send_json({"type": "user_identified", "name": "GUEST"})
+                    await websocket.send_json({"type": "response", "text": "I have reset my user registers to default neutral mode. How may I assist you?"})
+                    await websocket.send_json({"type": "status", "status": "idle"})
+                    continue
+
+                # Detect user introduction
                 detected_name = detect_user_intro(user_text)
                 if detected_name:
+                    session_user["name"] = detected_name
+                    session_user["is_known"] = True
                     current_user_state["name"] = detected_name
                     current_user_state["is_known"] = True
                     await websocket.send_json({"type": "user_identified", "name": detected_name})
 
-                # 1. Push 'thinking' status to HUD
+                # 1. Push thinking status to HUD
                 await websocket.send_json({"type": "status", "status": "thinking"})
 
                 # 2. Check for quick app launcher helper or direct desktop shortcut
-                launched_app = try_launch_system_app(user_text)
-                if launched_app:
-                    user_suffix = f", {current_user_state['name']}." if current_user_state.get("is_known") else "."
-                    reply_text = f"Opening {launched_app} for you now{user_suffix}"
-                    tool_steps = [f"open_app({launched_app})"]
+                launch_info = try_launch_system_app(user_text)
+                tool_steps = []
+                if launch_info:
+                    app_label = str(launch_info.label if hasattr(launch_info, 'label') else launch_info[0])
+                    task_detail = launch_info.detail if hasattr(launch_info, 'detail') else (launch_info[1] if len(launch_info) > 1 else None)
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ""
+                    if task_detail:
+                        reply_text = f"Opening {app_label} for you now{user_suffix}. {task_detail}"
+                    else:
+                        reply_text = f"Opening {app_label} for you now{user_suffix}."
+                    tool_steps = [f"open_app({app_label})"]
                     try:
                         await memory_manager.save_interaction(role="user", content=user_text)
                         await memory_manager.save_interaction(role="assistant", content=reply_text)
@@ -904,31 +1260,59 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                         pass
                 else:
                     # 3. Delegate directly to Core Brain Engine via handle_text
-                    from core.service import handle_text
-                    result = await handle_text(user_text, source="ui", mode=mode)
-                    reply_text = result.get("text", "")
-                    tool_steps = result.get("tool_steps", [])
+                    reply_text = ""
+                    try:
+                        from core.service import handle_text
+                        result = await handle_text(user_text, source="ui", mode=mode)
+                        reply_text = result.get("text", "")
+                        tool_steps = result.get("tool_steps", [])
+                    except Exception:
+                        reply_text = ""
+
+                    if not reply_text:
+                        reply_text = await _generate_response(user_text, session_user=session_user)
+
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
 
                 # 4. Broadcast executed tool steps to HUD
                 if tool_steps:
                     await websocket.send_json({"type": "tool_steps", "steps": tool_steps})
 
-                # 5. Push response (Frontend lifecycle manages speaking -> idle)
+                # 5. Push response and reset to idle
                 await websocket.send_json({"type": "response", "text": reply_text})
                 await websocket.send_json({"type": "status", "status": "idle"})
 
-            elif action == "get_telemetry":
-                # Push live telemetry on request
-                from tools.system_tools import GetSystemStatsTool
+            elif action == "set_user":
+                name = payload.get("name", "").strip()
+                if name:
+                    session_user["name"] = name
+                    session_user["is_known"] = True
+                    current_user_state["name"] = name
+                    current_user_state["is_known"] = True
+                    await websocket.send_json({"type": "user_identified", "name": name})
+                else:
+                    session_user["name"] = "User"
+                    session_user["is_known"] = False
+                    current_user_state["name"] = "User"
+                    current_user_state["is_known"] = False
+                    await websocket.send_json({"type": "user_identified", "name": "GUEST"})
 
-                stats = GetSystemStatsTool().run()
-                await websocket.send_json({"type": "telemetry", "data": stats.data})
+            elif action == "get_telemetry":
+                try:
+                    from tools.system_tools import GetSystemStatsTool
+                    stats = GetSystemStatsTool().run()
+                    await websocket.send_json({"type": "telemetry", "data": stats.data})
+                except Exception:
+                    pass
 
             elif action == "ping":
                 await websocket.send_json({"type": "pong"})
 
     except WebSocketDisconnect:
-        # Client disconnected normally
         pass
     except Exception as exc:
         print(f"[WARN] WebSocket session terminated: {exc}")
