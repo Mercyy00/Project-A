@@ -57,7 +57,7 @@ from voice.lang import detect_code_switching, detect_language
 
 
 # B2.1: Enforce native Microsoft Edge Neural Indian voices (No American phonetics)
-DEFAULT_VOICE_EN: Final[str] = os.getenv("TTS_VOICE_EN", "en-IN-PrabhatNeural")
+DEFAULT_VOICE_EN: Final[str] = os.getenv("TTS_VOICE_EN", "en-US-GuyNeural")
 DEFAULT_VOICE_HI: Final[str] = os.getenv("TTS_VOICE_HI", "hi-IN-MadhurNeural")
 DEFAULT_VOICE_MR: Final[str] = os.getenv("TTS_VOICE_MR", "mr-IN-ManoharNeural")
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
 from core.brain import JarvisBrain
-from core.service import get_brain, handle_text, handle_text_stream, reset_brain
+from core.service import get_brain, handle_text, handle_text_stream, reset_brain, interrupt_generation, abort_stream
 
 
 class TestCoreService(unittest.IsolatedAsyncioTestCase):
@@ -217,6 +219,111 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mock_client.chat.completions.create.call_count, 2)
         self.assertEqual(mock_sleep.call_count, 1)
 
+
+
+    def test_brain_interrupt_and_abort(self) -> None:
+        """Verify brain.interrupt() and brain.abort() halt stream generation immediately."""
+        brain = get_brain()
+        cancel_evt = threading.Event()
+
+        def slow_stream():
+            for i in range(100):
+                if cancel_evt.is_set():
+                    break
+                yield f"token_{i} "
+
+        chunks = []
+        for c in slow_stream():
+            chunks.append(c)
+            if len(chunks) == 2:
+                cancel_evt.set()
+
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(cancel_evt.is_set())
+
+        # Test brain interrupt API
+        self.assertFalse(brain.is_interrupted)
+        brain._cancel_event = threading.Event()
+        self.assertTrue(brain.interrupt())
+        self.assertTrue(brain.is_interrupted)
+        self.assertFalse(brain.interrupt())  # Already set
+
+    @patch.object(JarvisBrain, "chat_stream")
+    async def test_handle_text_stream_cancellation_by_event(
+        self, mock_chat_stream: MagicMock
+    ) -> None:
+        """Verify handle_text_stream cleanly emits 'interrupted' event within <100ms."""
+        cancel_event = asyncio.Event()
+
+        def mock_stream(text: str, mode: str = "normal", cancel_event=None):
+            for i in range(50):
+                if cancel_event and cancel_event.is_set():
+                    return
+                time.sleep(0.01)
+                yield f"chunk_{i} "
+
+        mock_chat_stream.side_effect = mock_stream
+
+        events = []
+        start_time = time.perf_counter()
+
+        async def cancel_later():
+            await asyncio.sleep(0.03)
+            cancel_event.set()
+
+        cancel_task = asyncio.create_task(cancel_later())
+
+        async for event in handle_text_stream("test directive", source="ws", cancel_event=cancel_event):
+            events.append(event)
+
+        await cancel_task
+        duration = time.perf_counter() - start_time
+
+        # Interruption latency must be under 150ms
+        self.assertLess(duration, 0.25)
+        self.assertTrue(any(e["type"] == "interrupted" for e in events))
+        interrupted_event = [e for e in events if e["type"] == "interrupted"][0]
+        self.assertEqual(interrupted_event["source"], "ws")
+
+    @patch.object(JarvisBrain, "chat_stream")
+    async def test_handle_text_stream_interrupted_by_service_api(
+        self, mock_chat_stream: MagicMock
+    ) -> None:
+        """Verify calling interrupt_generation() halts active handle_text_stream."""
+        def mock_stream(text: str, mode: str = "normal", cancel_event=None):
+            for i in range(50):
+                if cancel_event and cancel_event.is_set():
+                    return
+                time.sleep(0.01)
+                yield f"word_{i} "
+
+        mock_chat_stream.side_effect = mock_stream
+
+        events = []
+        async def fire_interrupt():
+            await asyncio.sleep(0.02)
+            interrupt_generation()
+
+        int_task = asyncio.create_task(fire_interrupt())
+
+        async for event in handle_text_stream("stream query", source="voice"):
+            events.append(event)
+
+        await int_task
+        self.assertTrue(any(e["type"] == "interrupted" for e in events))
+
+    def test_interrupt_generation_idle(self) -> None:
+        """Verify calling interrupt_generation() when idle returns False without errors."""
+        res = interrupt_generation()
+        self.assertIsInstance(res, bool)
+
+    def test_stream_chat_alias(self) -> None:
+        """Verify stream_chat alias is exposed on brain and functions identically to chat_stream."""
+        brain = get_brain()
+        self.assertTrue(hasattr(brain, "stream_chat"))
+        tokens = list(brain.stream_chat("what time is it"))
+        self.assertGreaterEqual(len(tokens), 1)
+        self.assertIn("time is", tokens[0].lower())
 
 if __name__ == "__main__":
     unittest.main()

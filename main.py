@@ -114,6 +114,12 @@ def launch_voice(auto_mode: bool = False) -> None:
     run_voice()
 
 
+def launch_live() -> None:
+    """Launch the real-time bidirectional Gemini Live streaming voice loop."""
+    from voice.gemini_live import main as run_live
+    run_live()
+
+
 def launch_cli() -> None:
     """Launch the interactive terminal chat runner."""
     from main_cli import main as run_cli
@@ -205,6 +211,11 @@ def main() -> None:
         help="Launch the Web HUD desktop application interface (default)",
     )
     group.add_argument(
+        "--live",
+        action="store_true",
+        help="Launch real-time Gemini Live bidirectional voice streaming (Mark-grade human voice with sub-800ms latency)",
+    )
+    group.add_argument(
         "--voice",
         action="store_true",
         help="Launch the interactive multilingual spoken voice loop",
@@ -277,6 +288,8 @@ def main() -> None:
 
     if args.check:
         launch_doctor(run_live_ping=args.live_ping)
+    elif args.live:
+        launch_live()
     elif args.voice:
         launch_voice(auto_mode=args.auto)
     elif args.cli:
