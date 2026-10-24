@@ -1529,6 +1529,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
       if (e.error === 'not-allowed') {
         log('MIC ERROR: PERMISSION BLOCKED IN BROWSER');
+        appendFeedMessage('jarvis', '⚠️ Microphone access is not allowed. Please click the lock icon in your browser address bar next to 127.0.0.1:8000 and select "Allow Microphone", then reload the page.');
         isListening = false;
         btnVoice.classList.remove('active-voice');
         btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
@@ -1563,7 +1564,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     return rec;
   }
 
-  btnVoice.addEventListener('click', () => {
+  btnVoice.addEventListener('click', async () => {
     if (isListening || isAwaitingReplyOrSpeaking) {
       isListening = false;
       stopAudio();
@@ -1574,6 +1575,20 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       log('VOICE RECEPTORS DISENGAGED');
     } else {
       releaseSpeakingLock();
+
+      // Explicitly prompt for browser microphone access if not already granted
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+          log('MIC ACCESS VERIFIED');
+        } catch (permErr) {
+          log('MIC ACCESS DENIED');
+          appendFeedMessage('jarvis', '⚠️ Microphone access blocked. Please click the lock or site settings icon in your browser address bar next to http://127.0.0.1:8000 and set Microphone to "Allow".');
+          return;
+        }
+      }
+
       isListening = true;
       if (!recognition) recognition = initSpeech();
       if (recognition) {
