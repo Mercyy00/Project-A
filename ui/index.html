@@ -1163,6 +1163,13 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
     if (recognition) {
       try { recognition.stop(); } catch (e) {}
     }
+    clearTimeout(directiveWatchdogTimer);
+    directiveWatchdogTimer = setTimeout(() => {
+      if (isAwaitingReplyOrSpeaking) {
+        log('SAFETY TIMEOUT: RELEASING VOICE LINK');
+        releaseSpeakingLock();
+      }
+    }, 6000);
 
     // Check for verbal mode switching
     const lower = clean.toLowerCase();
@@ -1229,6 +1236,25 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   // -------------------------------------------------------------
   // 7. TEXT-TO-SPEECH (Edge-TTS Neural & Fast Fallback)
   // -------------------------------------------------------------
+  let directiveWatchdogTimer = null;
+
+  function releaseSpeakingLock() {
+    clearTimeout(directiveWatchdogTimer);
+    isJarvisSpeaking = false;
+    isAwaitingReplyOrSpeaking = false;
+    setCoreState(isListening ? 'listening' : 'idle');
+    if (isListening) {
+      btnVoice.classList.add('active-voice');
+      btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
+      if (recognition) {
+        try { recognition.start(); } catch (e) {}
+      }
+    } else {
+      btnVoice.classList.remove('active-voice');
+      btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
+    }
+  }
+
   function stopAudio() {
     isJarvisSpeaking = false;
     if (currentAudio) {
@@ -1246,8 +1272,7 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
 
   function speakBrowserSpeech(clean) {
     if (!window.speechSynthesis) {
-      isJarvisSpeaking = false;
-      setCoreState(isListening ? 'listening' : 'idle');
+      releaseSpeakingLock();
       return;
     }
     window.speechSynthesis.cancel();
@@ -1266,26 +1291,19 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       setCoreState('speaking');
     };
     utterance.onend = () => {
-      setTimeout(() => {
-        isJarvisSpeaking = false;
-        isAwaitingReplyOrSpeaking = false;
-        setCoreState(isListening ? 'listening' : 'idle');
-        if (isListening && recognition) {
-          btnVoice.classList.add('active-voice');
-          btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
-          try { recognition.start(); } catch (e) {}
-        }
-      }, 350);
+      setTimeout(releaseSpeakingLock, 200);
     };
     utterance.onerror = () => {
-      isJarvisSpeaking = false;
-      setCoreState(isListening ? 'listening' : 'idle');
+      releaseSpeakingLock();
     };
     window.speechSynthesis.speak(utterance);
   }
 
   function speakText(rawText) {
-    if (!ttsEnabled || !rawText) return;
+    if (!ttsEnabled || !rawText) {
+      releaseSpeakingLock();
+      return;
+    }
     stopAudio();
 
     const clean = rawText
@@ -1295,13 +1313,48 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       .replace(/https?:\/\/\S+/g, 'link')
       .trim();
 
-    if (!clean) return;
+    if (!clean) {
+      releaseSpeakingLock();
+      return;
+    }
 
     // Instant local speech for Tactical Combat Mode
     if (activeMode === 'combat') {
       speakBrowserSpeech(clean);
       return;
     }
+
+    // High-fidelity Microsoft Edge Neural TTS stream
+    isJarvisSpeaking = true;
+    setCoreState('speaking');
+
+    try {
+      const audio = new Audio(`/api/tts?text=${encodeURIComponent(clean)}`);
+      currentAudio = audio;
+
+      audio.onplay = () => {
+        isJarvisSpeaking = true;
+        setCoreState('speaking');
+      };
+
+      audio.onended = () => {
+        if (currentAudio === audio) currentAudio = null;
+        setTimeout(releaseSpeakingLock, 250);
+      };
+
+      audio.onerror = () => {
+        if (currentAudio === audio) currentAudio = null;
+        speakBrowserSpeech(clean);
+      };
+
+      audio.play().catch(() => {
+        speakBrowserSpeech(clean);
+      });
+    } catch (e) {
+      speakBrowserSpeech(clean);
+    }
+  }
+
 
     // High-fidelity Microsoft Edge Neural TTS stream
     isJarvisSpeaking = true;
@@ -1464,6 +1517,9 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
       if (e.error === 'network') {
         consecutiveNetworkErrors++;
         log('MIC: CLOUD STT NETWORK HICCUP');
+        if (isAwaitingReplyOrSpeaking && !isJarvisSpeaking) {
+          releaseSpeakingLock();
+        }
         if (consecutiveNetworkErrors >= 2) {
           log('TIP: USE KEYBOARD OR RETRY VOICE LINK');
           appendFeedMessage('jarvis', 'Browser speech recognition network timed out connecting to Google speech servers. You can transmit directives by keyboard or check your internet/VPN connection.');
@@ -1508,16 +1564,17 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   }
 
   btnVoice.addEventListener('click', () => {
-    if (isListening) {
+    if (isListening || isAwaitingReplyOrSpeaking) {
       isListening = false;
+      stopAudio();
       if (recognition) {
         try { recognition.stop(); } catch (e) {}
       }
-      btnVoice.classList.remove('active-voice');
-      btnVoice.textContent = '◎ INITIALIZE VOICE LINK';
-      setCoreState('idle');
+      releaseSpeakingLock();
       log('VOICE RECEPTORS DISENGAGED');
     } else {
+      releaseSpeakingLock();
+      isListening = true;
       if (!recognition) recognition = initSpeech();
       if (recognition) {
         try {
