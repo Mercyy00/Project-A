@@ -45,7 +45,8 @@ from creator.hello_docs import generate_hello_docs
 from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
 from creator.report_maker import generate_executive_report
-from creator.themes import THEMES, contains_devanagari, get_theme
+from creator.web_maker import make_website
+from creator.themes import THEMES, contains_devanagari, get_theme, register_all_fonts
 from creator.outline import create_document, generate_outline
 from creator.templates import (
     application_letter,
@@ -58,6 +59,7 @@ from creator.tools import (
     CreateDocxTool,
     CreatePdfTool,
     CreatePptxTool,
+    CreateWebsiteTool,
     CreateDocumentTool,
     GenerateReportTool,
     CreateTemplateTool,
@@ -66,6 +68,7 @@ from creator.tools import (
     create_docx,
     create_pdf,
     create_pptx,
+    create_website,
     create_document_tool,
     generate_report,
     create_template_document,
@@ -1165,6 +1168,115 @@ def test_day6_create_template_tool_schema_and_execution(tmp_path: Path) -> None:
 
 
 # =====================================================================
+# Day 7 Tests: Web Artifacts, Theme Factory, Font Suite & Multi-Format
+# =====================================================================
+def test_claude_theme_factory_themes() -> None:
+    """Verify that all Claude Theme Factory and modern themes are fully defined."""
+    expected_themes = [
+        "clean_light",
+        "dark_pro",
+        "colourful",
+        "tech_innovation",
+        "ocean_depths",
+        "forest_moss",
+        "midnight_executive",
+        "warm_terracotta",
+        "modern_minimalist",
+        "sunset_boulevard",
+    ]
+    for th_name in expected_themes:
+        assert th_name in THEMES, f"Theme '{th_name}' missing from THEMES dictionary"
+        th = get_theme(th_name)
+        assert "bg_color" in th
+        assert "primary_color" in th
+        assert "text_color" in th
+        assert "bento" in th
+        assert "card_bg" in th["bento"]
+
+
+def test_all_fonts_registration() -> None:
+    """Verify that register_all_fonts discovers and registers TTF fonts safely."""
+    fonts = register_all_fonts()
+    assert isinstance(fonts, list)
+    assert len(fonts) >= 2
+
+
+def test_make_website_generation(tmp_path: Path) -> None:
+    """Verify make_website generates a complete, valid responsive HTML artifact."""
+    sample_sec = [
+        {
+            "heading": "Platform Performance",
+            "text": "Autonomous execution metrics demonstrate sub-millisecond response latency.",
+            "metrics": [{"label": "Latency", "value": "0.4ms"}, {"label": "Uptime", "value": "99.99%"}],
+            "bullets": ["High-performance WebSocket streaming.", "Local Faster-Whisper VAD routing."],
+            "table": [["Tier", "Throughput"], ["Edge", "50k ops/s"], ["Core", "120k ops/s"]],
+        }
+    ]
+
+    html_path = make_website(
+        title="Edge Performance Report",
+        sections=sample_sec,
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(html_path)
+    assert p.exists()
+    content = p.read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in content
+    assert "Edge Performance Report" in content
+
+
+def test_execute_tool_create_website(tmp_path: Path) -> None:
+    """Verify CreateWebsiteTool and central registry execution for website creation."""
+    tool = CreateWebsiteTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "create_website"
+    assert "title" in schema["parameters"]["properties"]
+    assert "sections" in schema["parameters"]["properties"]
+
+    assert "create_website" in TOOL_REGISTRY
+
+    res = execute_tool(
+        "create_website",
+        {
+            "title": "Autonomous Agent Workspace",
+            "sections": [
+                {
+                    "heading": "Agent Capabilities",
+                    "text": "Multi-agent orchestration with strict isolation boundaries.",
+                    "bullets": ["Pair A: Core Brain & Memory", "Pair D: Document & Web Creator"],
+                }
+            ],
+            "theme": "ocean_depths",
+            "out_dir": str(tmp_path),
+            "auto_open": False,
+        },
+    )
+    assert res.success is True
+    assert "file_path" in res.data
+    assert Path(res.data["file_path"]).exists()
+    assert res.data["format"] == "html"
+
+
+def test_day5_create_document_web_kind(tmp_path: Path) -> None:
+    """Verify create_document autonomously creates web artifacts when kind='web'."""
+    out_file = create_document(
+        topic="Neural Network Architectures",
+        kind="web",
+        theme="sunset_boulevard",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(out_file)
+    assert p.exists()
+    assert p.suffix == ".html"
+    content = p.read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in content
+    assert "Neural Network" in content
+
+
+# =====================================================================
 # Runnable Standalone Verification Script
 # =====================================================================
 def run_verification() -> bool:
@@ -1456,8 +1568,60 @@ def run_verification() -> bool:
         assert tpl_res.success is True
         print(f"  [PASS] create_template_document: {tpl_res.data['file_path']} ({tpl_res.data['bytes']} bytes)")
 
+        # 10. Day 7: Web Artifact Maker & Claude Theme Factory Verification
+        print("\n[DAY 7] Verifying Web Artifact Maker & Claude Theme Factory...")
+        d7_web = make_website(
+            title="JARVIS Enterprise Intelligence Hub",
+            sections=[
+                {
+                    "heading": "Subsystem Orchestration",
+                    "text": "Universal document creator and interactive web artifact builder.",
+                    "metrics": [
+                        {"label": "Formats", "value": "PDF, DOCX, PPTX, HTML"},
+                        {"label": "Themes", "value": "10 Theme Factory"},
+                        {"label": "Fonts", "value": "18 Bundled Fonts"},
+                    ],
+                    "bullets": [
+                        "Responsive modern bento grid layout with glassmorphism.",
+                        "Interactive searchable data tables with live filtering.",
+                        "Devanagari TrueType font rendering for Hindi and Marathi.",
+                    ],
+                    "table": [
+                        ["Component", "Lead", "Formats Supported", "Status"],
+                        ["Document Engine", "Vidhita", "PDF, DOCX, PPTX, HTML", "OPERATIONAL"],
+                        ["Charts & Analytics", "Vidhita", "PNG (Agg Headless)", "OPERATIONAL"],
+                        ["Templates", "Vidhita", "Reports, Resumes, Letters", "OPERATIONAL"],
+                    ],
+                }
+            ],
+            theme="tech_innovation",
+            out_dir=str(workspace_dir),
+            auto_open=False,
+        )
+        assert Path(d7_web).exists()
+        print(f"  [PASS] make_website: {d7_web} ({Path(d7_web).stat().st_size} bytes)")
+
+        web_res = execute_tool(
+            "create_website",
+            {
+                "title": "Autonomous Assistant Portal",
+                "sections": [
+                    {
+                        "heading": "Enterprise Features",
+                        "text": "Production verification of all multi-format engines.",
+                        "metrics": [{"label": "Status", "value": "Battle Ready"}],
+                    }
+                ],
+                "theme": "ocean_depths",
+                "out_dir": str(workspace_dir),
+                "auto_open": False,
+            },
+        )
+        assert web_res.success is True
+        print(f"  [PASS] create_website tool: {web_res.data['file_path']} ({web_res.data['bytes']} bytes)")
+
         print("\n" + "=" * 75)
-        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 6 PASSED!")
+        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 7 PASSED!")
         print("=" * 75)
         return True
 

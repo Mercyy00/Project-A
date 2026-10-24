@@ -1,23 +1,24 @@
-# JARVIS Document Creator Engine
+# JARVIS Document Creator & Web Artifacts Engine
 
-**Engineer:** Vidhita (Document Engineer)  
+**Engineer:** Vidhita (Document & Web Artifact Engineer)  
 **Pair:** Pair D (Documents + Messaging)  
 **Branch:** `feature/vidhita-creator`  
-**Milestone:** Days 1 through 6 Completed (Production Multi-Format Executive Engine & Templates)
+**Milestone:** Days 1 through 7 Completed (Enterprise Multi-Format Engine, Web Artifacts Maker, Claude Theme Factory & Grand Finale Showcase)
 
 ---
 
 ## 1. Overview
 
-The `creator` package is Project JARVIS's autonomous document and visual intelligence engine. It provides high-fidelity, programmatic document rendering across three standard productivity formats plus rich visual analytics:
-- **PDF Documents** (`.pdf`) via ReportLab Platypus
-- **Word Documents** (`.docx`) via python-docx
-- **PowerPoint Decks** (`.pptx`) in 16:9 widescreen format via python-pptx
-- **Themed Visual Charts** (`.png`) via headless Matplotlib (Agg backend)
-- **Autonomous Multi-Format Executive Reports** coordinated across PDF, DOCX, and PPTX
-- **Professional Ready-to-Use Document Templates** (Project Reports, Assignment Covers, Resumes, Application Letters)
+The `creator` package is Project JARVIS's autonomous document and interactive web generation engine. It combines Anthropic Claude's design guidelines (`frontend-design`, `web-artifacts-builder`, `theme-factory`, `canvas-design`, `pdf`, `pptx`, `docx`) into a production-grade multi-format generation suite:
+- **Interactive Web Artifacts & Standalone Websites** (`.html`) via self-contained HTML5/CSS3/ES6 modern bento grids, glassmorphism, responsive navigation, dynamic search/filters, and interactive charts/tables.
+- **Executive PDF Documents** (`.pdf`) via ReportLab Platypus with two-pass canvas numbering, page-level theming, and cover sheets.
+- **Word Documents** (`.docx`) via python-docx with styled tables, branded headers/footers, and custom margins.
+- **PowerPoint Decks** (`.pptx`) in 16:9 widescreen format via python-pptx with accent rails, auto-bullet splitting, and summary slides.
+- **Themed Visual Charts** (`.png`) via headless Matplotlib (Agg backend) with Devanagari TrueType font support.
+- **Autonomous Multi-Format Executive Reports** coordinated across PDF, DOCX, and PPTX.
+- **Professional Ready-to-Use Document Templates** (Project Reports, Assignment Covers, Resumes, Application Letters).
 
-All tools adhere strictly to `BaseTool` contracts, automatically register into `TOOL_REGISTRY`, and prevent raw markdown corruption fallback.
+All tools adhere strictly to `BaseTool` contracts, automatically register into `TOOL_REGISTRY`, support 10 rich Theme Factory palettes, and embed TrueType and Devanagari fonts.
 
 ---
 
@@ -100,6 +101,35 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
 - **`CreateTemplateTool` in `creator/tools.py`**:
   - Exposes `create_template_document` tool to `JarvisBrain` and `TOOL_REGISTRY`.
 
+### Day 7: Claude Skills Web Artifacts Maker, 10 Theme Factory Palettes & Font Suite
+- **`creator/web_maker.py` (`make_website`)**:
+  - `make_website(title, sections, theme='tech_innovation', out_dir='workspace', auto_open=True) -> str`:
+  - Single-file standalone HTML bundle requiring zero external build steps.
+  - Modern typography pairing (Inter, Plus Jakarta Sans, Outfit, Playfair Display, Fira Code via Google Web Fonts).
+  - Glassmorphic navigation header with theme badge, quick-jump links, and system status indicator.
+  - Hero section featuring pill badges, high-contrast title, and dynamic timestamps.
+  - Bento metric cards displaying key performance indicators, stats, and delta tags.
+  - Collapsible/structured section cards with copy actions, code callouts, and bullet lists.
+  - Interactive data tables with client-side real-time filtering, search, and row highlighting.
+- **`CreateWebsiteTool` in `creator/tools.py`**:
+  - Exposes `create_website` tool to `JarvisBrain` and `TOOL_REGISTRY`.
+- **10 Theme Factory Palettes (`creator/themes.py`)**:
+  - Full Anthropic Theme Factory palette suite: `clean_light`, `dark_pro`, `colourful`, `tech_innovation`, `ocean_depths`, `forest_moss`, `midnight_executive`, `warm_terracotta`, `modern_minimalist`, `sunset_boulevard`.
+- **18 TrueType Fonts Suite (`creator/fonts/`)**:
+  - TrueType font suite bundled in `creator/fonts/`: Devanagari (Regular/Bold), Calibri, Georgia, Consolas, Segoe UI, Bahnschrift, Trebuchet, Verdana, Arial, JetBrains Mono.
+  - Registered via `register_all_fonts()`.
+- **Grand Finale Multi-Format Showcase**:
+  - `create_document` dispatches across `pdf`, `docx`, `pptx`, and `web`.
+  - All 8 creator tools unified in `creator.tools.TOOLS` and auto-registered in `tools.registry.TOOL_REGISTRY`:
+    1. `create_pdf` (`CreatePdfTool`)
+    2. `create_docx` (`CreateDocxTool`)
+    3. `create_pptx` (`CreatePptxTool`)
+    4. `create_website` (`CreateWebsiteTool`)
+    5. `create_document` (`CreateDocumentTool`)
+    6. `create_chart` (`CreateChartTool`)
+    7. `generate_report` (`GenerateReportTool`)
+    8. `create_template_document` (`CreateTemplateTool`)
+
 ---
 
 ## 3. Themes Reference
@@ -109,12 +139,19 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
 | `clean_light` | `#FFFFFF` | `#1E293B` | `#1E40AF` (Royal Blue) | Crisp, corporate, clean |
 | `dark_pro` | `#0F172A` | `#F8FAFC` | `#38BDF8` (Cyan / Sky) | Modern dark mode, tech brief |
 | `colourful` | `#FFFDF7` | `#1E1B4B` | `#7C3AED` (Violet / Coral) | Expressive, vibrant, creative |
+| `tech_innovation` | `#090D16` | `#F1F5F9` | `#00F2FE` (Electric Cyan) | Cyberpunk, terminal, AI |
+| `ocean_depths` | `#0A192F` | `#E6F1FF` | `#00E5FF` (Aquamarine) | Marine, calm, deep |
+| `forest_moss` | `#061A14` | `#ECFDF5` | `#10B981` (Emerald) | Organic, ecological, nature |
+| `midnight_executive` | `#0B0F19` | `#F8FAFC` | `#F59E0B` (Burnished Gold) | Luxury consulting, high finance |
+| `warm_terracotta` | `#FDF8F5` | `#292524` | `#EA580C` (Terracotta) | Warm artisan, editorial |
+| `modern_minimalist` | `#F8FAFC` | `#0F172A` | `#0F172A` (Pure Slate) | Swiss architectural, clean |
+| `sunset_boulevard` | `#0A0512` | `#FDF4FF` | `#E11D48` (Sunset Rose) | Plum luxury, bold gradients |
 
 ---
 
 ## 4. How to Run & Verify
 
-### Run Automated Acceptance Tests (Days 1–6)
+### Run Automated Acceptance Tests (Days 1–7)
 ```powershell
 python tests/test_creator.py
 ```
@@ -126,38 +163,57 @@ pytest tests/test_creator.py -v
 
 ### Direct Tool Execution Examples
 
-#### 1. Generate Themed Chart
+#### 1. Generate Interactive Web Artifact (Day 7)
 ```python
 from tools.registry import execute_tool
 
-result = execute_tool("create_chart", {
-    "chart_type": "bar",
-    "data": {"Q1": 120, "Q2": 260, "Q3": 390, "Q4": 520},
-    "title": "Quarterly Revenue Growth",
-    "theme": "clean_light"
-})
-print("Chart PNG:", result.data["file_path"])
-```
-
-#### 2. Generate Coordinated Multi-Format Executive Report
-```python
-from tools.registry import execute_tool
-
-result = execute_tool("generate_report", {
-    "title": "JARVIS Executive Intelligence Review",
-    "summary": "Autonomous desktop assistant production metrics.",
-    "key_metrics": [
-        {"label": "Engine Latency", "value": "< 200ms"},
-        {"label": "Document Accuracy", "value": "100%"},
+result = execute_tool("create_website", {
+    "title": "Autonomous AI Agent Architecture",
+    "sections": [
+        {
+            "heading": "1. Executive Summary",
+            "text": "Multi-agent desktop assistant with sub-second latency.",
+            "metrics": [
+                {"label": "Tools Count", "value": "39 Tools"},
+                {"label": "Response Latency", "value": "< 250ms"},
+                {"label": "Test Coverage", "value": "100%"},
+            ],
+            "bullets": [
+                "Modular subsystem isolation across 4 developer pairs.",
+                "Real-time token streaming with dual-engine failover.",
+            ],
+            "table": [
+                ["Subsystem", "Owner", "Status"],
+                ["Creator", "Vidhita", "Day 7 Complete"],
+                ["Core", "Jay", "Operational"],
+                ["Voice", "Aryan / Madhuri", "Operational"],
+            ]
+        }
     ],
-    "chart_configs": [
-        {"type": "donut", "data": {"PDF": 35, "DOCX": 35, "PPTX": 30}, "title": "Format Usage"}
-    ],
-    "theme": "clean_light",
-    "formats": ["pdf", "docx", "pptx"],
+    "theme": "tech_innovation",
     "auto_open": False
 })
-print("Report Files:", result.data["files"])
+print("Artifact HTML:", result.data["file_path"])
+```
+
+#### 2. Generate Multi-Format Topic Document (PDF, DOCX, PPTX, Web)
+```python
+from tools.registry import execute_tool
+
+# Web artifact
+res_web = execute_tool("create_document", {
+    "topic": "Quantum Computing Frontiers",
+    "kind": "web",
+    "theme": "tech_innovation"
+})
+
+# PDF report in Marathi (Devanagari)
+res_pdf = execute_tool("create_document", {
+    "topic": "कृत्रिम बुद्धिमत्ता आणि भविष्य",
+    "kind": "pdf",
+    "language": "mr",
+    "theme": "clean_light"
+})
 ```
 
 #### 3. Day 6: Statistical Chart & Section Embedding
@@ -165,7 +221,7 @@ print("Report Files:", result.data["files"])
 from creator.charts import make_chart
 from creator.pdf_maker import make_pdf
 
-# 1. Standalone chart PNG in temp_creator/
+# Standalone chart PNG in temp_creator/
 chart_file = make_chart(
     kind="bar",
     labels=["Q1", "Q2", "Q3", "Q4"],
@@ -175,7 +231,7 @@ chart_file = make_chart(
     out_dir="temp_creator"
 )
 
-# 2. Section chart embedded directly inside PDF
+# Section chart embedded directly inside PDF
 doc_file = make_pdf(
     title="Quarterly Analytics",
     sections=[{
@@ -190,24 +246,13 @@ doc_file = make_pdf(
     }],
     theme="clean_light"
 )
-print("PDF with Embedded Chart:", doc_file)
 ```
 
-#### 4. Day 6: Document Templates & Tool Execution
+#### 4. Day 6: Ready-to-Use Document Templates
 ```python
-from creator.templates import project_report, assignment_cover, resume, application_letter
 from tools.registry import execute_tool
 
-# Project Report
-report_path = project_report(
-    title="Project JARVIS Architecture",
-    author="Vidhita (Document Engineer)",
-    chapters=[{"heading": "Design Patterns", "text": "Modular isolation and ReAct tool calling."}],
-    theme="clean_light",
-    kind="pdf"
-)
-
-# Autonomous tool execution via brain
+# Project Report / Assignment Cover
 res = execute_tool("create_template_document", {
     "template_type": "assignment_cover",
     "data": {

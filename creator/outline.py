@@ -204,7 +204,7 @@ def _request_gemini_outline(topic: str, language: str) -> Optional[Dict[str, Any
         Optional[Dict[str, Any]]: Parsed outline dictionary if successful.
     """
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key or api_key == "your_gemini_api_key_here":
+    if not api_key or api_key == "your_gemini_api_key_here" or not api_key.startswith("AIza"):
         return None
 
     model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.8-flash"
@@ -350,9 +350,11 @@ def create_document(
         clean_kind = "pptx"
     elif clean_kind in ("word", "doc", "document"):
         clean_kind = "docx"
+    elif clean_kind in ("web", "html", "website", "artifact", "page", "app"):
+        clean_kind = "web"
 
-    if clean_kind not in ("pdf", "docx", "pptx"):
-        raise ValueError(f"Unsupported document kind '{kind}'. Must be 'pdf', 'docx', or 'pptx'.")
+    if clean_kind not in ("pdf", "docx", "pptx", "web"):
+        raise ValueError(f"Unsupported document kind '{kind}'. Must be 'pdf', 'docx', 'pptx', or 'web'.")
 
     # Generate or retrieve structured 4-6 section outline
     outline = generate_outline(clean_topic, language=language)
@@ -380,6 +382,16 @@ def create_document(
             theme=theme,
             out_dir=out_dir,
             auto_open=auto_open,
+        )
+    elif clean_kind == "web":
+        from creator.web_maker import make_website
+        return make_website(
+            title=doc_title,
+            sections=sections,
+            theme=theme,
+            out_dir=out_dir,
+            auto_open=auto_open,
+            language=language,
         )
     else:  # pptx
         return make_pptx(
