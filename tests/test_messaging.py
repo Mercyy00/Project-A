@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from typing import Any, List
 from unittest.mock import MagicMock, patch
 
@@ -424,6 +425,177 @@ def test_day4_acceptance_cli_send_telegram(mock_send: Any) -> None:
     res = execute_tool("send_telegram", {"text": "hello from CLI"})
     assert res.success is True
     assert mock_send.called
+
+
+# ==============================================================================
+# 7. Day 6: Contacts & WhatsApp Tests
+# ==============================================================================
+
+def test_contacts_loading() -> None:
+    """Contacts should load from json file with valid mapping."""
+    from messaging.contacts import load_contacts
+
+    contacts = load_contacts()
+    assert isinstance(contacts, dict)
+    assert len(contacts) >= 2
+
+
+def test_find_contact_exact_and_fuzzy() -> None:
+    """find_contact should be case-insensitive and ignore spaces."""
+    from messaging.contacts import find_contact
+
+    # Exact match
+    phone1 = find_contact("Jayesh")
+    assert phone1 is not None
+
+    # Case insensitive
+    phone2 = find_contact("jayesh")
+    assert phone2 == phone1
+
+    # Whitespace resilience
+    phone3 = find_contact("  Jayesh  ")
+    phone4 = find_contact("jay esh")
+    assert phone3 == phone1
+    assert phone4 == phone1
+
+    # Unknown contact
+    assert find_contact("TotallyUnknownPerson999") is None
+
+
+def test_send_whatsapp_unknown_contact_refused() -> None:
+    """Never send to a number not in contacts; refuse unknown contact politely."""
+    from messaging.whatsapp import send_whatsapp
+
+    res = send_whatsapp("UnknownContactX", "Hello")
+    assert "not in your saved contacts" in res
+    assert "was not sent" in res
+
+
+def test_send_whatsapp_empty_message() -> None:
+    """Reject empty message string cleanly."""
+    from messaging.whatsapp import send_whatsapp
+
+    res = send_whatsapp("Jayesh", "")
+    assert "empty" in res.lower()
+
+
+@patch("pywhatkit.sendwhatmsg_instantly")
+def test_send_whatsapp_success(mock_sendmsg: Any) -> None:
+    """Valid contact should call pywhatkit with resolved number and 15s wait."""
+    from messaging.whatsapp import send_whatsapp
+    from messaging.contacts import find_contact
+
+    phone = find_contact("Jayesh")
+    assert phone is not None
+
+    res = send_whatsapp("Jayesh", "Hello Jayesh!")
+    assert "successfully queued" in res
+    mock_sendmsg.assert_called_once_with(
+        phone_no=phone,
+        message="Hello Jayesh!",
+        wait_time=15,
+        tab_close=True,
+        close_time=3,
+    )
+
+
+@patch("pywhatkit.sendwhatmsg_instantly", side_effect=Exception("Browser automation failure"))
+def test_send_whatsapp_never_raises(mock_sendmsg: Any) -> None:
+    """send_whatsapp must never raise unhandled exceptions."""
+    from messaging.whatsapp import send_whatsapp
+
+    res = send_whatsapp("Jayesh", "Crash test")
+    assert "Failed to send WhatsApp message" in res
+
+
+# ==============================================================================
+# 8. Day 7: Persistent Reminders Tests
+# ==============================================================================
+
+def test_parse_when_valid() -> None:
+    """parse_when should accurately parse 'in N minutes' and 'HH:MM'."""
+    from messaging.reminders import parse_when
+
+    ts1, disp1 = parse_when("in 2 minutes")
+    assert ts1 > 0
+    assert "in 2 min" in disp1.lower()
+
+    ts2, disp2 = parse_when("in 15 mins")
+    assert ts2 > ts1
+
+    ts3, disp3 = parse_when("23:45")
+    assert ts3 > 0
+    assert "23:45" in disp3
+
+
+def test_parse_when_invalid() -> None:
+    """parse_when should raise ValueError on invalid format."""
+    from messaging.reminders import parse_when
+
+    with pytest.raises(ValueError):
+        parse_when("tomorrow morning")
+
+    with pytest.raises(ValueError):
+        parse_when("25:99")
+
+
+def test_set_reminder_and_persistence() -> None:
+    """set_reminder persists entries in reminders.json across calls."""
+    from messaging.reminders import (
+        set_reminder,
+        load_reminders,
+        save_reminders,
+    )
+
+    test_text = f"Unit test task {int(time.time())}"
+    res = set_reminder("in 5 minutes", test_text)
+    assert "Reminder set for" in res
+    assert test_text in res
+
+    # Verify reload from disk
+    items = load_reminders()
+    found = [r for r in items if r.get("text") == test_text]
+    assert len(found) == 1
+
+    # Clean up test entry
+    cleaned = [r for r in items if r.get("text") != test_text]
+    save_reminders(cleaned)
+
+
+@patch("messaging.reminders.send_telegram", return_value=True)
+def test_check_due_reminders_dispatch(mock_send: Any) -> None:
+    """check_due_reminders should dispatch overdue items and remove them from storage."""
+    from messaging.reminders import (
+        check_due_reminders,
+        load_reminders,
+        save_reminders,
+    )
+
+    past_epoch = time.time() - 100  # 100s in past (due)
+    due_text = f"Overdue alert {int(time.time())}"
+    future_text = f"Future alert {int(time.time())}"
+
+    test_records = [
+        {"id": "due_1", "due_timestamp": past_epoch, "text": due_text},
+        {"id": "fut_1", "due_timestamp": time.time() + 1000, "text": future_text},
+    ]
+    save_reminders(test_records)
+
+    try:
+        dispatched_count = check_due_reminders()
+        assert dispatched_count == 1
+        assert mock_send.called
+        sent_arg = mock_send.call_args[0][0]
+        assert due_text in sent_arg
+
+        # Verify due item was removed and future remains
+        remaining = load_reminders()
+        assert any(r.get("text") == future_text for r in remaining)
+        assert not any(r.get("text") == due_text for r in remaining)
+    finally:
+        # Clean up
+        cleaned = [r for r in load_reminders() if r.get("text") not in (due_text, future_text)]
+        save_reminders(cleaned)
 
 
 if __name__ == "__main__":
