@@ -1212,7 +1212,7 @@
             const res = await fetch('/api/chat', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: text, message: text, query: text })
+              body: JSON.stringify({ text: text, prompt: text, message: text, query: text })
             });
             const data = await res.json();
             latValEl.textContent = `${Date.now() - startTime}ms`;
@@ -1309,16 +1309,24 @@
           const res = await fetch('/api/config/set-key', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ api_key: key })
+            body: JSON.stringify({ gemini_api_key: key, api_key: key })
           });
           const data = await res.json();
           if (res.ok && data.success) {
+            keyStatusMsg.style.display = 'block';
             keyStatusMsg.style.color = 'var(--accent)';
             keyStatusMsg.textContent = 'Success: API key saved and activated.';
             setTimeout(() => closeModal('apiKeyModal'), 1200);
           } else {
+            keyStatusMsg.style.display = 'block';
             keyStatusMsg.style.color = 'var(--danger)';
-            keyStatusMsg.textContent = data.message || 'Key authentication rejected.';
+            let errMsg = 'Key authentication rejected.';
+            if (data.detail) {
+              errMsg = typeof data.detail === 'string' ? data.detail : (data.detail[0]?.msg || JSON.stringify(data.detail));
+            } else if (data.message) {
+              errMsg = data.message;
+            }
+            keyStatusMsg.textContent = errMsg;
           }
         } catch (err) {
           keyStatusMsg.style.color = 'var(--danger)';

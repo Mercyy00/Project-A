@@ -415,7 +415,9 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
 
 class ChatPayload(BaseModel):
     """Payload for HTTP chat directive fallback."""
-    text: str = Field(..., min_length=1, description="Directive text")
+    text: Optional[str] = Field(None, description="Directive text")
+    prompt: Optional[str] = Field(None, description="Directive prompt alias")
+    message: Optional[str] = Field(None, description="Directive message alias")
     mode: str = Field("normal", description="Operating mode")
 
 
@@ -425,7 +427,7 @@ async def http_chat(payload: ChatPayload) -> Dict[str, Any]:
     try:
         from core.service import handle_text
         return await asyncio.wait_for(
-            handle_text(payload.text, source="ui_http", mode=payload.mode),
+            handle_text(payload.text or payload.prompt or payload.message or "", source="ui_http", mode=payload.mode),
             timeout=5.0
         )
     except Exception:
@@ -435,7 +437,8 @@ async def http_chat(payload: ChatPayload) -> Dict[str, Any]:
 
 class KeyConfigRequest(BaseModel):
     """Payload schema for setting or updating API keys from the Web HUD."""
-    gemini_api_key: str = Field(..., min_length=8, description="Google Gemini API Key")
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API Key")
+    api_key: Optional[str] = Field(None, description="Alternative alias for Google Gemini API Key")
     groq_api_key: Optional[str] = Field(None, description="Optional Groq Cloud API Key")
 
 
@@ -465,7 +468,9 @@ async def get_key_status() -> Dict[str, Any]:
 @app.post("/api/config/set-key")
 async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
     """Validate, persist, and engage Google Gemini API Key from the Web HUD."""
-    key = payload.gemini_api_key.strip()
+    key = (payload.gemini_api_key or payload.api_key or "").strip()
+    if len(key) < 8:
+        raise HTTPException(status_code=400, detail="A valid Gemini API key is required.")
     if not key or key == "your_gemini_api_key_here":
         raise HTTPException(status_code=400, detail="A valid Gemini API key is required.")
 
