@@ -1356,46 +1356,6 @@ body[data-mode="stealth"] .pulse{animation-duration:4.5s}
   }
 
 
-    // High-fidelity Microsoft Edge Neural TTS stream
-    isJarvisSpeaking = true;
-    setCoreState('speaking');
-
-    try {
-      const audio = new Audio(`/api/tts?text=${encodeURIComponent(clean)}`);
-      currentAudio = audio;
-
-      audio.onplay = () => {
-        isJarvisSpeaking = true;
-        setCoreState('speaking');
-      };
-
-      audio.onended = () => {
-        if (currentAudio === audio) currentAudio = null;
-        setTimeout(() => {
-          isJarvisSpeaking = false;
-          isAwaitingReplyOrSpeaking = false;
-          setCoreState(isListening ? 'listening' : 'idle');
-          if (isListening && recognition) {
-            btnVoice.classList.add('active-voice');
-            btnVoice.textContent = '◉ DISCONNECT VOICE LINK';
-            try { recognition.start(); } catch (e) {}
-          }
-        }, 350);
-      };
-
-      audio.onerror = () => {
-        if (currentAudio === audio) currentAudio = null;
-        speakBrowserSpeech(clean);
-      };
-
-      audio.play().catch(() => {
-        speakBrowserSpeech(clean);
-      });
-    } catch (e) {
-      speakBrowserSpeech(clean);
-    }
-  }
-
   // -------------------------------------------------------------
   
   // Language chips click handler (Task A2.2)
