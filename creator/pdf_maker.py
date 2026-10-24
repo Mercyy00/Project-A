@@ -27,6 +27,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfgen import canvas
 from reportlab.platypus import (
     HRFlowable,
+    Image as RLImage,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -35,6 +36,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from creator.chart_maker import generate_chart
 from creator.themes import (
     THEMES,
     contains_devanagari,
@@ -66,24 +68,37 @@ class NumberedCanvas(canvas.Canvas):
         footer_color = colors.HexColor(text_hex)
         line_color = colors.HexColor(border_hex)
 
+        has_cover = getattr(self, "_has_cover_page", True)
+        header_text = getattr(self, "_header_text", None)
+        footer_text = getattr(self, "_footer_text", None)
+
         for state in self._saved_page_states:
             self.__dict__.update(state)
             page_num = self._pageNumber
 
-            # Only show footer on pages after cover page
-            if page_num > 1:
+            # Only show footer on pages after cover page (or all pages if no cover page)
+            show_decorations = (page_num > 1) if has_cover else True
+            if show_decorations:
                 self.saveState()
                 self.setFont("Helvetica", 9)
                 self.setFillColor(footer_color)
                 self.setStrokeColor(line_color)
                 self.setLineWidth(0.5)
 
+                # Running header line and text if provided
+                if header_text:
+                    self.line(54, 792 - 45, 612 - 54, 792 - 45)
+                    self.drawString(54, 792 - 38, str(header_text)[:75])
+
                 # Running divider line
                 self.line(54, 45, 612 - 54, 45)
 
-                # Left: Document Title
-                clean_title = doc_title[:45] + ("..." if len(doc_title) > 45 else "")
-                self.drawString(54, 32, f"{clean_title} • Project JARVIS")
+                # Left: Document Title or custom footer text
+                if footer_text:
+                    self.drawString(54, 32, str(footer_text)[:65])
+                else:
+                    clean_title = doc_title[:45] + ("..." if len(doc_title) > 45 else "")
+                    self.drawString(54, 32, f"{clean_title} • Project JARVIS")
 
                 # Right: Page X of Y
                 page_str = f"Page {page_num} of {num_pages}"
@@ -223,6 +238,9 @@ def make_pdf(
     out_dir: str = "workspace",
     subtitle: Optional[str] = None,
     auto_open: bool = True,
+    cover_page: bool = True,
+    header_text: Optional[str] = None,
+    footer_text: Optional[str] = None,
 ) -> str:
     """Build a themed, Claude-quality PDF document using ReportLab Platypus.
 
@@ -234,11 +252,15 @@ def make_pdf(
             - 'bullets' (list[str]): Bullet points.
             - 'metrics' (list[dict], optional): Bento grid metrics with 'label' and 'value'.
             - 'table' (list[list[str]], optional): 2D list of table rows.
+            - 'chart' (dict, optional): Chart config with {'kind', 'labels', 'values', 'title'}.
             - 'page_break_after' (bool, optional): Force page break after section.
         theme: Theme name ('clean_light', 'dark_pro', 'colourful').
         out_dir: Output directory.
         subtitle: Optional subtitle for executive cover page.
         auto_open: If True, opens the generated PDF in the default Windows viewer.
+        cover_page: Whether to include an executive cover page (default: True).
+        header_text: Optional running header text.
+        footer_text: Optional running footer text.
 
     Returns:
         str: Absolute filesystem path to the created PDF document.
@@ -378,69 +400,78 @@ def make_pdf(
         story: List[Any] = []
 
         # -------------------------------------------------------------
-        # 1. Executive Cover Page
+        # 1. Executive Cover Page (Optional)
         # -------------------------------------------------------------
-        story.append(Spacer(1, 90))
+        if cover_page:
+            story.append(Spacer(1, 90))
 
-        # Title
-        story.append(Paragraph(title, cover_title_style))
+            # Title
+            story.append(Paragraph(title, cover_title_style))
 
-        # Subtitle
-        sub_text = subtitle or "JARVIS Autonomous Intelligence • Executive Document"
-        sub_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(sub_text) and dev_registered) else body_font
-        story.append(Paragraph(sub_text, ParagraphStyle("ExecSub", parent=cover_sub_style, fontName=sub_font)))
+            # Subtitle
+            sub_text = subtitle or "JARVIS Autonomous Intelligence • Executive Document"
+            sub_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(sub_text) and dev_registered) else body_font
+            story.append(Paragraph(sub_text, ParagraphStyle("ExecSub", parent=cover_sub_style, fontName=sub_font)))
 
-        story.append(
-            HRFlowable(
-                width="100%",
-                thickness=3,
-                color=secondary_col,
-                spaceBefore=5,
-                spaceAfter=35,
+            story.append(
+                HRFlowable(
+                    width="100%",
+                    thickness=3,
+                    color=secondary_col,
+                    spaceBefore=5,
+                    spaceAfter=35,
+                )
             )
-        )
 
-        # Executive Metadata Card
-        meta_table_data = [
-            [
-                Paragraph("<b>AUTHOR:</b>", meta_label_style),
-                Paragraph("Vidhita (Document Engineer) • Pair D", meta_value_style),
-                Paragraph("<b>STATUS:</b>", meta_label_style),
-                Paragraph("Production Verified", meta_value_style),
-            ],
-            [
-                Paragraph("<b>THEME:</b>", meta_label_style),
-                Paragraph(theme_cfg["name"].replace("_", " ").title(), meta_value_style),
-                Paragraph("<b>ENGINE:</b>", meta_label_style),
-                Paragraph("ReportLab Platypus", meta_value_style),
-            ],
-        ]
-        meta_table = Table(meta_table_data, colWidths=[65, 185, 65, 175])
-        meta_table.setStyle(
-            TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), card_bg_col),
-                ("BOX", (0, 0), (-1, -1), 1.2, border_col),
-                ("INNERGRID", (0, 0), (-1, -1), 0.5, border_col),
-                ("TOPPADDING", (0, 0), (-1, -1), 9),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
-                ("LEFTPADDING", (0, 0), (-1, -1), 12),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ])
-        )
-        story.append(meta_table)
-        story.append(Spacer(1, 140))
-
-        story.append(
-            HRFlowable(
-                width="100%",
-                thickness=1,
-                color=border_col,
-                spaceBefore=10,
-                spaceAfter=15,
+            # Executive Metadata Card
+            meta_table_data = [
+                [
+                    Paragraph("<b>AUTHOR:</b>", meta_label_style),
+                    Paragraph("Vidhita (Document Engineer) • Pair D", meta_value_style),
+                    Paragraph("<b>STATUS:</b>", meta_label_style),
+                    Paragraph("Production Verified", meta_value_style),
+                ],
+                [
+                    Paragraph("<b>THEME:</b>", meta_label_style),
+                    Paragraph(theme_cfg["name"].replace("_", " ").title(), meta_value_style),
+                    Paragraph("<b>ENGINE:</b>", meta_label_style),
+                    Paragraph("ReportLab Platypus", meta_value_style),
+                ],
+            ]
+            meta_table = Table(meta_table_data, colWidths=[65, 185, 65, 175])
+            meta_table.setStyle(
+                TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, -1), card_bg_col),
+                    ("BOX", (0, 0), (-1, -1), 1.2, border_col),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.5, border_col),
+                    ("TOPPADDING", (0, 0), (-1, -1), 9),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ])
             )
-        )
-        story.append(PageBreak())
+            story.append(meta_table)
+            story.append(Spacer(1, 140))
+
+            story.append(
+                HRFlowable(
+                    width="100%",
+                    thickness=1,
+                    color=border_col,
+                    spaceBefore=10,
+                    spaceAfter=15,
+                )
+            )
+            story.append(PageBreak())
+        else:
+            # Inline header for single-page or cover-free documents
+            story.append(Spacer(1, 10))
+            story.append(Paragraph(title, cover_title_style))
+            if subtitle:
+                sub_font = theme_cfg.get("devanagari_font", body_font) if (contains_devanagari(subtitle) and dev_registered) else body_font
+                story.append(Paragraph(subtitle, ParagraphStyle("ExecSub", parent=cover_sub_style, fontName=sub_font)))
+            story.append(HRFlowable(width="100%", thickness=2, color=secondary_col, spaceBefore=4, spaceAfter=18))
 
         # -------------------------------------------------------------
         # 2. Content Sections
@@ -527,6 +558,52 @@ def make_pdf(
                 story.append(tbl)
                 story.append(Spacer(1, 12))
 
+            # Chart Embedding (Days 4 & 6 Deliverable)
+            chart_cfg = sec.get("chart")
+            chart_path = sec.get("chart_path") or sec.get("image_path")
+            if chart_cfg and isinstance(chart_cfg, dict):
+                try:
+                    if "labels" in chart_cfg and "values" in chart_cfg:
+                        from creator.charts import make_chart
+                        c_kind = chart_cfg.get("kind", chart_cfg.get("type", "bar"))
+                        c_labels = chart_cfg.get("labels", [])
+                        c_values = chart_cfg.get("values", [])
+                        c_title = chart_cfg.get("title", f"{heading} Chart")
+                        chart_path = make_chart(
+                            kind=c_kind,
+                            labels=c_labels,
+                            values=c_values,
+                            title=c_title,
+                            theme=theme,
+                            out_dir=out_dir,
+                        )
+                    else:
+                        c_type = chart_cfg.get("type", chart_cfg.get("kind", "bar"))
+                        c_data = chart_cfg.get("data", {})
+                        c_title = chart_cfg.get("title", f"{heading} Chart")
+                        chart_path = generate_chart(
+                            chart_type=c_type,
+                            data=c_data,
+                            title=c_title,
+                            theme=theme,
+                            out_dir=out_dir,
+                        )
+                except Exception as _c_err:
+                    logger.warning("Failed to render section chart in make_pdf: %s", _c_err)
+                    chart_path = None
+            elif chart_cfg and isinstance(chart_cfg, str) and os.path.exists(chart_cfg):
+                chart_path = chart_cfg
+
+            if chart_path and os.path.exists(chart_path):
+                try:
+                    c_img = RLImage(chart_path, width=440, height=230)
+                    c_img.hAlign = "CENTER"
+                    story.append(Spacer(1, 6))
+                    story.append(c_img)
+                    story.append(Spacer(1, 10))
+                except Exception:
+                    pass
+
             if sec.get("page_break_after") and idx < len(sections) - 1:
                 story.append(PageBreak())
             else:
@@ -534,7 +611,7 @@ def make_pdf(
 
         # Build document with custom canvas and executive background callback
         def on_first(canv: canvas.Canvas, d: SimpleDocTemplate) -> None:
-            _draw_page_background(canv, d, theme_cfg, is_cover=True)
+            _draw_page_background(canv, d, theme_cfg, is_cover=cover_page)
 
         def on_later(canv: canvas.Canvas, d: SimpleDocTemplate) -> None:
             _draw_page_background(canv, d, theme_cfg, is_cover=False)
@@ -544,7 +621,13 @@ def make_pdf(
             onFirstPage=on_first,
             onLaterPages=on_later,
             canvasmaker=lambda *args, **kwargs: _init_canvas(
-                args, kwargs, theme_cfg=theme_cfg, doc_title=title
+                args,
+                kwargs,
+                theme_cfg=theme_cfg,
+                doc_title=title,
+                cover_page=cover_page,
+                header_text=header_text,
+                footer_text=footer_text,
             ),
         )
 
@@ -564,8 +647,23 @@ def make_pdf(
         raise RuntimeError(f"make_pdf failed for '{title}': {exc}") from exc
 
 
-def _init_canvas(args: tuple, kwargs: dict, theme_cfg: dict, doc_title: str) -> NumberedCanvas:
+def _init_canvas(
+    args: tuple,
+    kwargs: dict,
+    theme_cfg: dict,
+    doc_title: str,
+    cover_page: bool = True,
+    header_text: Optional[str] = None,
+    footer_text: Optional[str] = None,
+) -> NumberedCanvas:
     """Helper to initialize NumberedCanvas with document parameters."""
+    canv = NumberedCanvas(*args, **kwargs)
+    setattr(canv, "_theme_cfg", theme_cfg)
+    setattr(canv, "_doc_title", doc_title)
+    setattr(canv, "_has_cover_page", cover_page)
+    setattr(canv, "_header_text", header_text)
+    setattr(canv, "_footer_text", footer_text)
+    return canv
     canv = NumberedCanvas(*args, **kwargs)
     setattr(canv, "_theme_cfg", theme_cfg)
     setattr(canv, "_doc_title", doc_title)

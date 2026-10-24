@@ -204,7 +204,7 @@ def _request_gemini_outline(topic: str, language: str) -> Optional[Dict[str, Any
         Optional[Dict[str, Any]]: Parsed outline dictionary if successful.
     """
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key or api_key == "your_gemini_api_key_here":
+    if not api_key or api_key == "your_gemini_api_key_here" or not api_key.startswith("AIza"):
         return None
 
     model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.8-flash"
