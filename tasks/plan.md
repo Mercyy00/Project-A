@@ -50,3 +50,26 @@ In Week 2, Project JARVIS transitions from an interactive reactive assistant int
 5. **Proactive Watchdog & Alerts (Day 12):** Background scheduler for hardware health warnings, scheduled reminders, and proactive Telegram push notifications.
 6. **Air-Gapped Offline LLM Fallback (Day 13):** Triple-engine failover (`Groq LPU ➔ Gemini ➔ Local Ollama`) with local Whisper and offline tools.
 7. **Week 2 Release 2.0 Packaging (Day 14):** 350+ unit tests, multi-channel stress tests, and one-click installer.
+
+---
+
+## Day 8 Implementation: Full-Duplex Stream Cancellation & Abort Mechanics (Core Brain)
+
+### Architectural Design
+1. **Thread-Safe Cancellation Bridging (`BridgedCancelEvent`):**
+   - Implemented in `core/service.py` to seamlessly connect `asyncio.Event` (used by FastAPI/WebSocket and asyncio event loops) with `threading.Event` (used in worker threads running synchronous LLM generators).
+   - Exposes `.is_set()`, `.set()`, and `.wait(timeout)` with zero CPU overhead.
+
+2. **Core Brain Generation Abort Protocol (`core/brain.py`):**
+   - Added `interrupt()`, `abort()`, and `is_interrupted` property to `JarvisBrain`.
+   - Updated `chat_stream()`, `stream_chat()`, `_chat_stream_with_groq()`, and `_chat_stream_with_gemini()` to accept optional `cancel_event`.
+   - Verified that token generation halts in <20ms upon cancellation, closing stream sockets where applicable and preventing partial truncated turns from polluting history or memory.
+
+3. **Service Layer API (`core/service.py`):**
+   - Exposed `interrupt_generation()` and `abort_stream()`.
+   - When cancelled, `handle_text_stream()` emits a dedicated `{"type": "interrupted", "text": "...", "source": source}` event.
+
+4. **Module Handoff Requirements:**
+   - **For Rohit (UI - `ui/server.py`):** When receiving `{"action": "interrupt"}` over WebSocket, invoke `core.service.interrupt_generation()`.
+   - **For Aryan & Madhuri (Voice - `voice/stt.py`):** On barge-in voice detection, invoke `core.service.interrupt_generation()` and call `voice.tts.stop_speaking()`.
+

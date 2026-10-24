@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Generator, Iterator, List, Optional
@@ -92,6 +93,7 @@ class JarvisBrain:
         self.groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
         self.groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
+        self._cancel_event: Optional[Any] = None
 
         self.client: genai.Client = genai.Client(api_key=api_key)
         self.tools: List[Callable[..., Any]] = self._discover_tools() if enable_tools else []
@@ -128,6 +130,26 @@ class JarvisBrain:
                         self.history.append({"role": role, "content": content})
         except Exception:
             pass
+
+    def interrupt(self) -> bool:
+        """Instantly aborts any active streaming generation in progress.
+
+        Returns:
+            bool: True if an active stream was signaled to cancel, False otherwise.
+        """
+        if self._cancel_event is not None and hasattr(self._cancel_event, "set") and not self._cancel_event.is_set():
+            self._cancel_event.set()
+            return True
+        return False
+
+    def abort(self) -> bool:
+        """Alias for interrupt()."""
+        return self.interrupt()
+
+    @property
+    def is_interrupted(self) -> bool:
+        """Returns True if the active cancellation token has been triggered."""
+        return self._cancel_event is not None and getattr(self._cancel_event, "is_set", lambda: False)()
 
     def _discover_tools(self) -> List[Callable[..., Any]]:
         """Discover and wrap available tools for Gemini automatic function calling.
@@ -790,19 +812,35 @@ class JarvisBrain:
             else:
                 raise
 
-    def chat_stream(self, user_message: str, mode: str = "normal") -> Generator[str, None, None]:
+    def chat_stream(
+        self,
+        user_message: str,
+        mode: str = "normal",
+        cancel_event: Optional[Any] = None,
+    ) -> Generator[str, None, None]:
         """Process a user message and stream the assistant response tokens.
 
         Executes autonomous tool calls transparently, with exponential backoff
-        retry on rate limits (429/503) and automatic dual-engine failover.
+        retry on rate limits (429/503), automatic dual-engine failover, and
+        real-time cancellation support (<100ms response).
 
         Args:
             user_message: Spoken or typed user input string.
             mode: Operating mode ('normal', 'silent', 'attentive', 'combat').
+            cancel_event: Optional cancellation token (threading.Event or asyncio.Event)
+                to abort token generation mid-stream.
 
         Yields:
             Response text tokens/chunks in real time.
         """
+        if cancel_event is not None:
+            self._cancel_event = cancel_event
+        else:
+            self._cancel_event = threading.Event()
+
+        if self.is_interrupted:
+            return
+
         cleaned_input: str = user_message.strip()
         if not cleaned_input:
             yield "I am listening. How can I assist you?"
@@ -837,7 +875,8 @@ class JarvisBrain:
             now = datetime.datetime.now()
             t = now.strftime("%I:%M %p")
             d = now.strftime("%A, %B %d, %Y")
-            yield f"Today's date is {d}, and the current time is {t}."
+            if not self.is_interrupted:
+                yield f"Today's date is {d}, and the current time is {t}."
             return
 
         system_stat_triggers = (
@@ -847,6 +886,8 @@ class JarvisBrain:
         )
         cleaned_cmd = stripped_lower.removeprefix("jarvis").strip(", ")
         if cleaned_cmd in system_stat_triggers:
+            if self.is_interrupted:
+                return
             try:
                 from tools.system_tools import GetSystemStatsTool
                 stats = GetSystemStatsTool().run()
@@ -855,11 +896,12 @@ class JarvisBrain:
                     cpu = d.get("cpu_percent") if d.get("cpu_percent") is not None else d.get("cpu_usage_percent", 0)
                     ram = d.get("ram_used_pct") if d.get("ram_used_pct") is not None else d.get("ram_usage_percent", 0)
                     battery_str = d.get("battery")
-                    if battery_str:
-                        yield f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {battery_str}. All systems nominal."
-                        return
-                    batt_pct = d.get("battery_pct", 100)
-                    yield f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt_pct}%. All systems nominal."
+                    if not self.is_interrupted:
+                        if battery_str:
+                            yield f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {battery_str}. All systems nominal."
+                            return
+                        batt_pct = d.get("battery_pct", 100)
+                        yield f"System Telemetry: CPU load is {cpu}%, RAM usage is {ram}%, Battery at {batt_pct}%. All systems nominal."
                     return
             except Exception:
                 pass
@@ -867,42 +909,75 @@ class JarvisBrain:
         # Fast Weather Shortcut (avoid slow DuckDuckGo scraping for location-agnostic weather)
         weather_triggers = ("what is the weather", "what's the weather", "how is the weather", "weather today", "current weather", "aaj mausam kaisa hai", "havaman kase ahe")
         if any(w in stripped_lower for w in weather_triggers) and not any(city in stripped_lower for city in (" in ", " at ", " for ")):
-            yield "Please specify your city or region, and I will check the live forecast for you."
+            if not self.is_interrupted:
+                yield "Please specify your city or region, and I will check the live forecast for you."
+            return
+
+        if self.is_interrupted:
             return
 
         # High-speed Combat Mode or Groq provider
         if (mode == "combat" or self.llm_provider == "groq") and self.groq_api_key:
-            yield from self._chat_stream_with_groq(cleaned_input, is_combat=(mode == "combat"))
+            yield from self._chat_stream_with_groq(
+                cleaned_input,
+                is_combat=(mode == "combat"),
+                cancel_event=self._cancel_event,
+            )
             return
 
-        yield from self._chat_stream_with_gemini(cleaned_input)
+        yield from self._chat_stream_with_gemini(cleaned_input, cancel_event=self._cancel_event)
 
-    def chat(self, user_message: str, mode: str = "normal") -> str:
+    def stream_chat(
+        self,
+        user_message: str,
+        mode: str = "normal",
+        cancel_event: Optional[Any] = None,
+    ) -> Generator[str, None, None]:
+        """Stream assistant response tokens with full cancellation token support.
+
+        Conforms to Day 8 Full-Duplex Voice interface specification.
+        """
+        yield from self.chat_stream(user_message, mode=mode, cancel_event=cancel_event)
+
+    def chat(
+        self,
+        user_message: str,
+        mode: str = "normal",
+        cancel_event: Optional[Any] = None,
+    ) -> str:
         """Process a user message and return the assistant response.
 
         Maintains full multi-turn conversational history and executes any
-        invoked tool calls transparently.
+        invoked tool calls transparently. Supports stream cancellation.
 
         Args:
             user_message: Spoken or typed user input string.
             mode: Operating mode ('normal', 'silent', 'attentive', 'combat').
+            cancel_event: Optional cancellation token to abort generation.
 
         Returns:
             The assistant's natural language response.
         """
-        return "".join(self.chat_stream(user_message, mode=mode))
+        return "".join(self.chat_stream(user_message, mode=mode, cancel_event=cancel_event))
 
     def _chat_stream_with_groq(
-        self, user_message: str, is_combat: bool = False, is_failover: bool = False
+        self,
+        user_message: str,
+        is_combat: bool = False,
+        is_failover: bool = False,
+        cancel_event: Optional[Any] = None,
     ) -> Generator[str, None, None]:
         """Execute chat directive using Groq Cloud API with real-time token streaming.
 
-        Handles tool execution, exponential backoff on 429/503, and automatic
-        failover to Gemini.
+        Handles tool execution, exponential backoff on 429/503, cancellation aborts,
+        and automatic failover to Gemini.
         """
         try:
             import json
             from groq import Groq
+
+            if cancel_event and cancel_event.is_set():
+                return
 
             client = Groq(api_key=self.groq_api_key)
             combat_sys = (
@@ -949,7 +1024,11 @@ class JarvisBrain:
             last_exception = None
 
             for attempt in range(len(backoff_delays) + 1):
+                if cancel_event and cancel_event.is_set():
+                    return
                 for m in candidate_models:
+                    if cancel_event and cancel_event.is_set():
+                        return
                     try:
                         stream = client.chat.completions.create(
                             model=m,
@@ -963,26 +1042,33 @@ class JarvisBrain:
                         break
                     except Exception as m_err:
                         last_exception = m_err
-                        err_text = str(m_err).lower()
-                        if "429" in err_text or "rate" in err_text or "503" in err_text or "unavailable" in err_text:
-                            continue
-                        if "tool" in err_text or "400" in err_text:
-                            print(f"[*] Tool execution schema error on {m}: {m_err}. Trying alternate model...", file=sys.stderr)
+                        err_str = str(m_err).lower()
+                        if "429" in err_str or "rate" in err_str or "503" in err_str or "limit" in err_str or "quota" in err_str:
                             continue
                         raise
 
                 if stream is not None:
                     break
 
+                if cancel_event and cancel_event.is_set():
+                    return
+
                 if attempt < len(backoff_delays):
                     delay = backoff_delays[attempt]
                     print(f"[*] Groq 429/503 encountered. Retrying in {delay}s...", file=sys.stderr)
-                    time.sleep(delay)
+                    if cancel_event and hasattr(cancel_event, "wait"):
+                        cancel_event.wait(timeout=delay)
+                    else:
+                        time.sleep(delay)
+                    if cancel_event and cancel_event.is_set():
+                        return
 
             if stream is None:
+                if cancel_event and cancel_event.is_set():
+                    return
                 if not is_failover:
                     print(f"[!] Groq rate limit reached ({last_exception}). Failing over to Gemini...", file=sys.stderr)
-                    yield from self._chat_stream_with_gemini(user_message, is_failover=True)
+                    yield from self._chat_stream_with_gemini(user_message, is_failover=True, cancel_event=cancel_event)
                     return
                 yield "All neural computing nodes are temporarily rate-limited, sir. Please retry shortly."
                 return
@@ -992,6 +1078,13 @@ class JarvisBrain:
             first_turn_chunks: List[str] = []
 
             for chunk in stream:
+                if cancel_event and cancel_event.is_set():
+                    if hasattr(stream, "close"):
+                        try:
+                            stream.close()
+                        except Exception:
+                            pass
+                    return
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
@@ -1016,6 +1109,9 @@ class JarvisBrain:
                         first_turn_chunks.append(delta.content)
                         yield delta.content
 
+            if cancel_event and cancel_event.is_set():
+                return
+
             if has_tool_calls:
                 from tools.registry import execute_tool
 
@@ -1037,6 +1133,8 @@ class JarvisBrain:
                 })
 
                 for tc in assistant_tool_calls:
+                    if cancel_event and cancel_event.is_set():
+                        return
                     fn_name = tc["function"]["name"]
                     raw_args = tc["function"]["arguments"]
                     fn_args = {}
@@ -1056,6 +1154,8 @@ class JarvisBrain:
 
                 follow_up_stream = None
                 for attempt in range(len(backoff_delays) + 1):
+                    if cancel_event and cancel_event.is_set():
+                        return
                     try:
                         follow_up_stream = client.chat.completions.create(
                             model=used_model,
@@ -1068,19 +1168,33 @@ class JarvisBrain:
                     except Exception as fu_err:
                         err_text = str(fu_err).lower()
                         if ("429" in err_text or "rate" in err_text or "503" in err_text) and attempt < len(backoff_delays):
-                            time.sleep(backoff_delays[attempt])
+                            delay = backoff_delays[attempt]
+                            if cancel_event and hasattr(cancel_event, "wait"):
+                                cancel_event.wait(timeout=delay)
+                            else:
+                                time.sleep(delay)
                             continue
                         break
 
                 follow_up_chunks: List[str] = []
                 if follow_up_stream:
                     for chunk in follow_up_stream:
+                        if cancel_event and cancel_event.is_set():
+                            if hasattr(follow_up_stream, "close"):
+                                try:
+                                    follow_up_stream.close()
+                                except Exception:
+                                    pass
+                            return
                         if not chunk.choices:
                             continue
                         delta_content = chunk.choices[0].delta.content or ""
                         if delta_content:
                             follow_up_chunks.append(delta_content)
                             yield delta_content
+
+                if cancel_event and cancel_event.is_set():
+                    return
 
                 final_text = "".join(follow_up_chunks).strip()
                 if not final_text:
@@ -1094,42 +1208,57 @@ class JarvisBrain:
             else:
                 final_text = "".join(first_turn_chunks).strip()
 
-            self.history.append({"role": "user", "content": user_message})
-            self.history.append({"role": "model", "content": final_text})
-            self.compact_history()
+            if not (cancel_event and cancel_event.is_set()):
+                self.history.append({"role": "user", "content": user_message})
+                self.history.append({"role": "model", "content": final_text})
+                self.compact_history()
 
         except Exception as exc:
+            if cancel_event and cancel_event.is_set():
+                return
             if not is_failover:
                 print(f"[!] Groq execution exception: {exc}. Failing over to Gemini...", file=sys.stderr)
                 if hasattr(self, "chat_session") and self.chat_session:
                     try:
-                        yield from self._chat_stream_with_gemini(user_message, is_failover=True)
+                        yield from self._chat_stream_with_gemini(user_message, is_failover=True, cancel_event=cancel_event)
                         return
                     except Exception as gemini_err:
                         print(f"[!] Gemini failover also encountered an error: {gemini_err}", file=sys.stderr)
             yield f"I was unable to execute your directive, sir: {exc}"
 
-    def _chat_with_groq(self, user_message: str, is_combat: bool = False) -> str:
+    def _chat_with_groq(
+        self,
+        user_message: str,
+        is_combat: bool = False,
+        cancel_event: Optional[Any] = None,
+    ) -> str:
         """Execute chat directive using Groq Cloud API as high-speed fallback or primary engine.
 
         Maintains conversation history buffer and executes tools autonomously.
         """
-        return "".join(self._chat_stream_with_groq(user_message, is_combat=is_combat))
+        return "".join(self._chat_stream_with_groq(user_message, is_combat=is_combat, cancel_event=cancel_event))
 
     def _chat_stream_with_gemini(
-        self, user_message: str, is_failover: bool = False
+        self,
+        user_message: str,
+        is_failover: bool = False,
+        cancel_event: Optional[Any] = None,
     ) -> Generator[str, None, None]:
         """Execute chat directive using Gemini API with real-time streaming, backoff, and AFC."""
         backoff_delays = [0.5, 1.0]
         cleaned_input = user_message.strip()
 
         for attempt in range(len(backoff_delays) + 1):
+            if cancel_event and cancel_event.is_set():
+                return
             try:
                 chunks: List[str] = []
                 if hasattr(self.chat_session, "send_message_stream"):
                     try:
                         response_stream = self.chat_session.send_message_stream(cleaned_input)
                         for chunk in response_stream:
+                            if cancel_event and cancel_event.is_set():
+                                return
                             chunk_text = ""
                             if hasattr(chunk, "candidates") and chunk.candidates:
                                 for cand in chunk.candidates:
@@ -1145,6 +1274,9 @@ class JarvisBrain:
                     except (TypeError, AttributeError):
                         chunks = []
 
+                if cancel_event and cancel_event.is_set():
+                    return
+
                 if chunks:
                     response_text = "".join(chunks).strip()
                     self.history.append({"role": "user", "content": cleaned_input})
@@ -1153,7 +1285,11 @@ class JarvisBrain:
                     return
 
                 # Fallback to send_message if streaming produced no chunks or send_message was mocked
+                if cancel_event and cancel_event.is_set():
+                    return
                 response = self.chat_session.send_message(cleaned_input)
+                if cancel_event and cancel_event.is_set():
+                    return
                 response_text = response.text.strip() if hasattr(response, "text") and response.text else ""
                 self.history.append({"role": "user", "content": cleaned_input})
                 self.history.append({"role": "model", "content": response_text})
@@ -1163,6 +1299,8 @@ class JarvisBrain:
                 return
 
             except errors.APIError as err:
+                if cancel_event and cancel_event.is_set():
+                    return
                 err_str = str(err).lower()
                 if "gemini-2.5-flash" in self.model_name and ("no longer available" in err_str or "not found" in err_str):
                     self.model_name = "gemini-3.8-flash"
@@ -1173,7 +1311,10 @@ class JarvisBrain:
                     if attempt < len(backoff_delays):
                         delay = backoff_delays[attempt]
                         print(f"[*] Gemini limit encountered ({err.message}). Retrying in {delay}s...", file=sys.stderr)
-                        time.sleep(delay)
+                        if cancel_event and hasattr(cancel_event, "wait"):
+                            cancel_event.wait(timeout=delay)
+                        else:
+                            time.sleep(delay)
                         continue
 
                     # Exhausted Gemini retries; failover to Groq if key exists and not already failed over
@@ -1182,7 +1323,7 @@ class JarvisBrain:
                             f"[*] Gemini limit encountered ({err.message}). Seamlessly failing over to Groq ({self.groq_model})...",
                             file=sys.stderr,
                         )
-                        yield from self._chat_stream_with_groq(cleaned_input, is_failover=True)
+                        yield from self._chat_stream_with_groq(cleaned_input, is_failover=True, cancel_event=cancel_event)
                         return
 
                     yield "Gemini API quota limit reached, sir. Please retry in a few moments."
@@ -1193,6 +1334,8 @@ class JarvisBrain:
                 return
 
             except Exception as err:
+                if cancel_event and cancel_event.is_set():
+                    return
                 print(f"[!] Unexpected error during Gemini streaming: {err}", file=sys.stderr)
                 yield "I encountered an internal error processing your request."
                 return
@@ -1233,6 +1376,8 @@ class JarvisBrain:
     def reset(self) -> None:
         """Clear conversation history and reinitialize the chat session."""
         self.history.clear()
+        self.last_tool_steps.clear()
+        self._cancel_event = None
         self._init_chat_session()
 
     def get_history(self) -> List[Dict[str, str]]:
