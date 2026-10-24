@@ -4,7 +4,7 @@
 ::  One-Click Master Launcher & Environment Setup
 :: ============================================================================
 chcp 65001 >nul
-setlocal enabledelayedexpansion
+setlocal
 title Project JARVIS - Autonomous Desktop AI Assistant
 cd /d "%~dp0"
 
@@ -45,8 +45,8 @@ echo [*] [2/5] Checking git repository status...
 git --version >nul 2>&1
 if %errorlevel% equ 0 (
     if exist ".git" (
-        echo [*] Pulling latest updates from git repository...
-        git pull origin main
+        echo [*] Checking for repository updates...
+        git pull --quiet origin main >nul 2>&1
         if %errorlevel% neq 0 (
             echo [!] Git pull notice or offline state. Continuing with current local codebase...
         ) else (
@@ -98,20 +98,14 @@ if not exist ".env" (
 echo.
 
 :: ---------------------------------------------------------------------------
-:: STEP 5: Verify and Install Dependencies
+:: STEP 5: Verify and Install Dependencies (Fast Smart Cache)
 :: ---------------------------------------------------------------------------
-echo [*] [5/5] Verifying and installing required packages from requirements.txt...
-if exist "requirements.txt" (
-    python -m pip install --upgrade pip --quiet
-    echo [*] Installing and verifying modules...
-    pip install -r requirements.txt --quiet
-    if %errorlevel% neq 0 (
-        echo [!] Some packages had warnings during install. Attempting to proceed...
-    ) else (
-        echo [OK] All dependencies verified and ready.
-    )
+echo [*] [5/5] Checking dependencies...
+python core\doctor.py --check-deps %*
+if %errorlevel% equ 0 (
+    echo [OK] Dependencies verified and ready - fast cache active.
 ) else (
-    echo [!] requirements.txt not found. Proceeding with existing packages.
+    echo [!] Dependency verification notice. Proceeding with launch...
 )
 echo.
 
@@ -119,13 +113,13 @@ echo.
 :: BONUS: Create Desktop Shortcut if not already present
 :: ---------------------------------------------------------------------------
 set "SHORTCUT_PATH=%USERPROFILE%\Desktop\Project JARVIS.lnk"
-if not exist "%SHORTCUT_PATH%" (
-    echo [*] Creating desktop shortcut on your Windows Desktop...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%~dp0START_JARVIS.bat'; $s.WorkingDirectory = '%~dp0'; $s.Description = 'Project JARVIS Autonomous Desktop AI Assistant'; $s.Save()" >nul 2>&1
-    if exist "%SHORTCUT_PATH%" (
-        echo [OK] Desktop shortcut created at "%SHORTCUT_PATH%"
-    )
-)
+if exist "%SHORTCUT_PATH%" goto :after_shortcut
+
+echo [*] Creating desktop shortcut on your Windows Desktop...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%~dp0START_JARVIS.bat'; $s.WorkingDirectory = '%~dp0'; $s.Description = 'Project JARVIS Autonomous Desktop AI Assistant'; $s.Save()" >nul 2>&1
+if exist "%SHORTCUT_PATH%" echo [OK] Desktop shortcut created at "%SHORTCUT_PATH%"
+
+:after_shortcut
 
 :: ---------------------------------------------------------------------------
 :: LAUNCH JARVIS APPLICATION WINDOW
