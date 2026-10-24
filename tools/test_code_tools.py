@@ -16,6 +16,7 @@ from tools.code_tools import (
     RunCommandTool,
     EditFileTool,
     RunPythonTool,
+    ReadWorkspaceFileTool,
 )
 from tools.system_tools import SearchWebTool
 from tools.registry import TOOL_REGISTRY, execute_tool, get_registered_tools
@@ -51,15 +52,17 @@ def test_safety_allows_workspace_projects_and_codebase():
 
 
 def test_registry_contains_new_tools():
-    """Verifies run_command, edit_file, and run_python are registered in TOOL_REGISTRY."""
+    """Verifies run_command, edit_file, run_python, and read_workspace_file are in TOOL_REGISTRY."""
     assert "run_command" in TOOL_REGISTRY
     assert "edit_file" in TOOL_REGISTRY
     assert "run_python" in TOOL_REGISTRY
+    assert "read_workspace_file" in TOOL_REGISTRY
 
     registered_names = [t.name for t in get_registered_tools()]
     assert "run_command" in registered_names
     assert "edit_file" in registered_names
     assert "run_python" in registered_names
+    assert "read_workspace_file" in registered_names
 
 
 def test_run_command_tool_success():
@@ -141,6 +144,18 @@ def test_run_python_tool_file():
     assert "['alpha', 'beta']" in res.data["stdout"]
 
 
+def test_read_workspace_file_tool():
+    """Verifies ReadWorkspaceFileTool reads files inside workspace."""
+    tool = ReadWorkspaceFileTool()
+    test_file = "workspace/projects/test_proj/reader_test.txt"
+    with open(test_file, "w", encoding="utf-8") as f:
+        f.write("Reader tool test content")
+
+    res = tool.run(filename="projects/test_proj/reader_test.txt")
+    assert res.success is True
+    assert "Reader tool test content" in res.message
+
+
 def test_search_web_tool():
     """Verifies SearchWebTool handles queries and schema correctly."""
     tool = SearchWebTool()
@@ -168,3 +183,7 @@ def test_execute_tool_dispatching():
     res_cmd = execute_tool("run_command", {"command": "python -c \"print('dispatch_ok')\""})
     assert res_cmd.success is True
     assert "dispatch_ok" in res_cmd.data["stdout"]
+
+    res_py = execute_tool("run_python", {"code": "print('python_dispatch_ok')", "filename": "disp.py"})
+    assert res_py.success is True
+    assert "python_dispatch_ok" in res_py.data["stdout"]

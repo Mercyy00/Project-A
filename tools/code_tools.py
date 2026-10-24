@@ -32,6 +32,7 @@ def validate_python_code_safety(code: str) -> Tuple[bool, Optional[str]]:
         - os.system
         - subprocess calls with shell=True
         - os.remove / os.unlink targeting paths outside workspace/
+        - interactive input() calls (execution is non-interactive)
 
     Args:
         code: Python source code string.
@@ -68,6 +69,14 @@ def validate_python_code_safety(code: str) -> Tuple[bool, Optional[str]]:
         tree = ast.parse(code)
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
+                # Check for interactive input() calls
+                if isinstance(node.func, ast.Name) and node.func.id == "input":
+                    line_no = getattr(node, "lineno", 1)
+                    return (
+                        False,
+                        f"Execution blocked at line {line_no}: 'input()' is not supported in non-interactive execution. Avoid input() and specify sample inputs directly as variables or parameters."
+                    )
+
                 # Check rmtree call
                 if isinstance(node.func, ast.Attribute) and node.func.attr == "rmtree":
                     return (
@@ -138,6 +147,111 @@ def validate_python_code_safety(code: str) -> Tuple[bool, Optional[str]]:
                 )
 
     return True, None
+
+
+def format_python_execution_error(
+    stderr: str,
+    stdout: str = "",
+    filename: str = ""
+) -> Tuple[str, Optional[int]]:
+    """Formats Python execution errors into a concise, human-readable summary with line numbers.
+
+    Args:
+        stderr: The raw stderr string produced by the Python process.
+        stdout: The raw stdout string produced by the Python process.
+        filename: Optional filename of the executed script to pinpoint the relevant traceback frame.
+
+    Returns:
+        Tuple[str, Optional[int]]: (concise_error_message, detected_line_number)
+    """
+    stderr_clean = stderr.strip() if stderr else ""
+    if not stderr_clean:
+        fallback = stdout.strip() if stdout else "No error output produced."
+        return f"Python execution failed: {fallback}", None
+
+    lines = [ln.rstrip() for ln in stderr_clean.splitlines() if ln.strip()]
+
+    # Find the exception line (the last non-empty line that is not a caret/underline marker)
+    exc_line = ""
+    for line in reversed(lines):
+        s = line.strip()
+        if s and not all(c in "^~ " for c in s):
+            exc_line = s
+            break
+    if not exc_line:
+        exc_line = lines[-1].strip()
+
+    # Find traceback frames: File "...", line <num>, in <func>
+    pattern = re.compile(r'File\s+"([^"]+)",\s+line\s+(\d+)(?:,\s+in\s+([^\n\r]+))?')
+    matches = list(pattern.finditer(stderr))
+
+    target_match = None
+    if filename:
+        clean_fn = os.path.basename(filename).lower()
+        for m in reversed(matches):
+            fpath = os.path.basename(m.group(1)).lower()
+            if fpath == clean_fn:
+                target_match = m
+                break
+
+    if not target_match and matches:
+        target_match = matches[-1]
+
+    line_num: Optional[int] = None
+    code_context = ""
+    if target_match:
+        try:
+            line_num = int(target_match.group(2))
+        except (ValueError, TypeError):
+            line_num = None
+
+        # Extract code line snippet following this frame if available
+        match_end = target_match.end()
+        rest = stderr[match_end:]
+        for rl in rest.splitlines():
+            srl = rl.strip()
+            if not srl:
+                continue
+            if srl.startswith("File ") or any(
+                srl.startswith(e)
+                for e in [
+                    "Traceback",
+                    "SyntaxError",
+                    "IndentationError",
+                    "ValueError",
+                    "TypeError",
+                    "NameError",
+                    "ZeroDivisionError",
+                    "IndexError",
+                    "KeyError",
+                    "AttributeError",
+                    "ImportError",
+                    "ModuleNotFoundError",
+                    "EOFError",
+                    "RecursionError",
+                    "RuntimeError",
+                ]
+            ):
+                break
+            if not all(c in "^~ " for c in srl):
+                code_context = srl
+                break
+
+    is_syntax = "SyntaxError" in exc_line or "IndentationError" in exc_line
+    prefix = "Python syntax error" if is_syntax else "Python error"
+
+    input_hint = ""
+    if "EOFError" in exc_line or "EOF when reading a line" in stderr:
+        input_hint = " (Avoid calling input(); execution is non-interactive - specify inputs as variables instead)."
+
+    if line_num is not None:
+        msg = f"{prefix} at line {line_num}: {exc_line}{input_hint}"
+        if code_context:
+            msg += f"\n  --> {code_context}"
+    else:
+        msg = f"{prefix}: {exc_line}{input_hint}"
+
+    return msg, line_num
 
 
 class RunCommandTool(BaseTool):
@@ -457,8 +571,10 @@ class RunPythonTool(BaseTool):
     name: str = "run_python"
     description: str = (
         "Saves Python code into the workspace/ directory and executes it safely with a 10-second timeout. "
-        "Enforces safety guardrails against destructive operations, captures stdout and stderr, "
-        "and truncates output to 4000 characters."
+        "The model must provide a complete, runnable script that explicitly prints its results using print(). "
+        "If the code needs user input, do NOT use input() because execution is non-interactive; "
+        "instead, hardcode sample values or variables. Captures stdout and stderr, returns readable "
+        "short error output with line numbers, and truncates output to 4000 characters."
     )
 
     def run(
@@ -485,7 +601,7 @@ class RunPythonTool(BaseTool):
             **kwargs: Extra keyword arguments.
 
         Returns:
-            ToolResult: Structured execution outcome with stdout, stderr, and exit code.
+            ToolResult: Structured execution outcome with stdout, stderr, exit code, and line numbers.
         """
         try:
             target_path = file_path or path
@@ -523,7 +639,7 @@ class RunPythonTool(BaseTool):
                         message="filename must not contain path separators. Code must be saved directly inside workspace/."
                     )
 
-                # Block code containing destructive calls
+                # Block code containing destructive calls or interactive input
                 is_safe, blocked_reason = validate_python_code_safety(code)
                 if not is_safe:
                     return ToolResult(
@@ -610,11 +726,17 @@ class RunPythonTool(BaseTool):
                     message=summary
                 )
             else:
-                err_msg = stderr.strip() or stdout.strip() or f"Process exited with code {proc.returncode}"
+                short_msg, line_no = format_python_execution_error(
+                    stderr=stderr,
+                    stdout=stdout,
+                    filename=effective_filename
+                )
+                data["line_number"] = line_no
+                data["short_error"] = short_msg
                 return ToolResult(
                     success=False,
                     data=data,
-                    message=f"Python execution failed (exit code {proc.returncode}): {err_msg}"
+                    message=short_msg
                 )
 
         except subprocess.TimeoutExpired:
@@ -644,21 +766,162 @@ class RunPythonTool(BaseTool):
         """
         return {
             "name": self.name,
-            "description": self.description,
+            "description": (
+                "Executes a standalone Python script safely inside workspace/ with a 10-second timeout. "
+                "Provide a complete, runnable script that prints its results to stdout using print(). "
+                "If the program needs user input, avoid input() as execution runs non-interactively without user input; "
+                "hardcode test inputs or parameters instead. "
+                "Errors are returned in a concise, readable format including the line number."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Python source code to execute inside workspace/."
+                        "description": (
+                            "Complete, standalone, runnable Python script to execute. "
+                            "Must print output using print(). "
+                            "Avoid input() or interactive prompts; hardcode test values directly."
+                        )
                     },
                     "filename": {
                         "type": "string",
-                        "description": "Target filename inside workspace/ without path separators (default: 'script.py').",
+                        "description": "Target filename inside workspace/ without path separators (e.g. 'script.py', 'factorial.py'). Defaults to 'script.py'.",
                         "default": "script.py"
                     }
                 },
                 "required": ["code"]
+            }
+        }
+
+
+class ReadWorkspaceFileTool(BaseTool):
+    """Tool that reads back files created in the workspace/ directory."""
+    name: str = "read_workspace_file"
+    description: str = (
+        "Reads and returns the contents of a text file inside the workspace/ directory. "
+        "Allows the model to read back code, data, logs, or results it previously created."
+    )
+
+    def run(
+        self,
+        filename: str,
+        encoding: str = "utf-8",
+        max_chars: int = 8000,
+        **kwargs: Any
+    ) -> ToolResult:
+        """Reads a file from the workspace/ directory.
+
+        Args:
+            filename: Name or relative path of the file inside workspace/ to read.
+            encoding: Text character encoding (defaults to 'utf-8').
+            max_chars: Maximum characters to return before truncation (default: 8000).
+            **kwargs: Extra keyword arguments.
+
+        Returns:
+            ToolResult: Execution outcome with file content.
+        """
+        try:
+            if not filename or not isinstance(filename, str) or not filename.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="filename must be a non-empty string."
+                )
+
+            clean_filename = filename.strip()
+
+            # Disallow directory traversal escapes
+            if ".." in clean_filename:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Permission Denied: Directory traversal '..' in filename '{clean_filename}' is not allowed."
+                )
+
+            workspace_dir = os.path.realpath("workspace")
+            os.makedirs(workspace_dir, exist_ok=True)
+
+            target_path = os.path.realpath(os.path.join(workspace_dir, clean_filename))
+
+            # Ensure the resolved path remains strictly within workspace
+            if not (target_path == workspace_dir or target_path.startswith(workspace_dir + os.sep)):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Permission Denied: Access to '{clean_filename}' outside workspace/ is prohibited."
+                )
+
+            if not os.path.exists(target_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Workspace file not found: '{clean_filename}'."
+                )
+
+            if not os.path.isfile(target_path):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message=f"Path is not a regular file: '{clean_filename}'."
+                )
+
+            with open(target_path, "r", encoding=encoding, errors="replace") as f:
+                content = f.read()
+
+            file_size = len(content.encode("utf-8"))
+            display_content = content
+            is_truncated = False
+            if len(content) > max_chars:
+                display_content = content[:max_chars] + f"\n... [File content truncated to {max_chars} characters. Total size: {file_size} bytes]"
+                is_truncated = True
+
+            return ToolResult(
+                success=True,
+                data={
+                    "filename": clean_filename,
+                    "path": os.path.relpath(target_path),
+                    "size_bytes": file_size,
+                    "truncated": is_truncated,
+                    "content": content
+                },
+                message=display_content
+            )
+
+        except PermissionError as pe:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Permission Denied: Operating system prevented reading '{filename}': {str(pe)}"
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to read workspace file '{filename}': {str(e)}"
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling.
+
+        Returns:
+            Dict[str, Any]: JSON schema specification.
+        """
+        return {
+            "name": self.name,
+            "description": (
+                "Reads and returns the content of a text file located inside the workspace/ directory. "
+                "Use this to inspect files or outputs that were created or modified during execution."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name or relative path of the file inside workspace/ to read (e.g. 'output.txt', 'result.json', 'script.py')."
+                    }
+                },
+                "required": ["filename"]
             }
         }
 
@@ -668,4 +931,5 @@ TOOLS: List[BaseTool] = [
     RunCommandTool(),
     EditFileTool(),
     RunPythonTool(),
+    ReadWorkspaceFileTool(),
 ]
