@@ -65,6 +65,29 @@ def normalize_command(text: str) -> str:
     return " ".join(norm.split())
 
 
+def strip_unnecessary_filler(text: str) -> str:
+    """Strip unnecessary AI conversational filler and polite fluff.
+    Ensures user gets ONLY the exact answer requested and nothing extra.
+    """
+    if not text:
+        return text
+
+    boilerplate_patterns = [
+        r"(?i)\s*let me know if you (?:need|have|require)[\s\S]*$",
+        r"(?i)\s*feel free to (?:ask|reach out|let me know)[\s\S]*$",
+        r"(?i)\s*how (?:else )?(?:can|may) i (?:assist|help) you[\s\S]*$",
+        r"(?i)\s*is there anything (?:else )?(?:i can help|you need)[\s\S]*$",
+        r"(?i)\s*if you need anything else[\s\S]*$",
+        r"(?i)\s*i(?:'m| am) here to help[\s\S]*$",
+        r"(?i)\s*standing by for your (?:next directive|command)[\s\S]*$",
+    ]
+    cleaned = text.strip()
+    for pattern in boilerplate_patterns:
+        cleaned = re.sub(pattern, "", cleaned).strip()
+
+    return cleaned if cleaned else text
+
+
 class NoteCreate(BaseModel):
     """Payload schema for creating a new note."""
 
@@ -1138,8 +1161,14 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
         now = datetime.datetime.now()
         time_str = now.strftime("%I:%M %p").lstrip("0")
         date_str = now.strftime("%A, %B %d, %Y")
-        user_suffix = f", {active_name}" if session_user.get("is_known") else ", Sir"
-        return f"The current time is {time_str} on {date_str}{user_suffix}."
+        norm_words = norm.split()
+        has_date_word = any(w in norm_words for w in ("date", "day", "tarikh", "aajchi", "today"))
+        has_time_word = any(w in norm_words for w in ("time", "clock", "vajle", "samay", "baje", "vel"))
+        if has_time_word and not has_date_word:
+            return f"The current time is {time_str}."
+        elif has_date_word and not has_time_word:
+            return f"Today is {date_str}."
+        return f"The current time is {time_str} on {date_str}."
 
     # 9. Real Hardware Telemetry Specs
     if any(k in norm for k in ("system info", "check system specs", "laptop specs", "my specs", "hardware specs", "specs")):
@@ -1281,8 +1310,14 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                         now = datetime.datetime.now()
                         time_str = now.strftime("%I:%M %p").lstrip("0")
                         date_str = now.strftime("%A, %B %d, %Y")
-                        user_suffix = f", {session_user['name']}" if session_user.get("is_known") else ", Sir"
-                        reply_text = f"The current time is {time_str} on {date_str}{user_suffix}."
+                        has_date_word = any(w in norm_words for w in ("date", "day", "tarikh", "aajchi", "today"))
+                        has_time_word = any(w in norm_words for w in ("time", "clock", "vajle", "samay", "baje", "vel"))
+                        if has_time_word and not has_date_word:
+                            reply_text = f"The current time is {time_str}."
+                        elif has_date_word and not has_time_word:
+                            reply_text = f"Today is {date_str}."
+                        else:
+                            reply_text = f"The current time is {time_str} on {date_str}."
                         tool_steps = ["get_system_time()"]
                         try:
                             await memory_manager.save_interaction(role="user", content=user_text)
@@ -1302,6 +1337,9 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
                         if not reply_text:
                             reply_text = await _generate_response(user_text, session_user=session_user)
+
+                        # Strip conversational filler to ensure exact answers only
+                        reply_text = strip_unnecessary_filler(reply_text)
 
                         try:
                             await memory_manager.save_interaction(role="user", content=user_text)
