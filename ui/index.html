@@ -887,11 +887,19 @@
       </div>
       <div class="form-group">
         <label class="form-label">Voice Engine Model (Mark LVI)</label>
-        <select class="form-select" id="ttsProviderSelect">
+        <select class="form-select" id="ttsProviderSelect" onchange="toggleElevenLabsFields()">
           <option value="edge">Edge Neural Streaming (Cloud High-Fidelity)</option>
+          <option value="elevenlabs">ElevenLabs Cloud AI Voice (Mark LVI Multilingual)</option>
           <option value="piper">Piper Local Neural (Offline &lt;50ms Latency)</option>
           <option value="system">Windows SAPI5 / OS Native Fallback</option>
         </select>
+      </div>
+      <div class="form-group" id="elevenlabsGroup" style="display: none;">
+        <label class="form-label">ElevenLabs API Key</label>
+        <input type="password" class="form-input" id="elevenlabsApiKeyInput" placeholder="xi-api-key (optional if using Edge-TTS)">
+        <div style="height: 6px;"></div>
+        <label class="form-label">ElevenLabs Voice ID</label>
+        <input type="text" class="form-input" id="elevenlabsVoiceIdInput" placeholder="Voice ID (default: pNInz6obpgDQGcFmaJgB - Adam)">
       </div>
       <div class="form-group">
         <label class="form-label">Speech Synthesis Output</label>
@@ -1350,6 +1358,14 @@
         }
       });
 
+      window.toggleElevenLabsFields = function() {
+        const sel = document.getElementById('ttsProviderSelect');
+        const grp = document.getElementById('elevenlabsGroup');
+        if (grp && sel) {
+          grp.style.display = sel.value === 'elevenlabs' ? 'block' : 'none';
+        }
+      };
+
       settingsBtn.addEventListener('click', async () => {
         openModal('settingsModal');
         try {
@@ -1358,6 +1374,11 @@
             const data = await res.json();
             if (data.llm_provider) document.getElementById('llmProviderSelect').value = data.llm_provider;
             if (data.tts_provider) document.getElementById('ttsProviderSelect').value = data.tts_provider;
+            if (data.elevenlabs_voice_id) document.getElementById('elevenlabsVoiceIdInput').value = data.elevenlabs_voice_id;
+            if (data.has_elevenlabs) {
+              document.getElementById('elevenlabsApiKeyInput').placeholder = '•••••••• (API Key Active)';
+            }
+            toggleElevenLabsFields();
           }
         } catch(e){}
       });
@@ -1366,11 +1387,13 @@
         state.autoSpeech = document.getElementById('autoSpeechSelect').value === 'true';
         const llm_provider = document.getElementById('llmProviderSelect').value;
         const tts_provider = document.getElementById('ttsProviderSelect').value;
+        const elevenlabs_api_key = document.getElementById('elevenlabsApiKeyInput').value.trim();
+        const elevenlabs_voice_id = document.getElementById('elevenlabsVoiceIdInput').value.trim();
         try {
           await fetch('/api/config/providers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ llm_provider, tts_provider })
+            body: JSON.stringify({ llm_provider, tts_provider, elevenlabs_api_key, elevenlabs_voice_id })
           });
         } catch(e){}
         closeModal('settingsModal');

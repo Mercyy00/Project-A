@@ -151,6 +151,65 @@ class JarvisSpeaker:
             print(f"Notice: edge-tts generation failed ({exc}).")
             return False
 
+    async def _generate_audio_elevenlabs_async(self, text: str, output_path: Path) -> bool:
+        """Generate audio using ElevenLabs Cloud TTS asynchronously via httpx."""
+        api_key = (os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY") or "").strip()
+        if not api_key:
+            return False
+        voice_id = (os.getenv("ELEVENLABS_VOICE_ID") or "pNInz6obpgDQGcFmaJgB").strip()
+        model_id = (os.getenv("ELEVENLABS_MODEL_ID") or "eleven_multilingual_v2").strip()
+        try:
+            import httpx
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+            headers = {
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "text": text,
+                "model_id": model_id,
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                if resp.status_code >= 400:
+                    print(f"Notice: ElevenLabs API HTTP {resp.status_code} ({resp.text[:100]}). Falling back to Edge-TTS.")
+                    return False
+                output_path.write_bytes(resp.content)
+                return output_path.is_file() and output_path.stat().st_size > 0
+        except Exception as exc:
+            print(f"Notice: ElevenLabs generation failed ({exc}). Falling back to Edge-TTS.")
+            return False
+
+    def _generate_audio_elevenlabs_sync(self, text: str, output_path: Path) -> bool:
+        """Generate audio using ElevenLabs Cloud TTS synchronously via requests."""
+        api_key = (os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY") or "").strip()
+        if not api_key:
+            return False
+        voice_id = (os.getenv("ELEVENLABS_VOICE_ID") or "pNInz6obpgDQGcFmaJgB").strip()
+        model_id = (os.getenv("ELEVENLABS_MODEL_ID") or "eleven_multilingual_v2").strip()
+        try:
+            import requests
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+            headers = {
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "text": text,
+                "model_id": model_id,
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=30.0)
+            if resp.status_code >= 400:
+                print(f"Notice: ElevenLabs sync API HTTP {resp.status_code} ({resp.text[:100]}). Falling back to Edge-TTS.")
+                return False
+            output_path.write_bytes(resp.content)
+            return output_path.is_file() and output_path.stat().st_size > 0
+        except Exception as exc:
+            print(f"Notice: ElevenLabs sync failed ({exc}). Falling back to Edge-TTS.")
+            return False
+
     def _speak_offline_fallback(self, text: str) -> None:
         """Fallback to pyttsx3 offline speech synthesis."""
         if pyttsx3 is None:
@@ -181,15 +240,23 @@ class JarvisSpeaker:
         if not clean_text:
             return ""
 
+        provider = (os.getenv("TTS_PROVIDER") or "edge").lower().strip()
         voice = self.get_voice_for_language(lang, clean_text)
+        voice_id = (os.getenv("ELEVENLABS_VOICE_ID") or "pNInz6obpgDQGcFmaJgB").strip()
+        provider_tag = f"elevenlabs_{voice_id}" if provider == "elevenlabs" else voice
+
         # Check high-speed neural audio cache first (instant 0ms response)
-        cache_hash = hashlib.md5(f"{voice}::{clean_text}".encode("utf-8")).hexdigest()
+        cache_hash = hashlib.md5(f"{provider_tag}::{clean_text}".encode("utf-8")).hexdigest()
         cache_path = self.temp_dir / f"tts_cache_{cache_hash}.mp3"
         if cache_path.is_file() and cache_path.stat().st_size > 0:
             return str(cache_path.resolve())
 
         try:
-            success = await self._generate_audio_edge(clean_text, voice, cache_path)
+            success = False
+            if provider == "elevenlabs":
+                success = await self._generate_audio_elevenlabs_async(clean_text, cache_path)
+            if not success:
+                success = await self._generate_audio_edge(clean_text, voice, cache_path)
             if success and cache_path.is_file():
                 return str(cache_path.resolve())
         except Exception as exc:
@@ -212,24 +279,38 @@ class JarvisSpeaker:
             return ""
 
         self._cleanup_old_audio()
+        provider = (os.getenv("TTS_PROVIDER") or "edge").lower().strip()
         voice = self.get_voice_for_language(lang, clean_text)
+        voice_id = (os.getenv("ELEVENLABS_VOICE_ID") or "pNInz6obpgDQGcFmaJgB").strip()
+        provider_tag = f"elevenlabs_{voice_id}" if provider == "elevenlabs" else voice
+
+        cache_hash = hashlib.md5(f"{provider_tag}::{clean_text}".encode("utf-8")).hexdigest()
+        cache_path = self.temp_dir / f"tts_cache_{cache_hash}.mp3"
+        if cache_path.is_file() and cache_path.stat().st_size > 0:
+            return str(cache_path.resolve())
+
         file_name = f"speech_{int(time.time() * 1000)}.mp3"
         out_path = self.temp_dir / file_name
 
         try:
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
+            success = False
+            if provider == "elevenlabs":
+                success = self._generate_audio_elevenlabs_sync(clean_text, out_path)
+            if not success:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
 
-            if loop and loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    pool.submit(asyncio.run, self._generate_audio_edge(clean_text, voice, out_path)).result()
-            else:
-                asyncio.run(self._generate_audio_edge(clean_text, voice, out_path))
+                if loop and loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        pool.submit(asyncio.run, self._generate_audio_edge(clean_text, voice, out_path)).result()
+                else:
+                    asyncio.run(self._generate_audio_edge(clean_text, voice, out_path))
+                success = out_path.is_file() and out_path.stat().st_size > 0
 
-            if out_path.is_file():
+            if success and out_path.is_file():
                 return str(out_path.resolve())
         except Exception as exc:
             print(f"Failed to generate speech file: {exc}")

@@ -446,15 +446,20 @@ class ProviderConfigRequest(BaseModel):
     llm_provider: Optional[str] = Field("gemini", description="Selected LLM provider")
     groq_model: Optional[str] = Field("openai/gpt-oss-20b", description="Selected Groq model")
     tts_provider: Optional[str] = Field("edge", description="Selected TTS engine")
+    elevenlabs_api_key: Optional[str] = Field(None, description="Optional ElevenLabs API Key")
+    elevenlabs_voice_id: Optional[str] = Field(None, description="Optional ElevenLabs Voice ID")
 
 
 @app.get("/api/config/providers")
 async def get_providers_config() -> Dict[str, Any]:
+    eleven_key = (os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY") or "").strip()
     return {
         "llm_provider": os.getenv("LLM_PROVIDER", "gemini"),
         "groq_model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
         "gemini_model": os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash",
         "tts_provider": os.getenv("TTS_PROVIDER", "edge"),
+        "elevenlabs_voice_id": os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB"),
+        "has_elevenlabs": bool(eleven_key and eleven_key != "your_elevenlabs_key_here"),
     }
 
 
@@ -466,6 +471,43 @@ async def set_providers_config(payload: ProviderConfigRequest) -> Dict[str, Any]
         os.environ["GROQ_MODEL"] = payload.groq_model.strip()
     if payload.tts_provider:
         os.environ["TTS_PROVIDER"] = payload.tts_provider.lower().strip()
+    if payload.elevenlabs_voice_id and payload.elevenlabs_voice_id.strip():
+        os.environ["ELEVENLABS_VOICE_ID"] = payload.elevenlabs_voice_id.strip()
+    if payload.elevenlabs_api_key and payload.elevenlabs_api_key.strip():
+        os.environ["ELEVENLABS_API_KEY"] = payload.elevenlabs_api_key.strip()
+
+    try:
+        project_root = Path(__file__).resolve().parent.parent
+        env_file = project_root / ".env"
+        env_lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+        updates = {
+            "TTS_PROVIDER": os.environ.get("TTS_PROVIDER", "edge"),
+            "LLM_PROVIDER": os.environ.get("LLM_PROVIDER", "gemini"),
+        }
+        if payload.elevenlabs_api_key and payload.elevenlabs_api_key.strip():
+            updates["ELEVENLABS_API_KEY"] = payload.elevenlabs_api_key.strip()
+        if payload.elevenlabs_voice_id and payload.elevenlabs_voice_id.strip():
+            updates["ELEVENLABS_VOICE_ID"] = payload.elevenlabs_voice_id.strip()
+
+        new_lines: List[str] = []
+        handled = set()
+        for line in env_lines:
+            matched = False
+            for k, v in updates.items():
+                if line.startswith(f"{k}="):
+                    new_lines.append(f"{k}={v}")
+                    handled.add(k)
+                    matched = True
+                    break
+            if not matched:
+                new_lines.append(line)
+        for k, v in updates.items():
+            if k not in handled:
+                new_lines.append(f"{k}={v}")
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    except Exception as exc:
+        print(f"[WARN] Failed to write provider settings to .env file: {exc}")
+
     return {"success": True, "message": "Provider configuration saved and active."}
 
 
