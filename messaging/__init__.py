@@ -2,7 +2,8 @@
 
 Handles Telegram bot communications, owner-only authorization,
 message routing, command dispatching, document delivery, tools,
-WhatsApp messaging with contact book verification, and persistent reminders.
+WhatsApp messaging with contact book verification, persistent reminders,
+and autonomous tool dispatch for JARVIS ReAct Brain.
 """
 
 from messaging.telegram_bot import (
@@ -13,7 +14,13 @@ from messaging.telegram_bot import (
     split_message,
     is_allowed_path,
 )
-from messaging.tools import SendTelegramTool, TOOLS
+from messaging.tools import (
+    SendTelegramTool,
+    SendWhatsAppTool,
+    SetReminderTool,
+    ListRemindersTool,
+    TOOLS,
+)
 from messaging.contacts import load_contacts, find_contact
 from messaging.whatsapp import send_whatsapp
 from messaging.reminders import (
@@ -34,6 +41,9 @@ __all__ = [
     "split_message",
     "is_allowed_path",
     "SendTelegramTool",
+    "SendWhatsAppTool",
+    "SetReminderTool",
+    "ListRemindersTool",
     "TOOLS",
     "load_contacts",
     "find_contact",

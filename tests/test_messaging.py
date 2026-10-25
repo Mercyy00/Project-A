@@ -598,5 +598,154 @@ def test_check_due_reminders_dispatch(mock_send: Any) -> None:
         save_reminders(cleaned)
 
 
+# ==============================================================================
+# 9. Day 8: Full Autonomous Messaging Tool Suite Tests
+# ==============================================================================
+
+def test_send_whatsapp_tool_schema() -> None:
+    """SendWhatsAppTool must declare valid function calling schema."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "send_whatsapp"
+    assert "parameters" in schema
+    assert "contact" in schema["parameters"]["properties"]
+    assert "message" in schema["parameters"]["properties"]
+    assert "contact" in schema["parameters"]["required"]
+    assert "message" in schema["parameters"]["required"]
+
+
+def test_send_whatsapp_tool_empty_inputs() -> None:
+    """SendWhatsAppTool should return structured failure on empty contact or message."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    res1 = tool.run(contact="", message="Hello")
+    assert res1.success is False
+    assert "contact" in res1.message.lower()
+
+    res2 = tool.run(contact="Jayesh", message="")
+    assert res2.success is False
+    assert "empty" in res2.message.lower()
+
+
+def test_send_whatsapp_tool_unknown_contact() -> None:
+    """SendWhatsAppTool should safely refuse unknown contact and return failure ToolResult."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    res = tool.run(contact="NonExistentContact999", message="Test alert")
+    assert res.success is False
+    assert "not in your saved contacts" in res.message
+
+
+@patch("messaging.tools.send_whatsapp", return_value="WhatsApp message successfully queued for Jayesh (+919876543210).")
+def test_send_whatsapp_tool_success(mock_send: Any) -> None:
+    """SendWhatsAppTool.run() should return success ToolResult on successful queuing."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    res = tool.run(contact="Jayesh", message="Meeting in 10 minutes")
+    assert res.success is True
+    assert "Jayesh" in res.data["contact"]
+    assert mock_send.called
+
+
+def test_set_reminder_tool_schema() -> None:
+    """SetReminderTool must export valid BaseTool schema."""
+    from messaging.tools import SetReminderTool
+
+    tool = SetReminderTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "set_reminder"
+    assert "when" in schema["parameters"]["properties"]
+    assert "text" in schema["parameters"]["properties"]
+    assert "when" in schema["parameters"]["required"]
+    assert "text" in schema["parameters"]["required"]
+
+
+def test_set_reminder_tool_empty_inputs() -> None:
+    """SetReminderTool should fail gracefully when when/text is omitted."""
+    from messaging.tools import SetReminderTool
+
+    tool = SetReminderTool()
+    res1 = tool.run(when="", text="meeting")
+    assert res1.success is False
+
+    res2 = tool.run(when="18:00", text="")
+    assert res2.success is False
+
+
+def test_set_reminder_tool_invalid_when() -> None:
+    """SetReminderTool should return structured failure on unparseable timing."""
+    from messaging.tools import SetReminderTool
+
+    tool = SetReminderTool()
+    res = tool.run(when="someday soon", text="fix bug")
+    assert res.success is False
+    assert "Could not set reminder" in res.message
+
+
+def test_set_reminder_tool_success() -> None:
+    """SetReminderTool should schedule and persist reminder properly."""
+    from messaging.tools import SetReminderTool
+    from messaging.reminders import load_reminders, save_reminders
+
+    tool = SetReminderTool()
+    task_name = f"Day8 Automated Test Reminder {int(time.time())}"
+    res = tool.run(when="in 10 minutes", text=task_name)
+    assert res.success is True
+    assert "Reminder set for" in res.message
+
+    # Clean up test entry
+    items = load_reminders()
+    save_reminders([r for r in items if r.get("text") != task_name])
+
+
+def test_list_reminders_tool() -> None:
+    """ListRemindersTool should execute and return list of reminders."""
+    from messaging.tools import ListRemindersTool
+
+    tool = ListRemindersTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "list_reminders"
+
+    res = tool.run()
+    assert res.success is True
+    assert isinstance(res.data, list)
+
+
+def test_tool_registry_autoload_all_day8_messaging_tools() -> None:
+    """tools.registry should automatically load all 4 messaging tools into TOOL_REGISTRY."""
+    from tools.registry import TOOL_REGISTRY, auto_load_module_tools
+
+    auto_load_module_tools()
+    for tool_name in ["send_telegram", "send_whatsapp", "set_reminder", "list_reminders"]:
+        assert tool_name in TOOL_REGISTRY, f"Missing tool '{tool_name}' in registry"
+
+
+def test_day8_acceptance_cli_autonomous_dispatch() -> None:
+    """Day 8 Acceptance Test: Full tool execution from central registry without direct import."""
+    from tools.registry import execute_tool, auto_load_module_tools
+    from messaging.reminders import load_reminders, save_reminders
+
+    auto_load_module_tools()
+
+    # 1. Execute list_reminders through registry
+    res_list = execute_tool("list_reminders", {})
+    assert res_list.success is True
+
+    # 2. Execute set_reminder through registry
+    unique_text = f"Day 8 Viva Prep {int(time.time())}"
+    res_set = execute_tool("set_reminder", {"when": "in 15 minutes", "text": unique_text})
+    assert res_set.success is True
+    assert "Reminder set for" in res_set.message
+
+    # Clean up
+    items = load_reminders()
+    save_reminders([r for r in items if r.get("text") != unique_text])
+
+
 if __name__ == "__main__":
     pytest.main(["-v", __file__])

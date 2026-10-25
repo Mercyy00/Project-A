@@ -1,17 +1,17 @@
 # JARVIS Messaging Module
 
 **Responsible Engineer:** Trupti  
-**Role:** Messaging (Telegram Bot, Remote Assistant Reach, WhatsApp, Reminders)  
+**Role:** Messaging (Telegram Bot, Remote Assistant Reach, WhatsApp, Reminders, Autonomous Tools)  
 **Branch:** `feature/trupti-messaging`  
-**Milestone:** Day 1 to Day 7 Deliverables Complete
+**Milestone:** Days 1 to 8 Deliverables Complete (46 Tests Passing)
 
 ---
 
 ## 1. Overview
 
-The `messaging` module powers remote access to JARVIS through Telegram and WhatsApp. It enables the user to communicate with JARVIS from their mobile phone, receive answers from `JarvisBrain`, trigger autonomous tools from CLI or Brain, capture laptop screenshots remotely, exchange photos and documents securely, send verified WhatsApp messages, and schedule persistent reminders.
+The `messaging` module powers remote access to JARVIS through Telegram and WhatsApp. It enables the user to communicate with JARVIS from their mobile phone, receive answers from `JarvisBrain`, trigger autonomous tools from CLI or Brain, capture laptop screenshots remotely, exchange photos and documents securely, send verified WhatsApp messages, schedule persistent reminders, and execute messaging directives via autonomous function calling.
 
-### Deliverables Covered (Days 1 – 7)
+### Deliverables Covered (Days 1 – 8)
 
 * **Day 1: Setup + Create Telegram Bot**
   * Private Python environment with dependencies (`pyTelegramBotAPI`, `python-dotenv`, `pytest`, `schedule`, `pywhatkit`, `pydantic`).
@@ -66,6 +66,15 @@ The `messaging` module powers remote access to JARVIS through Telegram and Whats
     * Resilient background monitoring thread checking every 20 seconds and dispatching due alerts via `send_telegram()`.
   * `messaging/test_reminders.py`: Interactive and `--verify` runner for scheduling and verifying reminders.
 
+* **Day 8: Full Autonomous Messaging Tools Suite (WhatsApp, Reminders, Telegram)**
+  * `messaging/tools.py`:
+    * `SendWhatsAppTool`: Autonomous WhatsApp dispatch with contacts lookup validation and error handling.
+    * `SetReminderTool`: Autonomous reminder scheduling callable by AI Brain or CLI (`execute_tool("set_reminder", {"when": "in 10 minutes", "text": "Call doctor"})`).
+    * `ListRemindersTool`: Autonomous listing of pending active alerts.
+    * Canonical export: `TOOLS = [SendTelegramTool(), SendWhatsAppTool(), SetReminderTool(), ListRemindersTool()]` auto-registered into `TOOL_REGISTRY`.
+  * Unit test suite expanded to **46 comprehensive tests** in `tests/test_messaging.py` with 100% pass rate.
+  * 1-click verification runner: `messaging/verify_day8.bat`.
+
 ---
 
 ## 2. Setup Guide
@@ -92,34 +101,34 @@ The `messaging` module powers remote access to JARVIS through Telegram and Whats
 
 ## 3. Running & Testing
 
-### Running Tests (All 35 Unit Tests)
+### Running All 46 Unit Tests
 ```powershell
 python -m pytest tests/test_messaging.py -v
 ```
 
-### Running WhatsApp in Dry-Run Mode (Day 6)
+### Running 1-Click Verification Batch
 ```powershell
-python messaging/test_whatsapp.py --dry-run
+messaging\verify_day8.bat
 ```
 
-### Scheduling a Reminder (Day 7)
+### Quick Day 8 Acceptance Test
 ```powershell
-python messaging/test_reminders.py --when "in 2 minutes" --text "Study with JARVIS"
+messaging\run_day8_test.bat
 ```
 
 ---
 
-## 4. Git Commands for Day 6 – Day 7
+## 4. Git Commands for Day 8
 
 ```powershell
 # Verify status (only messaging/ and tests/ touched, .env excluded)
 git status
 
 # Stage changes
-git add messaging/contacts.py messaging/whatsapp.py messaging/test_whatsapp.py messaging/reminders.py messaging/test_reminders.py messaging/__init__.py messaging/README.md tests/test_messaging.py
+git add messaging/tools.py messaging/__init__.py messaging/README.md tests/test_messaging.py
 
 # Commit
-git commit -m "feat(messaging): Day 6-7 WhatsApp sending to verified contacts and persistent Telegram reminders"
+git commit -m "feat(messaging): complete Day 8 autonomous messaging tools (WhatsApp, Reminders) and central registry auto-loader"
 
 # Push to your branch
 git push origin feature/trupti-messaging
