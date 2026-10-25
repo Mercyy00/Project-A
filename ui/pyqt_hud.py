@@ -1,16 +1,16 @@
 """
-Project JARVIS - Native PyQt6 Desktop HUD Application (Mark LVI Authentic Edition).
+Project JARVIS - Native PyQt6 Desktop HUD Application.
 Author: Rohit (Frontend & Desktop UI Specialist) & Aryan (Voice Specialist)
 
 Provides a native high-performance PyQt6 desktop interface featuring:
-- Mathematically animated Arc Reactor / Neural Core with vector geometry and blueprint grid
-- Dynamic symmetrical Cyber Waveform Audio Visualizer (Mark LVI studio grade)
-- Real-time audio amplitude and viseme reactivity
-- Hardware telemetry gauges (CPU %, RAM %, Storage Drive %, Engine Latency)
+- Mathematically animated Arc Reactor / Neural Core with live voice amplitude reactivity
+- Real-time audio waveform visualizer and viseme-aware speaking pulses
+- Hardware telemetry gauges (CPU %, RAM %, System Uptime, Engine Latency)
 - Live bi-directional chat / voice stream transcripts and tool execution steps
 - Quick action command chips and direct text directive prompt
-- Startup API Key Configuration modal window with clipboard paste support
-- Global F4 hardware microphone mute toggle
+- First-time setup API Key dialog (persisted to .env, suppressed on subsequent launches)
+- Hardware microphone mute toggle ([F4]) with driver-level frame gating
+- Integrated background thread bridge to GeminiLiveEngine and JarvisBrain
 """
 
 from __future__ import annotations
@@ -290,7 +290,7 @@ class ApiKeyDialog(QDialog):
 
 
 class ArcReactorWidget(QWidget):
-    """Native QPainter Arc Reactor / Neural Core animation widget with blueprint matrix."""
+    """Native QPainter Arc Reactor / Neural Core animation widget."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -327,12 +327,13 @@ class ArcReactorWidget(QWidget):
             rate = 0.08
 
         self._phase += rate
+        # Smooth amplitude decay
         self._amp_disp += (self._live_amp - self._amp_disp) * 0.15
         self._live_amp = max(0.02, self._live_amp * 0.92)
         self.update()
 
     def paintEvent(self, _event: Any) -> None:
-        """Render the animated Arc Reactor using vector geometry and sci-fi matrix."""
+        """Render the animated Arc Reactor using vector geometry."""
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), qcol(HUDColors.BG))
@@ -358,39 +359,7 @@ class ArcReactorWidget(QWidget):
         else:
             main_col, acc_col = qcol(HUDColors.CYAN), qcol(HUDColors.CYAN_DIM)
 
-        # 0. Blueprint Grid Dots
-        p.setPen(QPen(qcol(HUDColors.CYAN, 24), 1))
-        step = 32
-        for gx in range(0, int(w), step):
-            for gy in range(0, int(h), step):
-                p.drawPoint(gx, gy)
-
-        # 1. Corner Framing Crosshairs (Blueprint Brackets)
-        m, arm = 12.0, 16.0
-        p.setPen(QPen(qcol(HUDColors.CYAN, 70), 1.2))
-        for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
-            x = cx + sx * (w / 2.0 - m)
-            y = cy + sy * (h / 2.0 - m)
-            p.drawLine(QLineF(x, y, x - sx * arm, y))
-            p.drawLine(QLineF(x, y, x, y - sy * arm))
-
-        # 2. Canvas Crosshairs broken around core
-        gap = r * 0.72
-        p.setPen(QPen(qcol(HUDColors.CYAN, 35), 1))
-        p.drawLine(QLineF(cx - w * 0.46, cy, cx - gap, cy))
-        p.drawLine(QLineF(cx + gap, cy, cx + w * 0.46, cy))
-        p.drawLine(QLineF(cx, cy - h * 0.46, cx, cy - gap))
-        p.drawLine(QLineF(cx, cy + gap, cx, cy + h * 0.46))
-
-        # 3. Cardinal Degree Markers
-        p.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
-        p.setPen(QPen(qcol(HUDColors.CYAN_DIM, 120), 1))
-        p.drawText(QRectF(cx - 20, cy - r * 1.05 - 12, 40, 12), Qt.AlignmentFlag.AlignCenter, "000°")
-        p.drawText(QRectF(cx + r * 1.05 + 4, cy - 6, 36, 12), Qt.AlignmentFlag.AlignLeft, "090°")
-        p.drawText(QRectF(cx - 20, cy + r * 1.05 + 2, 40, 12), Qt.AlignmentFlag.AlignCenter, "180°")
-        p.drawText(QRectF(cx - r * 1.05 - 40, cy - 6, 36, 12), Qt.AlignmentFlag.AlignRight, "270°")
-
-        # 4. Background Radial Atmosphere Glow
+        # 1. Background radial glow
         glow_rad = r * (0.65 + 0.3 * amp)
         glow = QRadialGradient(cx, cy, glow_rad)
         glow.setColorAt(0.0, qcol(acc_col.name(), int(160 + 90 * amp)))
@@ -401,13 +370,13 @@ class ArcReactorWidget(QWidget):
         p.drawEllipse(QRectF(cx - glow_rad, cy - glow_rad, glow_rad * 2, glow_rad * 2))
         p.setBrush(Qt.BrushStyle.NoBrush)
 
-        # 5. Concentric Rings
+        # 2. Outer boundary concentric rings
         for rr, alpha, width in ((1.0, 90, 1.0), (0.92, 140, 1.2), (0.75, 80, 1.0)):
             p.setPen(QPen(qcol(main_col.name(), alpha), width))
             rad = r * rr
             p.drawEllipse(QRectF(cx - rad, cy - rad, rad * 2, rad * 2))
 
-        # 6. Rotating Tick Graduations (72 radial ticks)
+        # 3. Rotating tick graduations (72 radial ticks)
         p.setPen(QPen(qcol(main_col.name(), 120), 1.2))
         lines: List[QLineF] = []
         for i in range(72):
@@ -420,7 +389,7 @@ class ArcReactorWidget(QWidget):
             ))
         p.drawLines(lines)
 
-        # 7. Sweeping Segmented Arcs
+        # 4. Sweeping segmented arcs
         arc_specs = [
             (0.85, 120, 2, +1.0, acc_col, 2.2),
             (0.70, 80, 3, -1.2, main_col, 1.5),
@@ -435,124 +404,17 @@ class ArcReactorWidget(QWidget):
             for k in range(count):
                 p.drawArc(box, int((base_deg + k * (360.0 / count)) * 16), int(span * 16))
 
-        # 8. Orbiting Electron Energy Nodes
-        for node_i in range(4):
-            node_ang = math.radians(node_i * 90.0 + t * 45.0)
-            nx = cx + math.cos(node_ang) * (r * 0.92)
-            ny = cy + math.sin(node_ang) * (r * 0.92)
-            p.setBrush(QBrush(qcol(acc_col.name(), 220)))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(nx, ny), 3.0 + 1.5 * amp, 3.0 + 1.5 * amp)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-
-        # 9. Core Center Disc & Pulse
-        core_r = r * (0.24 + 0.08 * amp)
+        # 5. Core center disc & pulse
+        core_r = r * (0.22 + 0.08 * amp)
         p.setBrush(QBrush(qcol(main_col.name(), int(180 + 75 * amp))))
         p.setPen(QPen(qcol(acc_col.name()), 2.0))
         p.drawEllipse(QRectF(cx - core_r, cy - core_r, core_r * 2, core_r * 2))
 
-        # 10. Center Typography ("J.A.R.V.I.S")
-        f = QFont("Courier New", int(max(8, r * 0.09)), QFont.Weight.Bold)
-        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.5)
-        p.setFont(f)
+        # Core status text
+        p.setFont(QFont("Courier New", int(max(7, r * 0.07)), QFont.Weight.Bold))
         p.setPen(QPen(qcol("#ffffff"), 1))
-        p.drawText(QRectF(cx - core_r, cy - 10, core_r * 2, 20), Qt.AlignmentFlag.AlignCenter, "J.A.R.V.I.S")
-
-
-class WaveformVisualizerWidget(QWidget):
-    """Dynamic Sci-Fi Cyber Waveform Audio Visualizer (Mark LVI authentic styling)."""
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setFixedHeight(95)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        self.state: str = "LISTENING"
-        self.speaking: bool = False
-        self.muted: bool = False
-        self._live_amp: float = 0.05
-        self._amp_disp: float = 0.05
-        self._phase: float = 0.0
-
-        # Animation timer (60 FPS)
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._step)
-        self._timer.start(16)
-
-    def set_state(self, state: str) -> None:
-        self.state = state.upper()
-        self.update()
-
-    def set_amplitude(self, amp: float) -> None:
-        self._live_amp = max(0.0, min(1.0, float(amp)))
-
-    def _step(self) -> None:
-        rate = 0.06 if self.speaking else 0.03
-        self._phase += rate
-        self._amp_disp += (self._live_amp - self._amp_disp) * 0.18
-        self._live_amp = max(0.02, self._live_amp * 0.90)
-        self.update()
-
-    def paintEvent(self, _event: Any) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), qcol(HUDColors.BG))
-
-        w, h = float(self.width()), float(self.height())
-        cx, cy = w / 2.0, h / 2.0 - 2.0
-
-        amp = self._amp_disp
-        t = self._phase
-
-        # 1. Top status label
-        p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
-        status_txt = "MUTED" if self.muted else ("SPEAKING" if self.speaking else (self.state if self.state != "IDLE" else "ONLINE"))
-        col_main = HUDColors.RED if self.muted else (HUDColors.AMBER if self.speaking else HUDColors.CYAN)
-        p.setPen(QPen(qcol(col_main), 1))
-        p.drawText(QRectF(0, 2, w, 16), Qt.AlignmentFlag.AlignCenter, f"{status_txt} // FULL-DUPLEX AUDIO LINK")
-
-        # 2. Subtitle
-        p.setFont(QFont("Courier New", 7))
-        p.setPen(QPen(qcol(HUDColors.TEXT_DIM), 1))
-        p.drawText(QRectF(0, 18, w, 14), Qt.AlignmentFlag.AlignCenter, "GEMINI LIVE · CHARON · REAL-TIME STREAM")
-
-        # 3. Waveform bars (Symmetrical envelope)
-        N = 48
-        bw = 6.0
-        gap = 4.0
-        total_span = N * (bw + gap) - gap
-        wx0 = cx - total_span / 2.0
-        mid = (N - 1) / 2.0
-
-        for i in range(N):
-            if self.muted:
-                half_h = 2.0
-                bar_col = qcol(HUDColors.RED, 160)
-            else:
-                env = (1.0 - abs(i - mid) / mid) ** 0.68
-                wave1 = math.sin(t * 3.6 + i * 0.28)
-                wave2 = math.cos(t * 2.1 - i * 0.19)
-                shimmer = 0.6 + 0.4 * (wave1 * 0.7 + wave2 * 0.3)
-                idle = 3.0 + 2.5 * math.sin(t * 1.6 + i * 0.45)
-                live_h = idle + amp * 34.0 * env * shimmer
-                half_h = max(2.0, min(36.0, live_h))
-
-                if amp > 0.05:
-                    bar_hex = HUDColors.AMBER if self.speaking else (HUDColors.GREEN if half_h > 18 else HUDColors.CYAN)
-                    bar_col = qcol(bar_hex, int(180 + 75 * min(1.0, half_h / 24.0)))
-                else:
-                    bar_col = qcol(HUDColors.CYAN_DIM, int(90 + 50 * shimmer))
-
-            bx = wx0 + i * (bw + gap)
-            p.setBrush(QBrush(bar_col))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawRoundedRect(QRectF(bx, cy - half_h + 14, bw, half_h * 2.0), 2.0, 2.0)
-
-        # 4. Bottom hint
-        p.setFont(QFont("Courier New", 7))
-        p.setPen(QPen(qcol(HUDColors.TEXT_DIM), 1))
-        hint_text = "[MICROPHONE MUTED - PRESS F4 TO UNMUTE]" if self.muted else "[ACOUSTIC BARGE-IN ARMED · SPEAK FREELY ANYTIME · F4 TO MUTE]"
-        p.drawText(QRectF(0, h - 16, w, 14), Qt.AlignmentFlag.AlignCenter, hint_text)
+        label_text = self.state if not self.speaking else "SPEAKING"
+        p.drawText(QRectF(cx - 50, cy - 10, 100, 20), Qt.AlignmentFlag.AlignCenter, label_text)
 
 
 class MetricBarWidget(QWidget):
@@ -664,8 +526,8 @@ class JarvisNativeHUD(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("JARVIS - SCI-FI DESKTOP NEURAL INTERFACE (MARK LVI)")
-        self.resize(1120, 750)
-        self.setMinimumSize(880, 580)
+        self.resize(1100, 720)
+        self.setMinimumSize(850, 560)
         self.setStyleSheet(f"background-color: {HUDColors.BG}; color: {HUDColors.TEXT_BRIGHT};")
 
         self.voice_thread: Optional[VoiceThread] = None
@@ -675,7 +537,7 @@ class JarvisNativeHUD(QMainWindow):
         self._init_telemetry_timer()
         self._start_voice_engine()
 
-        # Prompt API key configuration dialog on startup as requested by the user
+        # Prompt API key configuration dialog ONLY on first launch if no key is configured
         QTimer.singleShot(150, self._check_startup_api_key)
 
     def _init_ui(self) -> None:
@@ -684,7 +546,7 @@ class JarvisNativeHUD(QMainWindow):
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
         root_layout.setContentsMargins(16, 12, 16, 16)
-        root_layout.setSpacing(10)
+        root_layout.setSpacing(12)
 
         # 1. Top Header Bar
         header = QHBoxLayout()
@@ -704,7 +566,7 @@ class JarvisNativeHUD(QMainWindow):
 
         header.addStretch(1)
 
-        # API Key Config Button
+        # API Key Config Button (available whenever user wants to update)
         self.api_key_btn = QPushButton("🔑 API KEY")
         self.api_key_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
         self.api_key_btn.setStyleSheet(
@@ -739,7 +601,7 @@ class JarvisNativeHUD(QMainWindow):
         sep.setStyleSheet(f"color: {HUDColors.BORDER};")
         root_layout.addWidget(sep)
 
-        # 2. Body Area (Left: Telemetry, Center: Arc Reactor + Waveform, Right: Stream Log)
+        # 2. Body Area (Left: Telemetry & Controls, Center: Arc Reactor, Right: Live Log)
         body = QHBoxLayout()
         body.setSpacing(14)
 
@@ -760,7 +622,7 @@ class JarvisNativeHUD(QMainWindow):
         left_col.addWidget(self.lat_bar)
         left_col.addWidget(self.disk_bar)
 
-        left_col.addSpacing(8)
+        left_col.addSpacing(10)
         subsys_title = QLabel("[SUBSYSTEMS]")
         subsys_title.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
         subsys_title.setStyleSheet(f"color: {HUDColors.TEXT_DIM};")
@@ -790,17 +652,13 @@ class JarvisNativeHUD(QMainWindow):
         left_col.addWidget(self.subsys_box)
         left_col.addStretch(1)
 
-        body.addLayout(left_col, 26)
+        body.addLayout(left_col, 28)
 
-        # Center Column: Arc Reactor Core + Cyber Waveform Visualizer
+        # Center Column: Arc Reactor Core
         center_col = QVBoxLayout()
-        center_col.setSpacing(6)
         self.reactor = ArcReactorWidget()
-        center_col.addWidget(self.reactor, 1)
-
-        self.waveform = WaveformVisualizerWidget()
-        center_col.addWidget(self.waveform)
-        body.addLayout(center_col, 42)
+        center_col.addWidget(self.reactor)
+        body.addLayout(center_col, 40)
 
         # Right Column: Interaction Stream Log
         right_col = QVBoxLayout()
@@ -883,9 +741,9 @@ class JarvisNativeHUD(QMainWindow):
         root_layout.addLayout(input_bar)
 
     def _check_startup_api_key(self) -> None:
-        """Prompt API key dialog on launch so the user can easily paste or review their key."""
+        """Prompt API key dialog ONLY on the first launch if no valid key is configured."""
         key = os.getenv("GEMINI_API_KEY", "").strip()
-        if not key or key.startswith("your_gemini") or os.getenv("PROMPT_KEY_ON_STARTUP", "1") == "1":
+        if not key or key.startswith("your_gemini"):
             self.open_api_key_dialog()
 
     def open_api_key_dialog(self) -> None:
@@ -895,7 +753,6 @@ class JarvisNativeHUD(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_key = os.getenv("GEMINI_API_KEY", "").strip()
             self.append_log("SYS", f"Neural API Key verified: AIza...{new_key[-4:] if len(new_key) > 6 else '****'}", color=HUDColors.GREEN)
-            # Re-initialize voice engine if needed
             if self.voice_thread is None or not self.voice_thread.isRunning():
                 self._start_voice_engine()
             else:
@@ -932,7 +789,7 @@ class JarvisNativeHUD(QMainWindow):
                 f"background-color: #380b18; color: {HUDColors.RED}; "
                 "padding: 5px 12px; border-radius: 12px; border: 1px solid #661828;"
             )
-            self.append_log("SYS", "Waiting for Gemini API Key. Click [🔑 API KEY] above to enter your key.", color=HUDColors.AMBER)
+            self.append_log("SYS", "Gemini API Key missing. Click [🔑 API KEY] above to enter your key.", color=HUDColors.AMBER)
             return
 
         self.append_log("SYS", "Connecting to Gemini Live full-duplex neural engine...", color=HUDColors.CYAN)
@@ -953,7 +810,6 @@ class JarvisNativeHUD(QMainWindow):
                     "padding: 5px 12px; border-radius: 12px; border: 1px solid #186640;"
                 )
                 self.reactor.set_state("LISTENING")
-                self.waveform.set_state("LISTENING")
                 self.append_log("SYS", f"Live Session connected! Model: {event.get('model', 'gemini')}", color=HUDColors.GREEN)
             elif status == "connecting":
                 self.status_pill.setText("● CONNECTING")
@@ -962,7 +818,6 @@ class JarvisNativeHUD(QMainWindow):
                     "padding: 5px 12px; border-radius: 12px; border: 1px solid #14446b;"
                 )
                 self.reactor.set_state("THINKING")
-                self.waveform.set_state("CONNECTING")
             elif status == "error":
                 self.status_pill.setText("● ERROR")
                 self.status_pill.setStyleSheet(
@@ -976,31 +831,23 @@ class JarvisNativeHUD(QMainWindow):
                 try:
                     amp = float(event.get("level", 0.0))
                     self.reactor.set_amplitude(amp)
-                    self.waveform.set_amplitude(amp)
                 except Exception:
                     pass
 
         elif ev_type == "voice_live_hearing":
             self.reactor.set_state("LISTENING")
-            self.reactor.set_amplitude(0.40)
-            self.waveform.set_state("LISTENING")
-            self.waveform.set_amplitude(0.45)
+            self.reactor.set_amplitude(0.35)
 
         elif ev_type == "voice_live_speaking":
             self.reactor.speaking = True
             self.reactor.set_state("SPEAKING")
             self.reactor.set_amplitude(0.65)
-            self.waveform.speaking = True
-            self.waveform.set_state("SPEAKING")
-            self.waveform.set_amplitude(0.70)
 
         elif ev_type == "voice_turn":
             speaker = event.get("speaker", "assistant")
             text = event.get("text", "")
             self.reactor.speaking = False
             self.reactor.set_state("LISTENING")
-            self.waveform.speaking = False
-            self.waveform.set_state("LISTENING")
             if speaker == "user":
                 self.append_log("YOU", text, color=HUDColors.CYAN)
             else:
@@ -1009,7 +856,6 @@ class JarvisNativeHUD(QMainWindow):
         elif ev_type == "tool_step":
             tool_text = event.get("text", "")
             self.reactor.set_state("THINKING")
-            self.waveform.set_state("PROCESSING")
             self.append_log("TOOL", f"Executing: {tool_text}", color=HUDColors.AMBER)
 
     def _handle_chip_click(self, cmd: str) -> None:
@@ -1041,7 +887,6 @@ class JarvisNativeHUD(QMainWindow):
             return
 
         self.reactor.set_state("THINKING")
-        self.waveform.set_state("PROCESSING")
 
         threading.Thread(target=self._process_directive_async, args=(text,), daemon=True).start()
 
@@ -1063,7 +908,6 @@ class JarvisNativeHUD(QMainWindow):
             self.append_log("TOOL", step, color=HUDColors.AMBER)
         self.append_log("JARVIS", reply, color="#ffffff")
         self.reactor.set_state("LISTENING")
-        self.waveform.set_state("LISTENING")
 
     def _toggle_mic(self) -> None:
         """Toggle microphone mute."""
@@ -1073,7 +917,6 @@ class JarvisNativeHUD(QMainWindow):
         """Synchronize microphone mute state across UI and voice engine."""
         self._is_muted = bool(muted)
         self.reactor.muted = self._is_muted
-        self.waveform.muted = self._is_muted
         if self.voice_thread:
             self.voice_thread.set_muted(self._is_muted)
 
@@ -1084,7 +927,6 @@ class JarvisNativeHUD(QMainWindow):
                 "border: 1px solid #661828; border-radius: 4px; padding: 8px 14px;"
             )
             self.reactor.set_state("MUTED")
-            self.waveform.set_state("MUTED")
             self.append_log("SYS", "Microphone MUTED (F4). Audio transmission stopped. JARVIS cannot hear you.", color=HUDColors.RED)
         else:
             self.mic_btn.setText("MIC: ACTIVE (F4)")
@@ -1093,7 +935,6 @@ class JarvisNativeHUD(QMainWindow):
                 "border: 1px solid #186640; border-radius: 4px; padding: 8px 14px;"
             )
             self.reactor.set_state("LISTENING")
-            self.waveform.set_state("LISTENING")
             self.append_log("SYS", "Microphone ACTIVE. Listening to voice...", color=HUDColors.GREEN)
 
     def keyPressEvent(self, event: Any) -> None:
