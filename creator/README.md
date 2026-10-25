@@ -79,7 +79,7 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
 ### Day 5: AI Outline to Document & Multiformat Executive Report Generator
 - **`creator/outline.py` (`create_document`)**:
   - `create_document(topic, kind='pdf', theme='clean_light', language='en', out_dir='workspace', auto_open=True) -> str`:
-  - Requests 4-6 section structured JSON outline via Google Gemini (`google-genai` using `GEMINI_API_KEY` and `GEMINI_MODEL`) with automatic retry and Groq LPU / offline fallback.
+  - Requests a 4-6 section structured outline via Google Gemini (`google-genai` using `GEMINI_API_KEY` and `GEMINI_MODEL`), then uses a deterministic offline fallback if Gemini is unavailable.
   - Seamless support for English (`en`), Hindi (`hi`), and Marathi (`mr`).
   - Native Devanagari TrueType font embedding (`NotoSansDevanagari-Regular.ttf` and `Bold.ttf`) in ReportLab, python-docx, and python-pptx preventing square-box font corruption.
 - **`CreateDocumentTool` in `creator/tools.py`**:
@@ -264,7 +264,7 @@ result = execute_tool("create_website", {
             ],
             "bullets": [
                 "Modular subsystem isolation across 4 developer pairs.",
-                "Real-time token streaming with dual-engine failover.",
+                "Gemini-backed response generation with an offline document-outline fallback.",
             ],
             "table": [
                 ["Subsystem", "Owner", "Status"],

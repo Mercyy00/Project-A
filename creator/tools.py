@@ -174,50 +174,48 @@ class CreatePdfTool(BaseTool):
     name: str = "create_pdf"
     description: str = (
         "Creates a professionally styled, publication-ready binary PDF document with an executive "
-        "cover page, bento-grid metric callouts, section headings, paragraphs, bullet lists, and tables. "
-        "Arguments: title (str), sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
-        "theme (optional: 'clean_light', 'dark_pro', 'colourful'), auto_open (optional bool, default True)."
+        "cover page, optional custom subtitle, bento-grid metric callouts, section headings, paragraphs, bullet lists, and tables. "
+        "Arguments: sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
+        "optional title (derived from the first section heading when omitted), "
+        "theme (optional: 'clean_light', 'dark_pro', 'colourful', 'tech_innovation'), auto_open (optional bool, default True)."
     )
 
     def run(
         self,
-        title: str,
-        sections: Any,
+        title: str = "",
+        sections: Any = None,
         theme: str = "clean_light",
         out_dir: str = "workspace",
         auto_open: bool = True,
+        subtitle: Optional[str] = None,
         **kwargs: Any,
     ) -> ToolResult:
         """Executes PDF creation.
 
         Args:
-            title: Title of the document.
+            title: Optional title; defaults to the first section heading.
             sections: List of section objects or JSON string.
-            theme: Theme name ('clean_light', 'dark_pro', 'colourful').
+            theme: Theme name such as 'clean_light', 'dark_pro', 'colourful', or 'tech_innovation'.
             out_dir: Output directory (defaults to 'workspace').
             auto_open: Whether to automatically launch the document in Adobe Acrobat / default viewer.
+            subtitle: Optional custom cover subtitle.
             **kwargs: Extra arguments.
 
         Returns:
             ToolResult containing the generated file path and execution summary.
         """
         try:
-            if not title or not str(title).strip():
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="Document title cannot be empty.",
-                )
-
-            effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
-            if "desktop" in str(title).lower() and effective_dir == "workspace":
-                effective_dir = str(Path.home() / "Desktop")
             norm_sections = _normalize_sections(sections)
+            clean_title = str(title or "").strip() or str(norm_sections[0].get("heading") or "JARVIS Field Report")
+            effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
+            if "desktop" in clean_title.lower() and effective_dir == "workspace":
+                effective_dir = str(Path.home() / "Desktop")
             pdf_path = make_pdf(
-                title=str(title).strip(),
+                title=clean_title,
                 sections=norm_sections,
                 theme=theme,
                 out_dir=effective_dir,
+                subtitle=subtitle,
                 auto_open=auto_open,
                 author=kwargs.get("author"),
             )
@@ -228,13 +226,13 @@ class CreatePdfTool(BaseTool):
                 success=True,
                 data={
                     "file_path": pdf_path,
-                    "title": title,
+                    "title": clean_title,
                     "theme": theme,
                     "format": "pdf",
                     "bytes": file_size,
                     "auto_opened": auto_open,
                 },
-                message=f"PDF document '{title}' generated successfully ({file_size} bytes) at: {pdf_path}",
+                message=f"PDF document '{clean_title}' generated successfully ({file_size} bytes) at: {pdf_path}",
             )
         except Exception as exc:
             logger.exception("CreatePdfTool execution failed: %s", exc)
@@ -255,6 +253,10 @@ class CreatePdfTool(BaseTool):
                     "title": {
                         "type": "string",
                         "description": "The title of the PDF document.",
+                    },
+                    "subtitle": {
+                        "type": "string",
+                        "description": "Optional original subtitle to print on the cover page.",
                     },
                     "sections": {
                         "type": "array",
@@ -301,8 +303,8 @@ class CreatePdfTool(BaseTool):
                     },
                     "theme": {
                         "type": "string",
-                        "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
-                        "enum": ["clean_light", "dark_pro", "colourful"],
+                        "description": "Visual style: 'clean_light', 'dark_pro', 'colourful', or 'tech_innovation'.",
+                        "enum": ["clean_light", "dark_pro", "colourful", "tech_innovation"],
                     },
                     "out_dir": {
                         "type": "string",
@@ -313,7 +315,7 @@ class CreatePdfTool(BaseTool):
                         "description": "Whether to automatically open the generated document in the desktop viewer (default: True).",
                     },
                 },
-                "required": ["title", "sections"],
+                "required": ["sections"],
             },
         }
 
@@ -901,6 +903,7 @@ class CreateDocumentTool(BaseTool):
         theme: str = "clean_light",
         out_dir: str = "workspace",
         auto_open: bool = True,
+        reference_material: Any = None,
         **kwargs: Any,
     ) -> ToolResult:
         """Execute document outline generation and binary rendering."""
@@ -918,6 +921,7 @@ class CreateDocumentTool(BaseTool):
                 out_dir=out_dir,
                 auto_open=auto_open,
                 author=kwargs.get("author"),
+                reference_material=reference_material,
             )
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
             fmt = Path(file_path).suffix.lstrip(".").lower()
@@ -962,8 +966,12 @@ class CreateDocumentTool(BaseTool):
                     },
                     "theme": {
                         "type": "string",
-                        "description": "Styling theme: 'clean_light' (default), 'dark_pro', or 'colourful'.",
-                        "enum": ["clean_light", "dark_pro", "colourful"],
+                        "description": "Visual style: 'clean_light', 'dark_pro', 'colourful', or 'tech_innovation'.",
+                        "enum": ["clean_light", "dark_pro", "colourful", "tech_innovation"],
+                    },
+                    "reference_material": {
+                        "type": "string",
+                        "description": "Optional JSON list of title/body/href web results used to ground current-topic content.",
                     },
                     "auto_open": {
                         "type": "boolean",

@@ -29,7 +29,6 @@ def check_and_install_dependencies(force: bool = False) -> bool:
             if stamp_file.read_text(encoding="utf-8").strip() == current_hash:
                 import uvicorn
                 import fastapi
-                import groq
                 import psutil
                 return True
         except Exception:

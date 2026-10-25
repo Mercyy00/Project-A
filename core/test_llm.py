@@ -63,13 +63,13 @@ def run_llm_test(
     response, and reports elapsed round-trip latency in seconds.
 
     Args:
-        model_name: Optional Gemini model name identifier (defaults to MODEL_NAME env or 'gemini-2.5-flash').
+        model_name: Optional Gemini model name identifier (defaults to GEMINI_MODEL or Flash-Lite).
         prompt: Initial prompt verifying Jarvis Core identity.
 
     Returns:
         The response text string if successful, or None if the request failed.
     """
-    target_model: str = model_name or os.getenv("MODEL_NAME", "gemini-3.8-flash")
+    target_model: str = model_name or os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite"
     print(f"[*] Initializing Gemini client with model: {target_model}")
 
     try:

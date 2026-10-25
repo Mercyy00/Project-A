@@ -133,6 +133,26 @@ class TestTranscriber(unittest.TestCase):
         with self.assertRaises(AudioFileError):
             self.transcriber.transcribe_file("non_existent_audio_sample_12345.wav")
 
+    def test_transcribe_file_passes_language_hint(self) -> None:
+        """Pass the selected language to Whisper to reduce accent misclassification."""
+        class Segment:
+            text = "Jarvis, open Chrome."
+
+        model = MagicMock()
+        model.transcribe.return_value = ([Segment()], MagicMock(language="en"))
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
+            audio_path = Path(temp_audio.name)
+            temp_audio.write(b"fake audio data")
+        try:
+            with patch.object(self.transcriber, "_ensure_model_loaded", return_value=model), \
+                 patch("voice.stt.sf", None):
+                result = self.transcriber.transcribe_file(audio_path, language="en")
+            self.assertEqual(result["text"], "Jarvis, open Chrome.")
+            self.assertEqual(model.transcribe.call_args.kwargs["language"], "en")
+            self.assertIn("Jarvis", model.transcribe.call_args.kwargs["initial_prompt"])
+        finally:
+            audio_path.unlink(missing_ok=True)
+
     def test_transcribe_synthetic_wav_file(self) -> None:
         """Create a short 1-second synthetic 16kHz mono WAV and test transcribe_file."""
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:

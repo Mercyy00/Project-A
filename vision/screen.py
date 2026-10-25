@@ -242,10 +242,10 @@ def describe_screen(
     active_window: bool = False,
     is_followup: bool = False,
 ) -> str:
-    """Analyze the computer screen using Google Gemini Multimodal Vision.
+    """Analyze the computer screen using Gemini multimodal inference.
 
     WARNING: Screenshots captured by this function are transmitted to an online AI
-    service (Google Gemini) for analysis. Sensitive data (passwords, private chats,
+    service (an AI provider) for analysis. Sensitive data (passwords, private chats,
     financial details) should not be displayed on screen while vision is active.
 
     Args:
@@ -264,8 +264,8 @@ def describe_screen(
 
     Raises:
         PermissionError: If VISION_PAUSED=1 privacy mode is active.
-        ValueError: If question is empty or GEMINI_API_KEY is missing/invalid.
-        RuntimeError: If Gemini API call or screenshot loading fails.
+        ValueError: If question is empty or no valid vision API key is configured.
+        RuntimeError: If all configured vision providers fail or screenshot loading fails.
     """
     global _LAST_SCREENSHOT_PATH, _LAST_SCREENSHOT_TIME
 
@@ -277,15 +277,12 @@ def describe_screen(
     if not question or not str(question).strip():
         raise ValueError("Question must be a non-empty string.")
 
-    # Validate Gemini API Key
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key or api_key.strip() in ("", "your_gemini_api_key_here"):
-        raise ValueError(
-            "GEMINI_API_KEY is missing or invalid. "
-            "Please configure GEMINI_API_KEY in your .env file."
-        )
+    # Validate provider configuration before capturing or transmitting a screenshot.
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key or api_key == "your_gemini_api_key_here":
+        raise ValueError("GEMINI_API_KEY is missing or invalid for screen vision.")
 
-    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-3.5-flash-lite")
 
     t_start = time.perf_counter()
 
@@ -305,6 +302,8 @@ def describe_screen(
                 region_hint=region_hint,
                 active_window=active_window,
             )
+            _LAST_SCREENSHOT_PATH = str(target_path)
+            _LAST_SCREENSHOT_TIME = time.time()
             capture_ms = int((time.perf_counter() - t_start) * 1000)
     else:
         target_path = screenshot_path
@@ -317,31 +316,23 @@ def describe_screen(
         t_prep_start = time.perf_counter()
         with Image.open(target_path) as img:
             prep_ms = int((time.perf_counter() - t_prep_start) * 1000)
-
             t_api_start = time.perf_counter()
-            client = genai.Client(api_key=api_key.strip())
+            client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
                 model=model_name,
                 contents=[img, question.strip()],
             )
-            gemini_ms = int((time.perf_counter() - t_api_start) * 1000)
-
-            # Day 7 requirement: Log timing in milliseconds
+            answer = (response.text or "").strip()
+            if not answer:
+                raise RuntimeError("Gemini returned an empty answer.")
             logger.info(
                 "Vision timing: capture=%d ms, prep=%d ms, gemini=%d ms",
-                capture_ms,
-                prep_ms,
-                gemini_ms,
+                capture_ms, prep_ms, int((time.perf_counter() - t_api_start) * 1000),
             )
-
-            answer = response.text or ""
-            return answer.strip()
-    except PermissionError:
-        raise
-    except ValueError:
-        raise
+            return answer
     except Exception as exc:
-        raise RuntimeError(f"Gemini Vision API call failed: {exc}") from exc
+        logger.warning("Gemini screen analysis failed: %s", exc)
+        raise RuntimeError(f"Gemini screen analysis failed: {exc}") from exc
 
 
 def explain_screen_error(
@@ -427,7 +418,7 @@ def locate_element(
             "Please configure GEMINI_API_KEY in your .env file."
         )
 
-    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-3.5-flash-lite")
 
     _ensure_desktop_access()
 
@@ -558,7 +549,7 @@ def do_on_screen(goal: str, max_steps: int = 5) -> str:
             "GEMINI_API_KEY is missing or invalid. Please configure GEMINI_API_KEY in .env."
         )
 
-    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-2.5-flash")
+    model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME", "gemini-3.5-flash-lite")
 
     # Access tool registry safely
     try:
