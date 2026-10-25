@@ -130,8 +130,22 @@ def launch_live() -> None:
 
 
 def launch_qt() -> None:
-    """Launch the native PyQt6 Desktop HUD Interface."""
-    from ui.pyqt_hud import launch_pyqt_hud
+    """Launch the native PyQt6 Desktop HUD Interface with auto-install resilience."""
+    try:
+        from ui.pyqt_hud import launch_pyqt_hud
+    except ModuleNotFoundError as err:
+        if "PyQt6" in str(err) or "ui.pyqt_hud" in str(err):
+            print("[*] PyQt6 not found in active environment. Auto-installing PyQt6...")
+            import subprocess
+            res = subprocess.run([sys.executable, "-m", "pip", "install", "PyQt6>=6.6.0"])
+            if res.returncode == 0:
+                print("[OK] PyQt6 installed successfully! Launching HUD...")
+                from ui.pyqt_hud import launch_pyqt_hud
+            else:
+                print("[ERROR] Failed to auto-install PyQt6. Please run: pip install PyQt6")
+                sys.exit(1)
+        else:
+            raise
     print("=" * 60)
     print("     PROJECT JARVIS - NATIVE PYQT6 SCI-FI DESKTOP HUD")
     print("=" * 60)
