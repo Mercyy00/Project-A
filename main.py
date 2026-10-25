@@ -134,18 +134,16 @@ def launch_qt() -> None:
     try:
         from ui.pyqt_hud import launch_pyqt_hud
     except ModuleNotFoundError as err:
-        if "PyQt6" in str(err) or "ui.pyqt_hud" in str(err):
-            print("[*] PyQt6 not found in active environment. Auto-installing PyQt6...")
-            import subprocess
-            res = subprocess.run([sys.executable, "-m", "pip", "install", "PyQt6>=6.6.0"])
-            if res.returncode == 0:
-                print("[OK] PyQt6 installed successfully! Launching HUD...")
-                from ui.pyqt_hud import launch_pyqt_hud
-            else:
-                print("[ERROR] Failed to auto-install PyQt6. Please run: pip install PyQt6")
-                sys.exit(1)
+        missing_mod = str(err).split("'")[1] if "'" in str(err) else str(err)
+        print(f"[*] Missing module '{missing_mod}'. Setting up dependencies from requirements.txt...")
+        import subprocess
+        res = subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--prefer-binary"])
+        if res.returncode == 0:
+            print("[OK] Dependencies installed successfully! Launching HUD...")
+            from ui.pyqt_hud import launch_pyqt_hud
         else:
-            raise
+            print(f"[ERROR] Failed to auto-install {missing_mod}. Please run: pip install -r requirements.txt")
+            sys.exit(1)
     print("=" * 60)
     print("     PROJECT JARVIS - NATIVE PYQT6 SCI-FI DESKTOP HUD")
     print("=" * 60)

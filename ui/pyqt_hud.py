@@ -571,7 +571,7 @@ class JarvisNativeHUD(QMainWindow):
         self.api_key_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
         self.api_key_btn.setStyleSheet(
             f"background-color: #061f38; color: {HUDColors.CYAN}; "
-            "padding: 5px 14px; border-radius: 12px; border: 1px solid #00e5ff; cursor: pointer;"
+            "padding: 5px 14px; border-radius: 12px; border: 1px solid #00e5ff; "
         )
         self.api_key_btn.clicked.connect(self.open_api_key_dialog)
         header.addWidget(self.api_key_btn)
