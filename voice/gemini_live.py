@@ -49,6 +49,9 @@ DEFAULT_LIVE_MODELS: tuple[str, ...] = (
 
 DEFAULT_LIVE_VOICE: str = os.getenv("LIVE_VOICE", "Charon")
 LIVE_CONNECT_TIMEOUT_SECONDS: float = float(os.getenv("LIVE_CONNECT_TIMEOUT_SECONDS", "12"))
+LIVE_END_OF_SPEECH_SENSITIVITY: str = os.getenv("LIVE_END_OF_SPEECH_SENSITIVITY", "HIGH").strip().upper()
+LIVE_SILENCE_DURATION_MS: int = int(os.getenv("LIVE_SILENCE_DURATION_MS", "350"))
+LIVE_MIC_GATE: float = float(os.getenv("LIVE_MIC_GATE", "40.0"))
 
 
 class GeminiLiveEngine:
@@ -168,8 +171,14 @@ class GeminiLiveEngine:
             "realtime_input_config": types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
                     disabled=False,
-                    end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
-                    silence_duration_ms=750,
+                    end_of_speech_sensitivity=(
+                        types.EndSensitivity.END_SENSITIVITY_LOW
+                        if LIVE_END_OF_SPEECH_SENSITIVITY == "LOW"
+                        else types.EndSensitivity.END_SENSITIVITY_HIGH
+                    ),
+                    start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                    silence_duration_ms=LIVE_SILENCE_DURATION_MS,
+                    prefix_padding_ms=100,
                 ),
             ),
         }
@@ -183,6 +192,9 @@ class GeminiLiveEngine:
         if tools_list:
             config_kwargs["tools"] = tools_list
 
+        config_kwargs["context_window_compression"] = types.ContextWindowCompressionConfig(
+            sliding_window=types.SlidingWindow(),
+        )
         return types.LiveConnectConfig(**config_kwargs)
 
     @asynccontextmanager
@@ -255,10 +267,7 @@ class GeminiLiveEngine:
                 rms = 0.0
                 peak = 0.0
 
-            # Digital silence gate (hardware switch off / OS mic muted at source)
-            # If peak is practically zero (< 40 on int16), do not push empty noise
-            if peak < 40.0:
-                return
+            # Stream continuous PCM so server VAD immediately detects silence_duration_ms
 
             # Echo tail: Check if speaker room reverberation is still echoing
             now = time.monotonic()
@@ -323,13 +332,21 @@ class GeminiLiveEngine:
                     chunk = await asyncio.wait_for(self._audio_out_queue.get(), timeout=0.1)
                     with self._speaking_lock:
                         self._is_speaking = True
+
+                    batch = bytearray(chunk)
+                    while len(batch) < 4800:
+                        try:
+                            batch.extend(self._audio_out_queue.get_nowait())
+                        except asyncio.QueueEmpty:
+                            break
+
                     try:
-                        arr = np.frombuffer(chunk, dtype=np.int16)
+                        arr = np.frombuffer(batch, dtype=np.int16)
                         level = float(np.sqrt(np.mean(arr.astype(np.float32) ** 2)))
                         self._echo.note_output(arr, RECEIVE_SAMPLE_RATE, level)
                     except Exception:
                         pass
-                    await asyncio.to_thread(out_stream.write, chunk)
+                    await asyncio.to_thread(out_stream.write, bytes(batch))
                 except asyncio.TimeoutError:
                     if self._audio_out_queue.empty():
                         with self._speaking_lock:
@@ -474,12 +491,16 @@ class GeminiLiveEngine:
                             else:
                                 self._executed_tool_ids.add(fc_id)
                                 print(f"\n[*] [LIVE TOOL] Executing: {fn_name}({fn_args})")
+                                sys.stdout.write(f"[*] Executing task: {fn_name}...\n")
+                                sys.stdout.flush()
+                                self._notify({"type": "tool_step", "text": f"Executing: {fn_name}..."})
                                 try:
                                     # Offload tool execution to background worker thread so audio streaming and websocket loop stay alive
                                     res = await asyncio.to_thread(execute_tool, fn_name, fn_args)
                                     res_str = res.to_llm_string()
                                 except Exception as exc:
                                     res_str = f"[FAILED] Tool error: {exc}"
+                                self._notify({"type": "tool_step", "text": f"Completed: {fn_name}"})
 
                             self._notify({"type": "tool_step", "text": f"{fn_name}({fn_args})"})
                             responses.append(

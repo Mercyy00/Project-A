@@ -51,15 +51,26 @@ class TestGeminiLiveEngine(unittest.TestCase):
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live"})
     def test_live_turn_detection_waits_through_natural_pauses(self) -> None:
-        """Live VAD should wait for a complete spoken turn before replying."""
+        """Live VAD should use high-sensitivity, responsive turn detection by default."""
         engine = GeminiLiveEngine(api_key="fake_test_key_live", enable_tools=False)
 
         cfg = engine._build_config()
 
         activity = cfg.realtime_input_config.automatic_activity_detection
         self.assertFalse(activity.disabled)
-        self.assertEqual(activity.silence_duration_ms, 750)
-        self.assertEqual(activity.end_of_speech_sensitivity, types.EndSensitivity.END_SENSITIVITY_LOW)
+        self.assertEqual(activity.silence_duration_ms, 350)
+        self.assertEqual(activity.end_of_speech_sensitivity, types.EndSensitivity.END_SENSITIVITY_HIGH)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live", "LIVE_END_OF_SPEECH_SENSITIVITY": "LOW", "LIVE_SILENCE_DURATION_MS": "500"})
+    def test_live_turn_detection_configurable_via_env(self) -> None:
+        """Live VAD parameters should be customizable via environment variables."""
+        engine = GeminiLiveEngine(api_key="fake_test_key_live", enable_tools=False)
+
+        with patch("voice.gemini_live.LIVE_END_OF_SPEECH_SENSITIVITY", "LOW"),              patch("voice.gemini_live.LIVE_SILENCE_DURATION_MS", 500):
+            cfg = engine._build_config()
+            activity = cfg.realtime_input_config.automatic_activity_detection
+            self.assertEqual(activity.silence_duration_ms, 500)
+            self.assertEqual(activity.end_of_speech_sensitivity, types.EndSensitivity.END_SENSITIVITY_LOW)
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live"})
     def test_purge_output_buffer(self) -> None:
