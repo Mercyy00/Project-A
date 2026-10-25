@@ -13,6 +13,7 @@ from tools.base import BaseTool, ToolResult
 from vision.screen import (
     describe_screen,
     do_on_screen,
+    explain_code_on_screen,
     explain_screen_error,
     locate_element,
     take_screenshot,
@@ -553,6 +554,90 @@ class DoOnScreenTool(BaseTool):
         }
 
 
+class ExplainCodeOnScreenTool(BaseTool):
+    """Tool for reading visible code on screen, explaining its purpose or fixing errors."""
+
+    name: str = "explain_code_on_screen"
+    description: str = (
+        "Reads visible code in an editor or terminal on screen. "
+        "Can explain the code line-by-line in beginner-friendly English (task='explain') "
+        "or detect bugs, syntax issues, and provide corrected code (task='fix')."
+    )
+
+    def run(
+        self,
+        task: str = "explain",
+        active_window: bool = True,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Explain or fix code visible on screen.
+
+        Args:
+            task: 'explain' to explain code or 'fix' to identify bugs and suggest corrected code.
+            active_window: If True, crops to active editor window (default: True).
+            **kwargs: Extra parameters (ignored).
+
+        Returns:
+            ToolResult containing the explanation or fix.
+        """
+        try:
+            task_clean = str(task).strip().lower()
+            if task_clean not in ("explain", "fix"):
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Parameter 'task' must be either 'explain' or 'fix'.",
+                )
+
+            result = explain_code_on_screen(task=task_clean, active_window=active_window)
+            return ToolResult(
+                success=True,
+                data={"task": task_clean, "result": result, "active_window": active_window},
+                message=result,
+            )
+        except PermissionError as pe:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=str(pe),
+            )
+        except ValueError as ve:
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Configuration error: {ve}",
+            )
+        except Exception as exc:
+            logger.exception("ExplainCodeOnScreenTool execution failed: %s", exc)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Failed to explain or fix code on screen: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Returns JSON schema definition for LLM tool calling."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "enum": ["explain", "fix"],
+                        "description": "Whether to 'explain' visible code in simple English or 'fix' bugs with corrected code.",
+                    },
+                    "active_window": {
+                        "type": "boolean",
+                        "description": "Whether to crop capture specifically to the active code editor window (default: true).",
+                    },
+                },
+                "required": [],
+            },
+        }
+
+
 # Expose TOOLS list for automatic auto-loading by tools/registry.py
 TOOLS: List[BaseTool] = [
     ScreenshotTool(),
@@ -560,4 +645,5 @@ TOOLS: List[BaseTool] = [
     ExplainScreenErrorTool(),
     ClickElementTool(),
     DoOnScreenTool(),
+    ExplainCodeOnScreenTool(),
 ]

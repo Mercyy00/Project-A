@@ -666,3 +666,55 @@ def do_on_screen(goal: str, max_steps: int = 5) -> str:
         time.sleep(1.0)
 
     return "\n".join(steps_taken) if steps_taken else "No actions performed."
+
+
+def explain_code_on_screen(
+    task: str = "explain",
+    screenshot_path: Optional[str] = None,
+    active_window: bool = True,
+) -> str:
+    """Read visible code on screen and either explain it or diagnose and fix bugs.
+
+    Args:
+        task: Either 'explain' (default) to describe what the code does in simple English,
+              or 'fix' to detect errors, list bugs, and provide corrected code.
+        screenshot_path: Optional path to an existing screenshot image.
+        active_window: If True, crops capture to the active editor window.
+
+    Returns:
+        Explanation or bug analysis and corrected code.
+
+    Raises:
+        PermissionError: If VISION_PAUSED=1 privacy mode is active.
+        ValueError: If task is not 'explain' or 'fix', or if GEMINI_API_KEY is missing.
+    """
+    if os.getenv("VISION_PAUSED", "0") == "1":
+        raise PermissionError(
+            "Screen vision is currently paused by user privacy mode (VISION_PAUSED=1)."
+        )
+
+    task_normalized = task.strip().lower()
+    if task_normalized not in ("explain", "fix"):
+        raise ValueError(
+            f"Invalid task '{task}'. Supported tasks are 'explain' and 'fix'."
+        )
+
+    if task_normalized == "explain":
+        prompt = (
+            "Analyze the code visible in the editor or terminal in this screenshot. "
+            "Explain what the code does clearly and concisely in simple, beginner-friendly English. "
+            "Summarize its inputs, outputs, and purpose."
+        )
+    else:  # 'fix'
+        prompt = (
+            "Analyze the code visible in the editor or terminal in this screenshot. "
+            "Identify any syntax errors, type errors, logical bugs, or bad practices. "
+            "1. List all detected issues clearly.\n"
+            "2. Provide the corrected, production-ready code with concise comments explaining each fix."
+        )
+
+    return describe_screen(
+        question=prompt,
+        screenshot_path=screenshot_path,
+        active_window=active_window,
+    )

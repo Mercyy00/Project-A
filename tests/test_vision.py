@@ -36,6 +36,7 @@ from vision.screen import (
     clean_temp_vision,
     describe_screen,
     do_on_screen,
+    explain_code_on_screen,
     explain_screen_error,
     locate_element,
     parse_region_hint,
@@ -46,6 +47,7 @@ from vision.tools import (
     ClickElementTool,
     DescribeScreenTool,
     DoOnScreenTool,
+    ExplainCodeOnScreenTool,
     ExplainScreenErrorTool,
     ScreenshotTool,
     TOOLS,
@@ -602,6 +604,57 @@ def test_describe_screen_followup_reuse(
     assert mock_shot.call_count == 1  # Not called again!
 
 
+# ---------------------------------------------------------------------------
+# 8. Day 8 Tests (Sun 25 Oct): Explain & Fix Code on Screen
+# ---------------------------------------------------------------------------
+
+def test_explain_code_on_screen_invalid_task() -> None:
+    """Verify explain_code_on_screen raises ValueError on invalid task."""
+    with pytest.raises(ValueError, match="Invalid task"):
+        explain_code_on_screen(task="invalid_mode")
+
+
+def test_explain_code_on_screen_privacy_paused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify explain_code_on_screen respects VISION_PAUSED=1."""
+    monkeypatch.setenv("VISION_PAUSED", "1")
+    with pytest.raises(PermissionError):
+        explain_code_on_screen(task="explain")
+
+
+@patch("google.genai.Client")
+def test_explain_code_on_screen_success(
+    mock_client_cls: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify explain_code_on_screen prompts Gemini appropriately for explain and fix."""
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-test-key")
+    test_img = tmp_path / "code_shot.jpg"
+    Image.new("RGB", (640, 480), "black").save(test_img, "JPEG")
+
+    mock_resp = MagicMock(text="This code computes the Fibonacci sequence.")
+    mock_client_inst = MagicMock()
+    mock_client_inst.models.generate_content.return_value = mock_resp
+    mock_client_cls.return_value = mock_client_inst
+
+    # Explain mode
+    res_explain = explain_code_on_screen(task="explain", screenshot_path=str(test_img))
+    assert "Fibonacci" in res_explain
+
+    # Fix mode
+    mock_resp.text = "Bug: missing base case. Fixed: return 1 if n <= 1 else ..."
+    res_fix = explain_code_on_screen(task="fix", screenshot_path=str(test_img))
+    assert "Fixed" in res_fix
+
+
+def test_explain_code_on_screen_tool() -> None:
+    """Verify ExplainCodeOnScreenTool argument validation."""
+    tool = ExplainCodeOnScreenTool()
+    res_bad = tool.run(task="unsupported")
+    assert res_bad.success is False
+    assert "Parameter 'task' must be either 'explain' or 'fix'" in res_bad.message
+
+
 def test_tools_schema_definitions() -> None:
     """Verify all tools export valid JSON parameter schemas compliant with BaseTool."""
     for tool in TOOLS:
@@ -614,18 +667,19 @@ def test_tools_schema_definitions() -> None:
 
 
 def test_tools_export_list() -> None:
-    """Verify TOOLS list contains all 5 tools up to Day 7."""
-    assert len(TOOLS) == 5
+    """Verify TOOLS list contains all 6 tools up to Day 8."""
+    assert len(TOOLS) == 6
     tool_names = [t.name for t in TOOLS]
     assert "take_screenshot" in tool_names
     assert "describe_screen" in tool_names
     assert "explain_screen_error" in tool_names
     assert "click_element" in tool_names
     assert "do_on_screen" in tool_names
+    assert "explain_code_on_screen" in tool_names
 
 
 def test_registry_auto_loads_all_vision_tools() -> None:
-    """Verify that tools.registry automatically discovers and loads all 5 vision tools."""
+    """Verify that tools.registry automatically discovers and loads all 6 vision tools."""
     from tools.registry import TOOL_REGISTRY, execute_tool
 
     assert "take_screenshot" in TOOL_REGISTRY
@@ -633,6 +687,7 @@ def test_registry_auto_loads_all_vision_tools() -> None:
     assert "explain_screen_error" in TOOL_REGISTRY
     assert "click_element" in TOOL_REGISTRY
     assert "do_on_screen" in TOOL_REGISTRY
+    assert "explain_code_on_screen" in TOOL_REGISTRY
 
     res = execute_tool("take_screenshot")
     assert isinstance(res, ToolResult)
