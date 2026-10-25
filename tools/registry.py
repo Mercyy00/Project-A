@@ -78,6 +78,7 @@ from tools.screen_tools import CaptureScreenTool, DescribeScreenTool
 from tools.desktop_tools import OrganizeDesktopTool, SetWallpaperTool, ComputerSettingsTool
 from tools.dev_tools import DevAgentTool
 from tools.weather_tool import WeatherReportTool
+from tools.whatsapp_tool import WhatsAppTool
 from tools.antigravity_tools import AntigravityPromptTool
 from tools.code_tools import (
 
@@ -228,6 +229,8 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "dev_agent": DevAgentTool(),
     "weather_report": WeatherReportTool(),
     "antigravity_prompt": AntigravityPromptTool(),
+    "whatsapp_control": WhatsAppTool(),
+    "whatsapp": WhatsAppTool(),
 
 })
 

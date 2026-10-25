@@ -38,24 +38,10 @@ load_dotenv()
 # Singleton memory manager instance
 memory_manager = MemoryManager()
 
-# Persistent GenAI singleton & fast response cache
-_genai_client: Optional[Any] = None
 _response_cache: Dict[str, str] = {}
-
-
-def get_genai_client() -> Optional[Any]:
-    """Retrieve or initialize persistent Google GenAI SDK client for instant calls."""
-    global _genai_client
-    if _genai_client is None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key and api_key.strip() and api_key.strip() != "your_gemini_api_key_here":
-            try:
-                from google import genai
-
-                _genai_client = genai.Client(api_key=api_key.strip())
-            except Exception as exc:
-                print(f"[WARN] Failed to initialize persistent GenAI client: {exc}")
-    return _genai_client
+_live_voice_engine: Optional[Any] = None
+_live_voice_task: Optional[asyncio.Task[None]] = None
+_live_voice_owner: Optional[WebSocket] = None
 
 
 def normalize_command(text: str) -> str:
@@ -116,19 +102,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan context manager handling database setup on boot."""
     try:
         await init_db()
-        client = get_genai_client()
-        if client:
-            # Pre-warm GenAI TLS connection in background task so first user question is instant (<1.2s)
-            async def _prewarm() -> None:
-                try:
-                    await client.aio.models.generate_content(
-                        model="gemini-3.5-flash-lite",
-                        contents="ping",
-                    )
-                except Exception:
-                    pass
-
-            asyncio.create_task(_prewarm())
     except Exception as exc:
         print(f"[ERROR] Failed to initialize SQLite database during startup: {exc}")
         raise exc
@@ -384,7 +357,7 @@ async def get_neural_tts(
 
 
 @app.post("/api/stt")
-async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
+async def transcribe_audio_stream(request: Request, language: Optional[str] = Query(None)) -> Dict[str, Any]:
     """Transcribe raw audio stream (WebM/WAV) using local faster-whisper STT."""
     try:
         from voice.stt import get_transcriber
@@ -410,7 +383,8 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
 
         try:
             transcriber = get_transcriber()
-            result = transcriber.transcribe_file(tmp_path)
+            language_hint = language if language in {"en", "hi", "mr"} else None
+            result = transcriber.transcribe_file(tmp_path, language=language_hint)
             return {
                 "success": True,
                 "text": result.get("text", "").strip(),
@@ -468,12 +442,9 @@ class KeyConfigRequest(BaseModel):
     """Payload schema for setting or updating API keys from the Web HUD."""
     gemini_api_key: Optional[str] = Field(None, description="Google Gemini API Key")
     api_key: Optional[str] = Field(None, description="Alternative alias for Google Gemini API Key")
-    groq_api_key: Optional[str] = Field(None, description="Optional Groq Cloud API Key")
 
 
 class ProviderConfigRequest(BaseModel):
-    llm_provider: Optional[str] = Field("gemini", description="Selected LLM provider")
-    groq_model: Optional[str] = Field("openai/gpt-oss-20b", description="Selected Groq model")
     tts_provider: Optional[str] = Field("edge", description="Selected TTS engine")
     elevenlabs_api_key: Optional[str] = Field(None, description="Optional ElevenLabs API Key")
     elevenlabs_voice_id: Optional[str] = Field(None, description="Optional ElevenLabs Voice ID")
@@ -483,9 +454,8 @@ class ProviderConfigRequest(BaseModel):
 async def get_providers_config() -> Dict[str, Any]:
     eleven_key = (os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY") or "").strip()
     return {
-        "llm_provider": os.getenv("LLM_PROVIDER", "gemini"),
-        "groq_model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
-        "gemini_model": os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash",
+        "llm_provider": "gemini",
+        "gemini_model": os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite",
         "tts_provider": os.getenv("TTS_PROVIDER", "edge"),
         "elevenlabs_voice_id": os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB"),
         "has_elevenlabs": bool(eleven_key and eleven_key != "your_elevenlabs_key_here"),
@@ -494,12 +464,11 @@ async def get_providers_config() -> Dict[str, Any]:
 
 @app.post("/api/config/providers")
 async def set_providers_config(payload: ProviderConfigRequest) -> Dict[str, Any]:
-    if payload.llm_provider:
-        os.environ["LLM_PROVIDER"] = payload.llm_provider.lower().strip()
-    if payload.groq_model:
-        os.environ["GROQ_MODEL"] = payload.groq_model.strip()
     if payload.tts_provider:
-        os.environ["TTS_PROVIDER"] = payload.tts_provider.lower().strip()
+        tts_provider = payload.tts_provider.lower().strip()
+        if tts_provider not in {"edge", "elevenlabs"}:
+            raise HTTPException(status_code=400, detail="TTS provider must be 'edge' or 'elevenlabs'.")
+        os.environ["TTS_PROVIDER"] = tts_provider
     if payload.elevenlabs_voice_id and payload.elevenlabs_voice_id.strip():
         os.environ["ELEVENLABS_VOICE_ID"] = payload.elevenlabs_voice_id.strip()
     if payload.elevenlabs_api_key and payload.elevenlabs_api_key.strip():
@@ -511,7 +480,6 @@ async def set_providers_config(payload: ProviderConfigRequest) -> Dict[str, Any]
         env_lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
         updates = {
             "TTS_PROVIDER": os.environ.get("TTS_PROVIDER", "edge"),
-            "LLM_PROVIDER": os.environ.get("LLM_PROVIDER", "gemini"),
         }
         if payload.elevenlabs_api_key and payload.elevenlabs_api_key.strip():
             updates["ELEVENLABS_API_KEY"] = payload.elevenlabs_api_key.strip()
@@ -544,9 +512,7 @@ async def set_providers_config(payload: ProviderConfigRequest) -> Dict[str, Any]
 async def get_key_status() -> Dict[str, Any]:
     """Retrieve current neural core configuration status without revealing secret keys."""
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
     is_valid_gemini = bool(gemini_key and gemini_key != "your_gemini_api_key_here")
-    is_valid_groq = bool(groq_key and groq_key != "your_groq_api_key_here")
 
     masked = ""
     if is_valid_gemini:
@@ -558,8 +524,7 @@ async def get_key_status() -> Dict[str, Any]:
     return {
         "configured": is_valid_gemini,
         "masked_key": masked,
-        "has_groq": is_valid_groq,
-        "gemini_model": os.getenv("MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash",
+        "gemini_model": os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite",
     }
 
 
@@ -576,13 +541,8 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
     try:
         from google import genai
         test_client = genai.Client(api_key=key)
-        model_name = os.getenv("MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash"
-        test_resp = test_client.models.generate_content(
-            model=model_name,
-            contents="Say 'OK'",
-        )
-        if not test_resp:
-            raise ValueError("Empty response from Gemini API.")
+        model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite"
+        test_client.models.get(model=model_name)
     except Exception as exc:
         err_msg = str(exc)
         if "403" in err_msg or "API_KEY_INVALID" in err_msg or "permission" in err_msg.lower():
@@ -595,8 +555,6 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
 
     # 2. Update active process environment
     os.environ["GEMINI_API_KEY"] = key
-    if payload.groq_api_key and payload.groq_api_key.strip():
-        os.environ["GROQ_API_KEY"] = payload.groq_api_key.strip()
 
     # 3. Persist to .env file safely
     try:
@@ -607,22 +565,16 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
             env_lines = env_file.read_text(encoding="utf-8").splitlines()
 
         gemini_found = False
-        groq_found = False
         new_lines: List[str] = []
         for line in env_lines:
             if line.startswith("GEMINI_API_KEY="):
                 new_lines.append(f"GEMINI_API_KEY={key}")
                 gemini_found = True
-            elif payload.groq_api_key and line.startswith("GROQ_API_KEY="):
-                new_lines.append(f"GROQ_API_KEY={payload.groq_api_key.strip()}")
-                groq_found = True
             else:
                 new_lines.append(line)
 
         if not gemini_found:
             new_lines.append(f"GEMINI_API_KEY={key}")
-        if payload.groq_api_key and not groq_found:
-            new_lines.append(f"GROQ_API_KEY={payload.groq_api_key.strip()}")
 
         env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     except Exception as exc:
@@ -828,6 +780,15 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
     if not norm:
         return None
 
+    # Treat common possessive wording as the same local folder request. Without
+    # this normalization, "open my Downloads folder" falls through to the LLM
+    # and may open a web search instead of Windows Explorer.
+    norm = re.sub(
+        r"\bmy\s+(?=(?:downloads?|documents?|desktop|pictures?|photos?|videos?|music)\b)",
+        "",
+        norm,
+    )
+
     # Guard: Never treat conversational queries as launch requests
     non_app_triggers = (
         "who are you", "what are you", "who r u", "tell me about yourself",
@@ -847,6 +808,12 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
         return None
 
     if detect_user_intro(user_text):
+        return None
+
+    # Leave ordered multi-tab searches to the core compound-action planner.
+    # The single-search Chrome shortcut below would otherwise absorb the whole
+    # sentence and search for every requested action as one query.
+    if "search" in norm and re.search(r"\b(?:another|new) tab\b", norm):
         return None
 
     kind_check, _ = parse_note_or_reminder(user_text)
@@ -931,9 +898,17 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
 
         detail_msg = f"Transmitting communication to {recipient}" + (f": '{msg_text}'" if msg_text else "")
         try:
-            subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
+            from tools.whatsapp_tool import WhatsAppTool
+            tool = WhatsAppTool()
+            if msg_text:
+                tool.send_message(msg_text, contact=recipient)
+            else:
+                tool.search_contact(recipient)
         except Exception:
-            subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
+            try:
+                subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
+            except Exception:
+                subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
         return AppLaunchResult("WhatsApp", detail_msg)
 
     if ("chrome" in norm or "google" in norm or "browser" in norm) and ("search" in norm or "find" in norm or "look for" in norm):
@@ -1091,6 +1066,84 @@ current_user_state: Dict[str, Any] = {
 }
 
 
+async def _start_live_voice(websocket: WebSocket) -> None:
+    """Start the same persistent Gemini Live Charon voice used by Mark-LVI."""
+    global _live_voice_engine, _live_voice_task, _live_voice_owner
+    if _live_voice_task is not None and not _live_voice_task.done():
+        await websocket.send_json({
+            "type": "voice_status",
+            "status": "connected" if getattr(_live_voice_engine, "connected", False) else "connecting",
+            "voice": getattr(_live_voice_engine, "voice_name", "Charon"),
+            "message": "The Live voice session is already active.",
+        })
+        return
+
+    try:
+        from voice.gemini_live import GeminiLiveEngine
+
+        loop = asyncio.get_running_loop()
+
+        def emit_voice_event(event: Dict[str, str]) -> None:
+            async def send_event() -> None:
+                try:
+                    await websocket.send_json(event)
+                except Exception:
+                    pass
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(send_event()))
+
+        engine = GeminiLiveEngine(event_callback=emit_voice_event)
+        _live_voice_engine = engine
+        _live_voice_owner = websocket
+
+        async def run_voice_session() -> None:
+            global _live_voice_engine, _live_voice_task, _live_voice_owner
+            try:
+                await engine.run()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                emit_voice_event({
+                    "type": "voice_status", "status": "error",
+                    "message": str(exc)[:300],
+                })
+            finally:
+                if _live_voice_engine is engine:
+                    _live_voice_engine = None
+                    _live_voice_task = None
+                    _live_voice_owner = None
+
+        _live_voice_task = asyncio.create_task(run_voice_session(), name="jarvis-gemini-live-voice")
+        await websocket.send_json({
+            "type": "voice_status", "status": "connecting", "voice": engine.voice_name,
+            "message": "Connecting to Gemini Live voice…",
+        })
+    except Exception as exc:
+        _live_voice_engine = None
+        _live_voice_task = None
+        _live_voice_owner = None
+        await websocket.send_json({
+            "type": "voice_status", "status": "error", "message": str(exc)[:300],
+        })
+
+
+async def _stop_live_voice(websocket: Optional[WebSocket] = None) -> None:
+    """Stop the shared Live session and release its microphone and speaker streams."""
+    global _live_voice_engine, _live_voice_task, _live_voice_owner
+    engine, task = _live_voice_engine, _live_voice_task
+    if engine is None and task is None:
+        return
+    if websocket is not None and _live_voice_owner not in (None, websocket):
+        return
+    if engine is not None:
+        engine.stop()
+    if task is not None and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    _live_voice_engine = None
+    _live_voice_task = None
+    _live_voice_owner = None
+
+
 def detect_user_intro(text: str) -> Optional[str]:
     """Detect if user is introducing their name (e.g. 'I am Shiv', 'Maza naav Amit')."""
     cleaned = text.strip()
@@ -1181,6 +1234,42 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
                 return ("note", content)
 
     return (None, None)
+
+
+def parse_whatsapp_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse WhatsApp commands: search contacts, send messages, or compound messaging."""
+    cleaned = user_text.strip()
+    norm = re.sub(r"[^\w\s]", " ", cleaned.lower())
+    norm = " ".join(norm.split())
+
+    # 1. Search contact: 'search contact Aryan in whatsapp', 'search Aryan in whatsapp', 'find contact Jay'
+    m_search = re.search(r"^(?:search|find|look up|lookup|look for)\s+(?:for\s+)?(?:contact\s+)?(.+?)(?:\s+(?:in|on)\s+whatsapp|\s+whatsapp)?$", norm)
+    if m_search:
+        contact_candidate = m_search.group(1).strip()
+        contact_candidate = re.sub(r"^(?:contact|for)\s+", "", contact_candidate).strip()
+        contact_candidate = re.sub(r"\s+(?:in|on)\s+whatsapp$", "", contact_candidate).strip()
+        if contact_candidate and contact_candidate not in ("contact", "whatsapp"):
+            return {"action": "search", "contact": contact_candidate}
+
+    # 2. Message to specific contact with message content: 'send message to Aryan: hello', 'message Aryan saying hello'
+    m_to = re.search(r"^(?:send\s+(?:a\s+)?message\s+to|message|text|tell)\s+([a-zA-Z0-9_]+)\s*(?:on\s+whatsapp)?\s*(?:saying|that|says|:)?\s*(.+)$", user_text, re.IGNORECASE)
+    if m_to:
+        target = m_to.group(1).strip()
+        msg = m_to.group(2).lstrip(": -").strip()
+        if target.lower() in ("them", "him", "her", "this", "chat"):
+            return {"action": "send", "contact": None, "message": msg}
+        elif msg:
+            return {"action": "send", "contact": target, "message": msg}
+
+    # 3. Message them / send message / text them (to active or previously searched contact)
+    # e.g., 'message them: hello how are you', 'message them hello', 'send message: hello brother', 'send message hello', 'tell them I am coming'
+    m_send = re.search(r"^(?:send\s+(?:a\s+)?message|message|text|tell\s+them)\s*(?:to\s+them|to\s+him|to\s+her|them|him|her)?\s*(?:saying|that|says|:)?\s*(.+)$", user_text, re.IGNORECASE)
+    if m_send:
+        msg = m_send.group(1).lstrip(": -").strip()
+        if msg:
+            return {"action": "send", "contact": None, "message": msg}
+
+    return None
 
 
 async def _generate_response(user_text: str, session_user: Optional[Dict[str, Any]] = None) -> str:
@@ -1331,34 +1420,30 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
         except Exception as exc:
             return f"Logged your {kind}: '{content}'."
 
-    # 11. Core Brain or GenAI Generation
+    # 10.5. WhatsApp Messaging & Contact Search
+    wa_intent = parse_whatsapp_intent(user_text)
+    if wa_intent:
+        from tools.whatsapp_tool import WhatsAppTool
+        wa_tool = WhatsAppTool()
+        if wa_intent["action"] == "search":
+            contact = wa_intent["contact"]
+            wa_tool.search_contact(contact)
+            return f"I have searched for '{contact}' in WhatsApp and opened the chat conversation, sir."
+        else:
+            msg = wa_intent["message"]
+            contact = wa_intent.get("contact")
+            wa_tool.send_message(msg, contact=contact)
+            target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
+            return f"Message sent to {target_name} on WhatsApp: '{msg}', sir."
+
+    # 11. Core Gemini brain
     try:
         from core.service import handle_text
         brain_res = await handle_text(user_text, source="ui_internal")
         if brain_res and brain_res.get("text"):
             return brain_res["text"]
-    except Exception:
-        pass
-
-    client = get_genai_client()
-    if client:
-        try:
-            prompt = (
-                f"You are J.A.R.V.I.S., a precise, ultra-concise desktop AI assistant. "
-                f"User name: {active_name}. "
-                f"Provide ONLY the direct answer to what was asked in 1-2 short sentences. "
-                f"Do NOT include conversational filler, polite boilerplate, or offers for extra help. "
-                f"If the user addresses you in Hindi or Marathi, reply in that language.\n\n"
-                f"User Query: {user_text}"
-            )
-            response = await client.aio.models.generate_content(
-                model="gemini-3.5-flash-lite",
-                contents=prompt,
-            )
-            if response and response.text:
-                return strip_unnecessary_filler(response.text.strip())
-        except Exception:
-            pass
+    except Exception as exc:
+        print(f"[WARN] Core Gemini request failed: {exc}")
 
     return "I couldn't reach the assistant service to answer that request, sir."
 
@@ -1381,7 +1466,16 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
             action = payload.get("action", "chat")
 
-            if action == "chat":
+            if action == "voice_start":
+                await _start_live_voice(websocket)
+
+            elif action == "voice_stop":
+                await _stop_live_voice(websocket)
+                await websocket.send_json({
+                    "type": "voice_status", "status": "stopped", "message": "Live voice disconnected."
+                })
+
+            elif action == "chat":
                 user_text = (payload.get("text") or payload.get("prompt") or payload.get("query") or "").strip()
                 mode = payload.get("mode", "normal")
                 if not user_text:
@@ -1445,9 +1539,31 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
                 )
 
-                launch_info = try_launch_system_app(user_text)
+                wa_intent = parse_whatsapp_intent(user_text)
+                launch_info = try_launch_system_app(user_text) if not wa_intent else None
                 tool_steps = []
-                if launch_info:
+                if wa_intent:
+                    from tools.whatsapp_tool import WhatsAppTool
+                    wa_tool = WhatsAppTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    if wa_intent["action"] == "search":
+                        contact = wa_intent["contact"]
+                        wa_tool.search_contact(contact)
+                        reply_text = f"Searching for '{contact}' in WhatsApp and opening the chat{user_suffix}."
+                        tool_steps = [f"whatsapp_search('{contact}')"]
+                    else:
+                        msg = wa_intent["message"]
+                        contact = wa_intent.get("contact")
+                        wa_tool.send_message(msg, contact=contact)
+                        target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
+                        reply_text = f"Message sent to {target_name} on WhatsApp: '{msg}'{user_suffix}."
+                        tool_steps = [f"whatsapp_send('{msg}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif launch_info:
                     app_label = str(launch_info.label if hasattr(launch_info, 'label') else launch_info[0])
                     task_detail = launch_info.detail if hasattr(launch_info, 'detail') else (launch_info[1] if len(launch_info) > 1 else None)
                     user_suffix = f", {session_user['name']}" if session_user["is_known"] else ""
@@ -1493,13 +1609,22 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     except Exception:
                         pass
                 else:
-                    # 3. Delegate directly to Core Brain Engine via handle_text
+                    # 3. Stream Gemini output so the first words reach the HUD
+                    # immediately, while the brain lock preserves turn ordering.
                     reply_text = ""
                     try:
-                        from core.service import handle_text
-                        result = await handle_text(user_text, source="ui", mode=mode)
-                        reply_text = result.get("text", "")
-                        tool_steps = result.get("tool_steps", [])
+                        from core.service import handle_text_stream
+                        await websocket.send_json({"type": "response_start"})
+                        async for event in handle_text_stream(user_text, source="ui", mode=mode):
+                            event_type = event.get("type")
+                            if event_type == "chunk":
+                                reply_text += str(event.get("text", ""))
+                                await websocket.send_json({"type": "response_chunk", "text": event.get("text", "")})
+                            elif event_type == "done":
+                                reply_text = str(event.get("text", reply_text))
+                                tool_steps = event.get("tool_steps", [])
+                            elif event_type == "interrupted":
+                                reply_text = str(event.get("text", reply_text)) or "Request interrupted."
                     except Exception:
                         reply_text = ""
 
@@ -1508,12 +1633,6 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
                     # Strip conversational filler to ensure exact answers only
                     reply_text = strip_unnecessary_filler(reply_text)
-
-                    try:
-                        await memory_manager.save_interaction(role="user", content=user_text)
-                        await memory_manager.save_interaction(role="assistant", content=reply_text)
-                    except Exception:
-                        pass
 
                 # 4. Broadcast executed tool steps to HUD
                 if tool_steps:
@@ -1550,7 +1669,7 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "pong"})
 
     except WebSocketDisconnect:
-        pass
+        await _stop_live_voice(websocket)
     except Exception as exc:
         print(f"[WARN] WebSocket session terminated: {exc}")
 

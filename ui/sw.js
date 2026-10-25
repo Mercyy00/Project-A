@@ -1,5 +1,5 @@
 // JARVIS Autonomous Assistant PWA Service Worker
-const CACHE_NAME = 'jarvis-pwa-v5';
+const CACHE_NAME = 'jarvis-pwa-v6';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
@@ -29,12 +29,20 @@ self.addEventListener('fetch', (event) => {
   if (event.request.url.includes('/ws') || event.request.url.includes('/api/')) {
     return;
   }
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
+  const isNavigation = event.request.mode === 'navigate';
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    if (isNavigation) {
+      try {
+        const freshResponse = await fetch(event.request);
+        if (freshResponse.ok) await cache.put(event.request, freshResponse.clone());
+        return freshResponse;
+      } catch (_) {
+        return (await cache.match(event.request)) || (await cache.match('/'));
       }
-      return fetch(event.request);
-    })
-  );
+    }
+    const cachedResponse = await cache.match(event.request);
+    if (cachedResponse) return cachedResponse;
+    return fetch(event.request);
+  })());
 });

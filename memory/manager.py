@@ -47,7 +47,7 @@ class PreferenceManager:
         "auto_speech": True,
         "llm_provider": "gemini",
         "tts_provider": "edge",
-        "preferred_model": "gemini-3.5-flash",
+        "preferred_model": "gemini-3.5-flash-lite",
         "facts": {}
     }
 

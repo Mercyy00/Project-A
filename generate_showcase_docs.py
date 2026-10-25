@@ -23,7 +23,7 @@ SECTIONS = [
         "text": "Autonomous multi-agent architectures represent a paradigm shift from passive language models to proactive, tool-augmented systems. Project JARVIS embodies this evolution through strict modular isolation, real-time multimodal perception, low-latency sensory processing, and deterministic execution across desktop environments.",
         "bullets": [
             "Decoupled modular architecture spanning Core, Vision, Voice, Tools, Messaging, and Creator subsystems.",
-            "Sub-second end-to-end latency with real-time token streaming and resilient dual-engine backoff.",
+            "Real-time token streaming with bounded conversation history and quota-aware retries.",
             "Zero-phantom tool enforcement with strict BaseTool interface contract compliance across all 37 tools.",
             "Cross-lingual and multimodal support, including native Devanagari script for Hindi and Marathi.",
         ],
@@ -38,7 +38,7 @@ SECTIONS = [
         "heading": "2. Decoupled Modular System Architecture",
         "text": "To ensure enterprise stability and eliminate merge conflicts, the JARVIS codebase enforces strict modular boundaries. Each module operates as an independent subsystem governed by standardized contracts and registered in a centralized tool dispatch registry.",
         "bullets": [
-            "Core ReAct Brain: Coordinates high-level reasoning, prompt orchestration, and intelligent dual-engine failover.",
+            "Core ReAct Brain: Coordinates Gemini reasoning, prompt orchestration, and tool execution.",
             "Central Tool Registry: Dynamically discovers, validates, and dispatches 37 specialized system and desktop tools.",
             "Vision & Screen Perception: High-speed screenshot capture, DPI-aware coordinate mapping, and VLM visual grounding.",
             "Neural Voice Pipeline: Real-time Whisper STT, Edge-TTS streaming, and 5-second adaptive pause VAD.",

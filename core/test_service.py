@@ -189,49 +189,6 @@ class TestCoreService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[1]["type"], "done")
         self.assertEqual(events[1]["source"], "voice")
 
-    @patch("time.sleep", return_value=None)
-    @patch("groq.Groq")
-    def test_groq_backoff_retry(
-        self, mock_groq_cls: MagicMock, mock_sleep: MagicMock
-    ) -> None:
-        """Verify exponential backoff retry on transient 429 errors in Groq engine."""
-        brain = get_brain()
-        brain.groq_api_key = "fake_key"
-        brain.llm_provider = "groq"
-
-        mock_client = MagicMock()
-        mock_groq_cls.return_value = mock_client
-
-        # Simulate 1st call fails with 429, 2nd call succeeds
-        class FakeChunk:
-            def __init__(self, content):
-                delta = MagicMock()
-                delta.content = content
-                delta.tool_calls = None
-                choice = MagicMock()
-                choice.delta = delta
-                self.choices = [choice]
-
-        def fake_stream():
-            yield FakeChunk("Directive ")
-            yield FakeChunk("acknowledged, ")
-            yield FakeChunk("sir.")
-
-        # Simulate attempt 0 fails for model with 429, then attempt 1 succeeds
-        mock_client.chat.completions.create.side_effect = [
-            Exception("Error code: 429 - Rate limit reached"),
-            fake_stream(),
-        ]
-
-        chunks = list(brain._chat_stream_with_groq("test directive"))
-        full_res = "".join(chunks)
-
-        self.assertEqual(full_res, "Directive acknowledged, sir.")
-        self.assertEqual(mock_client.chat.completions.create.call_count, 2)
-        self.assertEqual(mock_sleep.call_count, 1)
-
-
-
     def test_brain_interrupt_and_abort(self) -> None:
         """Verify brain.interrupt() and brain.abort() halt stream generation immediately."""
         brain = get_brain()

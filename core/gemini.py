@@ -4,7 +4,7 @@ Resilient Google Gemini API Client for JARVIS.
 Ported from Mark LVI's core/gemini.py.
 Enforces:
 - Strict 10-second timeout on API calls to prevent indefinite hangs
-- Model fallback ladder: gemini-3.5-flash -> gemini-3.8-flash -> gemini-2.5-flash-lite
+- Budget-first model selection with a single model fallback only for availability errors
 - Unified helper for text, vision, and tool calling
 """
 
@@ -19,10 +19,8 @@ from google.genai import types
 
 DEFAULT_TIMEOUT = 12.0
 FALLBACK_MODELS = [
-    os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash",
+    os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-flash-latest"
 ]
 
 
@@ -42,8 +40,8 @@ def generate_content_with_fallback(
 ) -> types.GenerateContentResponse:
     """
     Executes a content generation request through a prioritized fallback ladder.
-    Catches 404 deprecations, 429 quota exhaustion, and 503 capacity errors,
-    immediately stepping down to the next viable model in the ladder.
+    Tries another Gemini model only when the selected model is unavailable or
+    temporarily at capacity. Quota errors are surfaced without extra requests.
     """
     ai_client = client or get_gemini_client()
     ladder = list(FALLBACK_MODELS)
@@ -66,6 +64,10 @@ def generate_content_with_fallback(
             # If invalid API key, do not attempt fallback
             if "API_KEY_INVALID" in err_str or "403" in err_str:
                 raise exc
-            continue
+            if any(code in err_str for code in ("429", "quota", "resource_exhausted")):
+                raise exc
+            if any(code in err_str for code in ("404", "not found", "503", "unavailable")):
+                continue
+            raise exc
 
     raise RuntimeError(f"All models in fallback ladder failed. Last error: {last_error}")

@@ -80,11 +80,10 @@ from tools.registry import TOOL_REGISTRY, execute_tool
 def test_outline_fallback_uses_retrieved_sources_without_claiming_synthesis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Current-topic fallback produces a cited source brief when both outline APIs fail."""
+    """Current-topic fallback produces a cited source brief when Gemini is unavailable."""
     import creator.outline as outline_module
 
     monkeypatch.setattr(outline_module, "_request_gemini_outline", lambda *args: None)
-    monkeypatch.setattr(outline_module, "_request_groq_outline", lambda *args: None)
     sources = [{
         "title": "Official announcement",
         "body": "The publisher announced a new multiplayer update.",
@@ -956,7 +955,7 @@ def test_day5_generate_executive_report_multiformat(tmp_path: Path) -> None:
             "bullets": [
                 "100% adherence to modular isolation constraints.",
                 "Real-time chart rendering with 200 DPI vector clarity.",
-                "Full dual-engine failover mechanism active.",
+                "Gemini reasoning is configured.",
             ],
         }
     ]

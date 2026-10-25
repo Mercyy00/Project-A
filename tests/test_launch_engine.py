@@ -44,10 +44,17 @@ def test_direct_app_name():
 
 
 def test_downloads_folder():
-    res = try_launch_system_app("Open downloads")
+    with patch("ui.server.os.path.exists", return_value=True), patch("ui.server.subprocess.Popen") as launch:
+        res = try_launch_system_app("Open my Downloads folder")
     assert res is not None
     label, _ = res
     assert "Downloads" in label
+    launch.assert_called_once()
+
+
+def test_compound_chrome_search_is_deferred_to_core_planner():
+    prompt = "search CarryMinati and open Chrome and open another tab and search LinkedIn"
+    assert try_launch_system_app(prompt) is None
 
 
 def test_compound_whatsapp_task():
@@ -171,14 +178,15 @@ def test_stt_endpoint_accepts_raw_browser_audio(monkeypatch: pytest.MonkeyPatch)
     expected_audio = b"webm-audio" * 16
 
     class FakeTranscriber:
-        def transcribe_file(self, audio_path: str | Path) -> dict[str, str]:
+        def transcribe_file(self, audio_path: str | Path, language: str | None = None) -> dict[str, str]:
             assert Path(audio_path).read_bytes() == expected_audio
+            assert language == "en"
             return {"text": "Open Chrome", "language": "en"}
 
     monkeypatch.setattr("voice.stt.get_transcriber", lambda: FakeTranscriber())
     with TestClient(server.app) as client:
         response = client.post(
-            "/api/stt",
+            "/api/stt?language=en",
             content=expected_audio,
             headers={"Content-Type": "audio/webm"},
         )
@@ -189,7 +197,7 @@ def test_stt_endpoint_accepts_raw_browser_audio(monkeypatch: pytest.MonkeyPatch)
 
 @pytest.mark.asyncio
 async def test_generate_response_does_not_claim_success_when_services_are_down(monkeypatch):
-    """The HUD fallback must be transparent if neither the core nor Gemini is available."""
+    """The HUD must report core failures without issuing a second provider request."""
     from core import service
     from ui import server
 
@@ -197,7 +205,6 @@ async def test_generate_response_does_not_claim_success_when_services_are_down(m
         raise RuntimeError("provider unavailable")
 
     monkeypatch.setattr(service, "handle_text", fail_core)
-    monkeypatch.setattr(server, "get_genai_client", lambda: None)
 
     response = await server._generate_response("Explain quantum computing")
 

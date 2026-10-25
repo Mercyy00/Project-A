@@ -246,17 +246,15 @@ def test_describe_screen_mock_gemini_success(
     mock_client_inst.models.generate_content.assert_called_once()
 
 
-@patch("groq.Groq")
 @patch("google.genai.Client")
-def test_describe_screen_falls_back_to_groq_vision(
+def test_describe_screen_does_not_retry_quota_on_another_provider(
     mock_gemini_cls: MagicMock,
-    mock_groq_cls: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Use Groq vision when Gemini is rate-limited and preserve the screenshot/question."""
+    """A Gemini failure is surfaced without sending the screenshot to another provider."""
     monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
-    monkeypatch.setenv("GROQ_API_KEY", "mock-groq-key")
+    monkeypatch.setenv("GROQ_API_KEY", "unused-secondary-key")
 
     image_path = tmp_path / "fallback.jpg"
     Image.new("RGB", (32, 24), color="green").save(image_path, format="JPEG")
@@ -264,43 +262,9 @@ def test_describe_screen_falls_back_to_groq_vision(
     mock_gemini = MagicMock()
     mock_gemini.models.generate_content.side_effect = RuntimeError("rate limited")
     mock_gemini_cls.return_value = mock_gemini
-    mock_groq = MagicMock()
-    mock_groq.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content="A green image is displayed."))
-    ]
-    mock_groq_cls.return_value = mock_groq
-
-    answer = describe_screen("What is shown?", screenshot_path=str(image_path))
-
-    assert answer == "A green image is displayed."
-    request = mock_groq.chat.completions.create.call_args.kwargs
-    assert request["messages"][1]["content"][0] == {
-        "type": "text", "text": "What is shown?"
-    }
-    assert request["messages"][1]["content"][1]["image_url"]["url"].startswith(
-        "data:image/jpeg;base64,"
-    )
-
-
-@patch("groq.Groq")
-def test_describe_screen_works_with_groq_only(
-    mock_groq_cls: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Allow screen analysis when Gemini is not configured but Groq is."""
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setenv("GROQ_API_KEY", "mock-groq-key")
-
-    image_path = tmp_path / "groq_only.jpg"
-    Image.new("RGB", (16, 16), color="blue").save(image_path, format="JPEG")
-    mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content="Blue screen."))
-    ]
-    mock_groq_cls.return_value = mock_client
-
-    assert describe_screen("Describe it", screenshot_path=str(image_path)) == "Blue screen."
+    with pytest.raises(RuntimeError, match="Gemini screen analysis failed"):
+        describe_screen("What is shown?", screenshot_path=str(image_path))
+    mock_gemini.models.generate_content.assert_called_once()
 
 
 def test_describe_screen_tool_success() -> None:
@@ -319,7 +283,6 @@ def test_describe_screen_tool_success() -> None:
 def test_describe_screen_tool_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify DescribeScreenTool returns helpful failure when API key is missing."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     tool = DescribeScreenTool()
     res: ToolResult = tool.run(question="What is on screen?")
 

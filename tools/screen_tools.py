@@ -126,7 +126,7 @@ class DescribeScreenTool(BaseTool):
             from google.genai import types
 
             client = genai.Client(api_key=api_key)
-            model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash"
+            model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite"
             
             response = client.models.generate_content(
                 model=model_name,

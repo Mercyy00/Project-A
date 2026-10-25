@@ -46,7 +46,7 @@ flowchart LR
 ### Act 1: Boot & Live Telemetry (0:00 – 0:25)
 * **Visual:** Full-screen browser on the Web HUD dashboard (`http://127.0.0.1:8000`). Classic Cyan theme active. The neural Arc Reactor pulses smoothly; live CPU, RAM, and Battery meters show real system metrics.
 * **Presenter Voiceover:**  
-  *"This is Project JARVIS—an autonomous, local-first desktop AI assistant built in Python. Powered by a dual-engine brain using Groq LPU for sub-second reasoning and automatic Google Gemini failover, JARVIS listens, sees, remembers, and acts."*
+  *"This is Project JARVIS—an autonomous, local-first desktop AI assistant built in Python. Powered by Google Gemini for reasoning and tool use, JARVIS listens, sees, remembers, and acts."*
 * **Action:** Presenter clicks the microphone icon on the HUD or speaks into the mic.
 * **Spoken Prompt:**  
   > *"Jarvis, report system telemetry and status."*
@@ -150,7 +150,7 @@ If an unexpected condition arises during a live demonstration, execute these sil
 | Potential Snag | Root Cause | Instant Recovery Protocol |
 | :--- | :--- | :--- |
 | **Microphone picks up ambient background noise** | Audio gain / noisy hall | Click the HUD Directive input box and press Enter, or use `main_cli.py`. |
-| **Groq LPU throws HTTP 429 quota limit** | High concurrent API traffic | No action required! Jay's Brain has built-in automated failover that seamlessly switches to Google Gemini (`gemini-3.5-flash`). |
+| **Gemini returns HTTP 429 quota limit** | Project/model free-tier limit reached | Wait for quota reset or check active project/model limits in AI Studio; JARVIS stops immediately without fallback requests. |
 | **Internet connection drops** | Wi-Fi disconnect | Offline fallback takes over: local `pyttsx3` voices speak, local SQLite notes work, and local Windows automation tools execute without interruption. |
 | **UWP App doesn't launch by colloquial name** | Windows alias variance | Say *"Jarvis, open notepad"* or *"Jarvis, open chrome"*—Abhijit's discovery engine searches 4 fallback tiers (Protocol -> Registry -> PATH -> LNK). |
 
@@ -160,9 +160,9 @@ If an unexpected condition arises during a live demonstration, execute these sil
 
 Examiners and senior engineers will ask about architectural choices:
 
-### Q1: *"Why did you use a Dual-LLM architecture (Groq + Gemini)?"*
+### Q1: *"Why does JARVIS use Gemini only?"*
 > **Answer:**  
-> *"Groq's LPU provides ultra-low latency inference (under 400ms for tool calling), which is critical for an interactive voice assistant where conversational delays feel unnatural. However, free tiers have strict rate limits. We built an automated exponential backoff and seamless failover mechanism in `core/brain.py` so that if Groq hits HTTP 429 or 503, the conversation immediately fails over to Google Gemini without user disruption."*
+> *"Gemini is the single language-model provider, which avoids duplicated provider configuration and makes quota behavior predictable. We use a Flash-Lite model, bounded conversation context, selective tool schemas, and stop immediately when a quota error is returned."*
 
 ### Q2: *"How do you prevent the AI from hallucinating that it performed a task?"*
 > **Answer:**  
@@ -182,7 +182,7 @@ Examiners and senior engineers will ask about architectural choices:
 
 | Module / Territory | Engineer | Key Achievements Delivered |
 | :--- | :--- | :--- |
-| **Core Brain & System Lead** | **Jayesh (Jay)** | Groq+Gemini failover, ReAct loop, Sliding context compaction, System Doctor, Unified CLI |
+| **Core Brain & System Lead** | **Jayesh (Jay)** | Gemini tool calling, bounded context compaction, System Doctor, Unified CLI |
 | **Speech-to-Text & DSP** | **Madhuri** | `faster-whisper` int8 local transcription, 1.5s VAD silence detection, language tagging |
 | **Text-to-Speech & Voice** | **Akanksha** | Edge-TTS neural multilingual synthesis, `pyttsx3` offline fallback, audio pipeline |
 | **Screen Vision & Multimodal** | **Aryan** | `mss` screen capture, JPEG compression, Gemini multimodal vision integration |

@@ -22,14 +22,15 @@ def test_providers_endpoint_includes_elevenlabs():
     assert "tts_provider" in data
 
 
-def test_set_providers_config_elevenlabs():
+def test_set_providers_config_elevenlabs(monkeypatch):
     """Verify setting ElevenLabs provider updates environment and response."""
     payload = {
         "tts_provider": "elevenlabs",
         "elevenlabs_voice_id": "pNInz6obpgDQGcFmaJgB",
         "elevenlabs_api_key": "test_elevenlabs_dummy_key",
     }
-    res = client.post("/api/config/providers", json=payload)
+    with patch("pathlib.Path.exists", return_value=False), patch("pathlib.Path.write_text"):
+        res = client.post("/api/config/providers", json=payload)
     assert res.status_code == 200
     assert res.json()["success"] is True
     assert os.getenv("TTS_PROVIDER") == "elevenlabs"
