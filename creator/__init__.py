@@ -26,6 +26,12 @@ from creator.templates import (
     resume,
     application_letter,
 )
+from creator.document_reader import (
+    read_document,
+    inspect_document,
+    extract_tables,
+    summarize_document,
+)
 from creator.tools import (
     CreatePdfTool,
     CreateDocxTool,
@@ -35,6 +41,9 @@ from creator.tools import (
     CreateDocumentTool,
     GenerateReportTool,
     CreateTemplateTool,
+    ReadDocumentTool,
+    SummarizeDocumentTool,
+    InspectDocumentTool,
     create_pdf,
     create_docx,
     create_pptx,
@@ -43,6 +52,9 @@ from creator.tools import (
     create_document_tool,
     generate_report,
     create_template_document,
+    read_document_tool,
+    summarize_document_tool,
+    inspect_document_tool,
     TOOLS,
 )
 
@@ -82,5 +94,15 @@ __all__ = [
     "create_document_tool",
     "generate_report",
     "create_template_document",
+    "read_document",
+    "inspect_document",
+    "extract_tables",
+    "summarize_document",
+    "ReadDocumentTool",
+    "SummarizeDocumentTool",
+    "InspectDocumentTool",
+    "read_document_tool",
+    "summarize_document_tool",
+    "inspect_document_tool",
     "TOOLS",
 ]

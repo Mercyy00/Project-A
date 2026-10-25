@@ -23,6 +23,12 @@ from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
 from creator.report_maker import generate_executive_report
 from creator.web_maker import make_website
+from creator.document_reader import (
+    read_document as reader_read_document,
+    inspect_document as reader_inspect_document,
+    extract_tables as reader_extract_tables,
+    summarize_document as reader_summarize_document,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1283,6 +1289,201 @@ def create_template_document(
     )
 
 
+
+
+class ReadDocumentTool(BaseTool):
+    """Tool to read, parse, and extract text, headings, tables and metadata from any document."""
+
+    name: str = "read_document"
+    description: str = (
+        "Read, parse, and extract structured text, headings, tables, and metadata from any "
+        "PDF, Word (.docx), PowerPoint (.pptx), HTML web artifact, or Markdown document."
+    )
+
+    def run(
+        self,
+        file_path: str,
+        max_chars: int = 8000,
+        page_range: Optional[List[int]] = None,
+        **kwargs: Any,
+    ) -> ToolResult:
+        try:
+            pages_tuple = (page_range[0], page_range[1]) if page_range and len(page_range) >= 2 else None
+            data = reader_read_document(file_path=file_path, max_chars=max_chars, page_range=pages_tuple)
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Successfully extracted {data['word_count']} words from {data['filename']} ({data['format'].upper()}).",
+            )
+        except Exception as exc:
+            logger.error("Failed to read document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to read document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": "read_document",
+                "description": "Read, parse, and extract structured text, headings, tables, and metadata from any PDF, Word (.docx), PowerPoint (.pptx), HTML web artifact, or Markdown document.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the document file to read.",
+                        },
+                        "max_chars": {
+                            "type": "integer",
+                            "description": "Maximum characters of text body to return (default: 8000).",
+                        },
+                        "page_range": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "Optional [start_page, end_page] for PDFs (e.g. [1, 3]).",
+                        },
+                    },
+                    "required": ["file_path"],
+                },
+            },
+        }
+
+
+class SummarizeDocumentTool(BaseTool):
+    """Tool to generate intelligent executive summaries and key takeaways from documents."""
+
+    name: str = "summarize_document"
+    description: str = (
+        "Generate an intelligent executive summary, key takeaways, and metric highlights "
+        "from an existing document (PDF, Word, PPTX, HTML)."
+    )
+
+    def run(
+        self,
+        file_path: str,
+        focus: str = "general",
+        max_bullets: int = 5,
+        language: str = "en",
+        **kwargs: Any,
+    ) -> ToolResult:
+        try:
+            data = reader_summarize_document(
+                file_path=file_path,
+                focus=focus,
+                max_bullets=max_bullets,
+                language=language,
+                cancel_event=kwargs.get("cancel_event"),
+            )
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Successfully generated executive summary for '{data['title']}' using {data['engine']} engine.",
+            )
+        except Exception as exc:
+            logger.error("Failed to summarize document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to summarize document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": "summarize_document",
+                "description": "Generate an intelligent executive summary, key takeaways, and metric highlights from an existing document (PDF, Word, PPTX, HTML).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the document to summarize.",
+                        },
+                        "focus": {
+                            "type": "string",
+                            "description": "Summary focus: 'general', 'technical', 'executive', or 'metrics'.",
+                            "enum": ["general", "technical", "executive", "metrics"],
+                        },
+                        "max_bullets": {
+                            "type": "integer",
+                            "description": "Maximum key takeaways to extract (default: 5).",
+                        },
+                        "language": {
+                            "type": "string",
+                            "description": "Output language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi).",
+                            "enum": ["en", "hi", "mr"],
+                        },
+                    },
+                    "required": ["file_path"],
+                },
+            },
+        }
+
+
+class InspectDocumentTool(BaseTool):
+    """Tool to inspect the structure and metadata of any document."""
+
+    name: str = "inspect_document"
+    description: str = (
+        "Inspect the structure, page/slide count, headings tree, table count, and metadata "
+        "of a document without loading the full text body."
+    )
+
+    def run(self, file_path: str, **kwargs: Any) -> ToolResult:
+        try:
+            data = reader_inspect_document(file_path=file_path)
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Document '{data['filename']}' ({data['format'].upper()}): {data['page_or_slide_count']} pages/slides, {data['table_count']} tables, {data['word_count']} words.",
+            )
+        except Exception as exc:
+            logger.error("Failed to inspect document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to inspect document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": "inspect_document",
+                "description": "Inspect the structure, page/slide count, headings tree, table count, and metadata of a document without loading the full text body.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the document to inspect.",
+                        },
+                    },
+                    "required": ["file_path"],
+                },
+            },
+        }
+
+
+def read_document_tool(file_path: str, max_chars: int = 8000, **kwargs: Any) -> ToolResult:
+    """Convenience callable for ReadDocumentTool."""
+    return ReadDocumentTool().run(file_path=file_path, max_chars=max_chars, **kwargs)
+
+
+def summarize_document_tool(file_path: str, focus: str = "general", max_bullets: int = 5, language: str = "en", **kwargs: Any) -> ToolResult:
+    """Convenience callable for SummarizeDocumentTool."""
+    return SummarizeDocumentTool().run(file_path=file_path, focus=focus, max_bullets=max_bullets, language=language, **kwargs)
+
+
+def inspect_document_tool(file_path: str, **kwargs: Any) -> ToolResult:
+    """Convenience callable for InspectDocumentTool."""
+    return InspectDocumentTool().run(file_path=file_path, **kwargs)
+
+
 # Canonical exported tools list for Abhijit's registry auto-loader (Catch-Up Plan Section 4 & 7)
 TOOLS: List[BaseTool] = [
     CreatePdfTool(),
@@ -1293,6 +1494,9 @@ TOOLS: List[BaseTool] = [
     CreateDocumentTool(),
     GenerateReportTool(),
     CreateTemplateTool(),
+    ReadDocumentTool(),
+    SummarizeDocumentTool(),
+    InspectDocumentTool(),
 ]
 
 # Auto-register all tools immediately into central registry

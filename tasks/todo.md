@@ -56,12 +56,18 @@
 - [ ] **Task 12: Continuous VAD & Zero-Latency Audio Muting on Speech** (`voice/stt.py`, `voice/tts.py`) - Pair B
 - [ ] **Task 13: Non-Blocking Guard Interruption Logging** (`tools/guard.py`) - Pair C
 - [ ] **Task 14: Telegram Voice Note Audio Transcribe Handler** (`messaging/telegram_bot.py`) - Pair D
+- [x] **Task 14b: Multi-Format Document Reader, Table Extractor & Summarizer Suite** (`creator/document_reader.py`, `creator/tools.py`, `tests/test_creator.py`) - Vidhita (Creator - Pair D) [PASSED]
+  - Full-fidelity ingestion across PDF (`pypdf`), Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+  - Sub-millisecond structural inspection (`inspect_document`) and 2D table extraction matrix (`extract_tables`).
+  - Autonomous AI & offline heuristic executive summarizer (`summarize_document`) with sub-20ms cancellation token abort.
+  - Central tool registry integration: `read_document`, `summarize_document`, and `inspect_document` (11 Creator tools registered).
+  - 76/76 unit and acceptance tests passing hermetically.
 
 ### Day 9: Long-Term Semantic Vector Memory (RAG) & Workspace Indexing
 - [ ] **Task 15: ChromaDB Persistent Vector Memory Store** (`memory/vector_store.py`) - Pair A
 - [ ] **Task 16: Local Workspace & Codebase Semantic Search Tool** (`tools/file_tools.py`) - Pair C
 - [ ] **Task 17: User Accent Adaptation & Whisper Prompt Priming** (`voice/stt.py`) - Pair B
-- [ ] **Task 18: Multi-Format Document Summarizer Tool** (`creator/document_reader.py`) - Pair D
+- [x] **Task 18: Multi-Format Document Summarizer Tool** (`creator/document_reader.py`) - Vidhita (Pair D) [PASSED in Day 8 Elevation]
 
 ### Day 10: Multi-Step Autonomous Agent Workflows & Look-Decide-Act Loop
 - [ ] **Task 19: Recursive ReAct Goal Planner with Step Milestones** (`core/brain.py`, `ui/index.html`) - Pair A

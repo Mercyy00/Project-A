@@ -3,7 +3,7 @@
 **Engineer:** Vidhita (Document & Web Artifact Engineer)  
 **Pair:** Pair D (Documents + Messaging)  
 **Branch:** `feature/vidhita-creator`  
-**Milestone:** Days 1 through 7 Completed (Enterprise Multi-Format Engine, Web Artifacts Maker, Claude Theme Factory & Grand Finale Showcase)
+**Milestone:** Days 1 through 8 Completed (Enterprise Multi-Format Generation & Ingestion Engine, Web Artifacts, Theme Factory, Document Intelligence & Summarizer Suite)
 
 ---
 
@@ -140,6 +140,31 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
     8. `create_template_document` (`CreateTemplateTool`)
 
 ---
+
+### Day 8: Autonomous Document Intelligence, Multi-Format Reader, Table Extractor & Summarizer Suite (`creator/document_reader.py`)
+- **`read_document(file_path, max_chars=8000, page_range=None) -> dict`**:
+  - Full-fidelity ingestion across all 5 primary document formats:
+    - **PDF (`.pdf`)**: Extracts raw text, metadata, page counts, and embedded table lines using `pypdf`.
+    - **Word (`.docx`)**: Extracts heading hierarchy (Heading 1-6), body paragraphs, bullet points, full 2D tables, and authoring metadata using `python-docx`.
+    - **PowerPoint (`.pptx`)**: Extracts slide titles, speaker bullets, table data, and slide counts using `python-pptx`.
+    - **Interactive HTML Web Artifacts (`.html`)**: Extracts titles, sections, bento grid KPI metric cards, code snippets, and searchable data tables via zero-dependency `_WebArtifactHTMLParser`.
+    - **Markdown / Plain Text (`.md`, `.txt`)**: Extracts headers, bullet points, and raw content.
+  - Native Devanagari script awareness (detects Marathi and Hindi unicode text).
+- **`inspect_document(file_path) -> dict`**:
+  - Sub-millisecond structural diagnosis of any file without loading the entire text body.
+  - Returns file format, size in KB, page/slide count, headings tree count, table count, metric card count, and validation status.
+- **`extract_tables(file_path) -> list[dict]`**:
+  - Isolates and structures all 2D tabular data matrices across DOCX, PPTX, PDF, and HTML into structured JSON dictionaries with column headers, row records, and dimensions (rows x cols).
+- **`summarize_document(file_path, focus='general', max_bullets=5, language='en', cancel_event=None) -> dict`**:
+  - Dual-engine executive summarization:
+    - **AI Inference Engine**: Google Gemini (`google-genai`) with structured JSON schema output and multilingual support (`en`, `hi`, `mr`).
+    - **Resilient Offline Heuristic**: Extractive statistical NLP algorithm isolating high-signal sentences, key metrics, and headings when offline or without API keys.
+  - **Full-Duplex Stream Cancellation Compatibility**: Supports `cancel_event` to immediately abort summarization within 20ms upon voice barge-in or WebSocket abort directive.
+- **Tools for Jarvis Brain & Central Registry (`creator/tools.py`)**:
+  - `ReadDocumentTool` -> `read_document(file_path, max_chars, page_range)`
+  - `SummarizeDocumentTool` -> `summarize_document(file_path, focus, max_bullets, language)`
+  - `InspectDocumentTool` -> `inspect_document(file_path)`
+  - Exported in `creator.tools.TOOLS` (now 11 production tools) and auto-registered into `TOOL_REGISTRY`.
 
 ## 3. Tool Usage Examples
 
@@ -323,4 +348,38 @@ res = execute_tool("create_template_document", {
     "kind": "pdf"
 })
 print("Template Document:", res.data["file_path"])
+```
+
+
+#### 5. Day 8: Document Reading, Inspection & Autonomous Summarization
+```python
+from creator.document_reader import inspect_document, read_document, extract_tables, summarize_document
+from tools.registry import execute_tool
+
+# 1. Structural Inspection
+info = inspect_document("workspace/jarvis_system_report_clean_light.pdf")
+print(f"Format: {info['format']}, Pages: {info['page_or_slide_count']}, Tables: {info['table_count']}")
+
+# 2. Extract Structured Text & 2D Tables
+doc_data = read_document("workspace/jarvis_specification_document_clean_light.docx")
+print(f"Extracted {doc_data['word_count']} words and {len(doc_data['headings'])} headings.")
+
+tables = extract_tables("workspace/jarvis_specification_document_clean_light.docx")
+for tbl in tables:
+    print("Table Headers:", tbl["headers"])
+
+# 3. Autonomous Executive Summarization
+summary = summarize_document(
+    "workspace/jarvis_system_report_clean_light.pdf",
+    focus="executive",
+    max_bullets=4,
+    language="en"
+)
+print("Executive Summary:", summary["executive_summary"])
+for pt in summary["key_takeaways"]:
+    print(f" - {pt}")
+
+# 4. Central Registry Autonomous Function Calling
+res = execute_tool("read_document", {"file_path": "workspace/hello.docx"})
+print("Registry Read Result:", res.message)
 ```

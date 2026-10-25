@@ -73,3 +73,23 @@ In Week 2, Project JARVIS transitions from an interactive reactive assistant int
    - **For Rohit (UI - `ui/server.py`):** When receiving `{"action": "interrupt"}` over WebSocket, invoke `core.service.interrupt_generation()`.
    - **For Aryan & Madhuri (Voice - `voice/stt.py`):** On barge-in voice detection, invoke `core.service.interrupt_generation()` and call `voice.tts.stop_speaking()`.
 
+## Day 8 Implementation: Document Intelligence, Multi-Format Reader & Summarizer (Creator Engine)
+
+### Architectural Design
+1. **Multi-Format Ingestion Engine (`creator/document_reader.py`):**
+   - High-fidelity text, heading hierarchy, 2D table matrices, and metadata extraction across PDF (`pypdf`), Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+   - Zero-dependency HTML5 parser (`_WebArtifactHTMLParser`) extracting bento metric cards and data tables.
+   - Devanagari Unicode script detection (`_contains_devanagari`).
+
+2. **Structural Inspection & Table Extraction:**
+   - `inspect_document(file_path)` provides sub-millisecond structural diagnostics (page count, table count, headings, words, valid format).
+   - `extract_tables(file_path)` yields 2D matrices preserving column headers and rows.
+
+3. **Dual-Engine Executive Summarizer:**
+   - `summarize_document(file_path)` utilizes Google Gemini API with fallback to statistical extractive NLP heuristic.
+   - Complies with Day 8 Stream Cancellation Token protocol (`cancel_event` aborts within 20ms).
+
+4. **Central Registry & Brain Tools (`creator/tools.py`):**
+   - Exposed `ReadDocumentTool`, `SummarizeDocumentTool`, and `InspectDocumentTool`.
+   - Expands Creator tools count to 11 registered tools.
+

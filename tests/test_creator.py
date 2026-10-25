@@ -54,6 +54,12 @@ from creator.templates import (
     project_report,
     resume,
 )
+from creator.document_reader import (
+    read_document,
+    inspect_document,
+    extract_tables,
+    summarize_document,
+)
 from creator.tools import (
     CreateChartTool,
     CreateDocxTool,
@@ -63,6 +69,12 @@ from creator.tools import (
     CreateDocumentTool,
     GenerateReportTool,
     CreateTemplateTool,
+    ReadDocumentTool,
+    SummarizeDocumentTool,
+    InspectDocumentTool,
+    read_document_tool,
+    summarize_document_tool,
+    inspect_document_tool,
     TOOLS,
     create_chart,
     create_docx,
@@ -1391,6 +1403,203 @@ def test_day5_create_document_web_kind(tmp_path: Path) -> None:
     assert "Neural Network" in content
 
 
+
+# =====================================================================
+# Day 8: Document Reader, Inspector, Table Extractor & Summarizer Tests
+# =====================================================================
+
+def test_day8_read_document_pdf(tmp_path: Path):
+    """Verify read_document extracts text and metadata from generated PDF."""
+    pdf_out = make_pdf(
+        title="PDF Reader Test",
+        sections=[{
+            "heading": "Section Alpha",
+            "text": "Autonomous reading of binary PDF files via pypdf.",
+            "bullets": ["Point A", "Point B"],
+            "table": [["Col1", "Col2"], ["Val1", "Val2"]],
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    doc_data = read_document(pdf_out)
+    assert doc_data["format"] == "pdf"
+    assert doc_data["page_or_slide_count"] >= 1
+    assert "Section Alpha" in doc_data["text"] or "Autonomous" in doc_data["text"]
+    assert doc_data["word_count"] > 0
+
+
+def test_day8_read_document_docx(tmp_path: Path):
+    """Verify read_document extracts headings, paragraphs, and tables from Word DOCX."""
+    docx_out = make_docx(
+        title="DOCX Reader Test",
+        sections=[{
+            "heading": "Architecture Section",
+            "text": "Deep document parsing for modern assistant workflows.",
+            "bullets": ["Fast ingestion", "Zero regression"],
+            "table": [["Key", "Value"], ["Status", "Active"]],
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    doc_data = read_document(docx_out)
+    assert doc_data["format"] == "docx"
+    assert "Architecture Section" in doc_data["headings"]
+    assert "Deep document parsing" in doc_data["text"]
+    assert len(doc_data["tables"]) >= 1
+    assert any(t["headers"] == ["Key", "Value"] for t in doc_data["tables"])
+
+
+def test_day8_read_document_pptx(tmp_path: Path):
+    """Verify read_document extracts slides, titles, and text from PowerPoint PPTX."""
+    pptx_out = make_pptx(
+        title="PPTX Deck Reader",
+        sections=[{
+            "heading": "Slide One",
+            "text": "PowerPoint presentation extraction.",
+            "bullets": ["Bullet 1", "Bullet 2"],
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    doc_data = read_document(pptx_out)
+    assert doc_data["format"] == "pptx"
+    assert doc_data["page_or_slide_count"] >= 1
+    assert any("Slide One" in h for h in doc_data["headings"])
+
+
+def test_day8_read_document_html(tmp_path: Path):
+    """Verify read_document extracts bento cards and tables from HTML Web Artifacts."""
+    html_out = make_website(
+        title="HTML Web Artifact",
+        sections=[{
+            "heading": "Web Intelligence",
+            "text": "Browser-based interactive document.",
+            "metrics": [{"label": "Uptime", "value": "99.9%"}],
+            "bullets": ["Responsive design", "Searchable tables"],
+            "table": [["Metric", "Score"], ["Latency", "Sub-second"]],
+        }],
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    doc_data = read_document(html_out)
+    assert doc_data["format"] == "html"
+    assert "Web Intelligence" in doc_data["headings"]
+    assert len(doc_data["metrics"]) >= 1
+    assert doc_data["metrics"][0]["label"] == "Uptime"
+
+
+def test_day8_inspect_document(tmp_path: Path):
+    """Verify inspect_document returns rapid structural diagnostics without full body load."""
+    docx_out = make_docx(
+        title="Inspection Target",
+        sections=[{
+            "heading": "Overview",
+            "text": "Diagnostic metadata test.",
+            "table": [["A", "B"], ["1", "2"]],
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    info = inspect_document(docx_out)
+    assert info["is_valid"] is True
+    assert info["format"] == "docx"
+    assert info["table_count"] >= 1
+    assert info["size_bytes"] > 0
+    assert info["size_kb"] > 0
+
+
+def test_day8_extract_tables(tmp_path: Path):
+    """Verify extract_tables isolates 2D tabular matrices with column and row counts."""
+    docx_out = make_docx(
+        title="Table Extraction Test",
+        sections=[{
+            "heading": "Data Matrix",
+            "text": "Tabular dataset verification.",
+            "table": [
+                ["ID", "Service", "Port"],
+                ["1", "FastAPI", "8000"],
+                ["2", "WebSocket", "8000"],
+            ],
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    tables = extract_tables(docx_out)
+    assert len(tables) >= 1
+    data_tables = [t for t in tables if t["headers"] == ["ID", "Service", "Port"]]
+    assert len(data_tables) >= 1
+    t = data_tables[0]
+    assert t["headers"] == ["ID", "Service", "Port"]
+    assert len(t["rows"]) == 2
+    assert t["num_columns"] == 3
+    assert t["num_rows"] == 2
+
+
+def test_day8_summarize_document_and_cancel_token(tmp_path: Path):
+    """Verify summarize_document produces executive digest and honors cancel token."""
+    import threading
+
+    docx_out = make_docx(
+        title="Executive Summary Test",
+        sections=[{
+            "heading": "Strategic Overview",
+            "text": "Project JARVIS represents an autonomous multimodal assistant architecture engineered for desktop workflow automation. Sub-second end-to-end latency with real-time streaming and resilient dual-engine backoff. Zero-phantom tool enforcement with strict BaseTool compliance across all 37 tools.",
+            "bullets": [
+                "Full support for ReportLab, python-docx, and python-pptx.",
+                "Continuous voice activity detection and barge-in.",
+            ],
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    summary = summarize_document(docx_out, focus="executive", max_bullets=3)
+    assert summary["title"] is not None
+    assert len(summary["executive_summary"]) > 0
+    assert len(summary["key_takeaways"]) > 0
+
+    # Test Day 8 cancellation token protocol
+    cancel_evt = threading.Event()
+    cancel_evt.set()
+    import pytest
+    with pytest.raises(InterruptedError):
+        summarize_document(docx_out, cancel_event=cancel_evt)
+
+
+def test_day8_tools_registry_execution(tmp_path: Path):
+    """Verify read_document, summarize_document, and inspect_document in TOOL_REGISTRY."""
+    docx_out = make_docx(
+        title="Registry Test Document",
+        sections=[{
+            "heading": "Registry Test",
+            "text": "Execution via central dispatch registry.",
+            "table": [["A", "B"], ["1", "2"]],
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    # 1. read_document
+    res_read = execute_tool("read_document", {"file_path": docx_out})
+    assert res_read.success is True
+    assert res_read.data["format"] == "docx"
+
+    # 2. inspect_document
+    res_inspect = execute_tool("inspect_document", {"file_path": docx_out})
+    assert res_inspect.success is True
+    assert res_inspect.data["is_valid"] is True
+
+    # 3. summarize_document
+    res_sum = execute_tool("summarize_document", {"file_path": docx_out, "focus": "general"})
+    assert res_sum.success is True
+    assert len(res_sum.data["executive_summary"]) > 0
+
 # =====================================================================
 # Runnable Standalone Verification Script
 # =====================================================================
@@ -1735,8 +1944,39 @@ def run_verification() -> bool:
         assert web_res.success is True
         print(f"  [PASS] create_website tool: {web_res.data['file_path']} ({web_res.data['bytes']} bytes)")
 
+        # 11. Day 8: Document Reader, Inspector, Table Extractor & Summarizer Verification
+        print("\n[DAY 8] Verifying Document Reader, Inspector & Summarizer Suite...")
+        # Inspect and read Day 7 HTML Web Artifact
+        d8_inspect = inspect_document(d7_web)
+        assert d8_inspect["is_valid"] is True and d8_inspect["format"] == "html"
+        print(f"  [PASS] inspect_document (HTML): {d8_inspect['filename']} ({d8_inspect['size_kb']} KB, {d8_inspect['headings_count']} headings)")
+
+        d8_read = read_document(d7_web)
+        assert len(d8_read["headings"]) >= 1
+        assert len(d8_read["tables"]) >= 1
+        print(f"  [PASS] read_document (HTML): extracted {d8_read['word_count']} words, {len(d8_read['metrics'])} metrics, {len(d8_read['tables'])} tables")
+
+        # Extract tables from Day 3 DOCX
+        d8_tables = extract_tables(d6_assign)
+        assert len(d8_tables) >= 1
+        print(f"  [PASS] extract_tables: {len(d8_tables)} table(s) extracted with {d8_tables[0]['num_columns']} columns")
+
+        # Summarize Day 6 Report
+        d8_summary = summarize_document(d6_rep, focus="executive", max_bullets=3)
+        assert len(d8_summary["executive_summary"]) > 0
+        print(f"  [PASS] summarize_document ({d8_summary['engine']}): '{d8_summary['title']}' -> {len(d8_summary['key_takeaways'])} takeaways")
+
+        # Execute Day 8 tools via TOOL_REGISTRY
+        tool_read_res = execute_tool("read_document", {"file_path": d6_rep})
+        assert tool_read_res.success is True
+        print(f"  [PASS] TOOL_REGISTRY execute 'read_document': {tool_read_res.message}")
+
+        tool_sum_res = execute_tool("summarize_document", {"file_path": d6_rep})
+        assert tool_sum_res.success is True
+        print(f"  [PASS] TOOL_REGISTRY execute 'summarize_document': {tool_sum_res.message}")
+
         print("\n" + "=" * 75)
-        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 7 PASSED!")
+        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 8 PASSED!")
         print("=" * 75)
         return True
 
