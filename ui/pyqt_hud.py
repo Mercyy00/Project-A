@@ -1,14 +1,16 @@
 """
-Project JARVIS - Native PyQt6 Desktop HUD Application.
+Project JARVIS - Native PyQt6 Desktop HUD Application (Mark LVI Authentic Edition).
 Author: Rohit (Frontend & Desktop UI Specialist) & Aryan (Voice Specialist)
 
 Provides a native high-performance PyQt6 desktop interface featuring:
-- Mathematically animated Arc Reactor / Neural Core with live voice amplitude reactivity
-- Real-time audio waveform visualizer and viseme-aware speaking pulses
-- Hardware telemetry gauges (CPU %, RAM %, System Uptime, Engine Latency)
+- Mathematically animated Arc Reactor / Neural Core with vector geometry and blueprint grid
+- Dynamic symmetrical Cyber Waveform Audio Visualizer (Mark LVI studio grade)
+- Real-time audio amplitude and viseme reactivity
+- Hardware telemetry gauges (CPU %, RAM %, Storage Drive %, Engine Latency)
 - Live bi-directional chat / voice stream transcripts and tool execution steps
 - Quick action command chips and direct text directive prompt
-- Integrated background thread bridge to GeminiLiveEngine and JarvisBrain
+- Startup API Key Configuration modal window with clipboard paste support
+- Global F4 hardware microphone mute toggle
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import re
 import sys
 import threading
 import time
@@ -29,8 +32,8 @@ from PyQt6.QtGui import (
     QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QRadialGradient,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QMessageBox, QPushButton, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
 )
 
 # Sci-fi aesthetic color palette
@@ -57,8 +60,237 @@ def qcol(hex_str: str, alpha: int = 255) -> QColor:
     return c
 
 
+def save_api_key_to_env(api_key: str) -> bool:
+    """Save the Gemini API key to .env file and update environment variables."""
+    api_key = api_key.strip()
+    if not api_key:
+        return False
+    os.environ["GEMINI_API_KEY"] = api_key
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_path = os.path.join(base_dir, ".env")
+    try:
+        content = ""
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+        pattern = r"^GEMINI_API_KEY=.*$"
+        if re.search(pattern, content, flags=re.MULTILINE):
+            new_content = re.sub(pattern, f"GEMINI_API_KEY={api_key}", content, flags=re.MULTILINE)
+        else:
+            new_content = f"GEMINI_API_KEY={api_key}\n" + content
+
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        return True
+    except Exception as exc:
+        print(f"[WARN] Failed to write API key to .env: {exc}", file=sys.stderr)
+        return False
+
+
+class ApiKeyDialog(QDialog):
+    """Futuristic Sci-Fi Modal Dialog for entering or modifying GEMINI_API_KEY."""
+
+    def __init__(self, current_key: str = "", parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("JARVIS ACCESS KEY // AUTHENTICATION")
+        self.setFixedSize(540, 310)
+        self.setModal(True)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: #020c18;
+                border: 2px solid {HUDColors.CYAN};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                background: transparent;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 22, 28, 22)
+        layout.setSpacing(10)
+
+        # Title
+        title_box = QVBoxLayout()
+        title_box.setSpacing(3)
+        title_lbl = QLabel("◈  JARVIS NEURAL ACCESS KEY CONFIGURATION")
+        title_lbl.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {HUDColors.CYAN}; letter-spacing: 1px;")
+        sub_lbl = QLabel("Enter your Google Gemini API key to initialize the neural full-duplex engine.")
+        sub_lbl.setFont(QFont("Courier New", 8))
+        sub_lbl.setStyleSheet(f"color: {HUDColors.TEXT_DIM};")
+        title_box.addWidget(title_lbl)
+        title_box.addWidget(sub_lbl)
+        layout.addLayout(title_box)
+
+        # Separator line
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {HUDColors.BORDER};")
+        layout.addWidget(sep)
+
+        # Field Label
+        field_lbl = QLabel("GEMINI API KEY (Format: AIzaSy...)")
+        field_lbl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        field_lbl.setStyleSheet(f"color: {HUDColors.CYAN_DIM};")
+        layout.addWidget(field_lbl)
+
+        # Input Row (QLineEdit + Paste + Show/Hide)
+        input_row = QHBoxLayout()
+        input_row.setSpacing(6)
+
+        self.key_input = QLineEdit()
+        self.key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.key_input.setPlaceholderText("Paste your AIza... key here")
+        self.key_input.setFont(QFont("Courier New", 9))
+        self.key_input.setFixedHeight(34)
+        if current_key and not current_key.startswith("your_gemini"):
+            self.key_input.setText(current_key)
+        self.key_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: #051627;
+                color: #ffffff;
+                border: 1px solid {HUDColors.BORDER};
+                border-radius: 4px;
+                padding: 4px 8px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {HUDColors.CYAN};
+            }}
+        """)
+        input_row.addWidget(self.key_input, 1)
+
+        paste_btn = QPushButton("📋 PASTE")
+        paste_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        paste_btn.setFixedHeight(34)
+        paste_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #08263f;
+                color: {HUDColors.CYAN};
+                border: 1px solid {HUDColors.BORDER};
+                border-radius: 4px;
+                padding: 4px 10px;
+            }}
+            QPushButton:hover {{
+                background-color: #0d385c;
+                border: 1px solid {HUDColors.CYAN};
+            }}
+        """)
+        paste_btn.clicked.connect(self._paste_clipboard)
+        input_row.addWidget(paste_btn)
+
+        self.toggle_eye_btn = QPushButton("👁 SHOW")
+        self.toggle_eye_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self.toggle_eye_btn.setFixedHeight(34)
+        self.toggle_eye_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #08263f;
+                color: {HUDColors.TEXT_DIM};
+                border: 1px solid {HUDColors.BORDER};
+                border-radius: 4px;
+                padding: 4px 10px;
+            }}
+            QPushButton:hover {{
+                color: {HUDColors.TEXT_BRIGHT};
+            }}
+        """)
+        self.toggle_eye_btn.clicked.connect(self._toggle_echo_mode)
+        input_row.addWidget(self.toggle_eye_btn)
+
+        layout.addLayout(input_row)
+
+        # Help hint
+        hint_lbl = QLabel("Need an API key? Get one free: https://aistudio.google.com")
+        hint_lbl.setFont(QFont("Courier New", 8))
+        hint_lbl.setStyleSheet(f"color: {HUDColors.TEXT_DIM};")
+        layout.addWidget(hint_lbl)
+
+        # Save checkbox
+        self.save_check = QCheckBox("Save key to .env file for future sessions")
+        self.save_check.setChecked(True)
+        self.save_check.setFont(QFont("Courier New", 8))
+        self.save_check.setStyleSheet(f"color: {HUDColors.CYAN};")
+        layout.addWidget(self.save_check)
+
+        layout.addStretch(1)
+
+        # Bottom Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        cancel_btn = QPushButton("CANCEL / SKIP")
+        cancel_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        cancel_btn.setFixedHeight(34)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #041424;
+                color: {HUDColors.TEXT_DIM};
+                border: 1px solid {HUDColors.BORDER};
+                border-radius: 4px;
+                padding: 6px 16px;
+            }}
+            QPushButton:hover {{
+                color: {HUDColors.TEXT_BRIGHT};
+                border: 1px solid {HUDColors.TEXT_DIM};
+            }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        save_btn = QPushButton("◈ INITIALIZE NEURAL CORE")
+        save_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        save_btn.setFixedHeight(34)
+        save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #0b3d61;
+                color: {HUDColors.CYAN};
+                border: 1px solid {HUDColors.CYAN};
+                border-radius: 4px;
+                padding: 6px 20px;
+            }}
+            QPushButton:hover {{
+                background-color: #125484;
+                color: #ffffff;
+            }}
+        """)
+        save_btn.clicked.connect(self._save_and_accept)
+        btn_row.addWidget(save_btn)
+
+        layout.addLayout(btn_row)
+
+    def _paste_clipboard(self) -> None:
+        """Paste text from system clipboard into input field."""
+        clip = QApplication.clipboard().text().strip()
+        if clip:
+            self.key_input.setText(clip)
+
+    def _toggle_echo_mode(self) -> None:
+        """Toggle between password masked and visible text."""
+        if self.key_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.key_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.toggle_eye_btn.setText("🔒 HIDE")
+        else:
+            self.key_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.toggle_eye_btn.setText("👁 SHOW")
+
+    def _save_and_accept(self) -> None:
+        """Validate key, write to environment, and close dialog."""
+        key = self.key_input.text().strip()
+        if not key:
+            QMessageBox.warning(self, "Invalid Key", "Please paste or enter a valid Gemini API key.")
+            return
+
+        if self.save_check.isChecked():
+            save_api_key_to_env(key)
+        else:
+            os.environ["GEMINI_API_KEY"] = key
+
+        self.accept()
+
+
 class ArcReactorWidget(QWidget):
-    """Native QPainter Arc Reactor / Neural Core animation widget."""
+    """Native QPainter Arc Reactor / Neural Core animation widget with blueprint matrix."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -95,13 +327,12 @@ class ArcReactorWidget(QWidget):
             rate = 0.08
 
         self._phase += rate
-        # Smooth amplitude decay
         self._amp_disp += (self._live_amp - self._amp_disp) * 0.15
         self._live_amp = max(0.02, self._live_amp * 0.92)
         self.update()
 
     def paintEvent(self, _event: Any) -> None:
-        """Render the animated Arc Reactor using vector geometry."""
+        """Render the animated Arc Reactor using vector geometry and sci-fi matrix."""
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), qcol(HUDColors.BG))
@@ -127,7 +358,39 @@ class ArcReactorWidget(QWidget):
         else:
             main_col, acc_col = qcol(HUDColors.CYAN), qcol(HUDColors.CYAN_DIM)
 
-        # 1. Background radial glow
+        # 0. Blueprint Grid Dots
+        p.setPen(QPen(qcol(HUDColors.CYAN, 24), 1))
+        step = 32
+        for gx in range(0, int(w), step):
+            for gy in range(0, int(h), step):
+                p.drawPoint(gx, gy)
+
+        # 1. Corner Framing Crosshairs (Blueprint Brackets)
+        m, arm = 12.0, 16.0
+        p.setPen(QPen(qcol(HUDColors.CYAN, 70), 1.2))
+        for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
+            x = cx + sx * (w / 2.0 - m)
+            y = cy + sy * (h / 2.0 - m)
+            p.drawLine(QLineF(x, y, x - sx * arm, y))
+            p.drawLine(QLineF(x, y, x, y - sy * arm))
+
+        # 2. Canvas Crosshairs broken around core
+        gap = r * 0.72
+        p.setPen(QPen(qcol(HUDColors.CYAN, 35), 1))
+        p.drawLine(QLineF(cx - w * 0.46, cy, cx - gap, cy))
+        p.drawLine(QLineF(cx + gap, cy, cx + w * 0.46, cy))
+        p.drawLine(QLineF(cx, cy - h * 0.46, cx, cy - gap))
+        p.drawLine(QLineF(cx, cy + gap, cx, cy + h * 0.46))
+
+        # 3. Cardinal Degree Markers
+        p.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        p.setPen(QPen(qcol(HUDColors.CYAN_DIM, 120), 1))
+        p.drawText(QRectF(cx - 20, cy - r * 1.05 - 12, 40, 12), Qt.AlignmentFlag.AlignCenter, "000°")
+        p.drawText(QRectF(cx + r * 1.05 + 4, cy - 6, 36, 12), Qt.AlignmentFlag.AlignLeft, "090°")
+        p.drawText(QRectF(cx - 20, cy + r * 1.05 + 2, 40, 12), Qt.AlignmentFlag.AlignCenter, "180°")
+        p.drawText(QRectF(cx - r * 1.05 - 40, cy - 6, 36, 12), Qt.AlignmentFlag.AlignRight, "270°")
+
+        # 4. Background Radial Atmosphere Glow
         glow_rad = r * (0.65 + 0.3 * amp)
         glow = QRadialGradient(cx, cy, glow_rad)
         glow.setColorAt(0.0, qcol(acc_col.name(), int(160 + 90 * amp)))
@@ -138,13 +401,13 @@ class ArcReactorWidget(QWidget):
         p.drawEllipse(QRectF(cx - glow_rad, cy - glow_rad, glow_rad * 2, glow_rad * 2))
         p.setBrush(Qt.BrushStyle.NoBrush)
 
-        # 2. Outer boundary concentric rings
+        # 5. Concentric Rings
         for rr, alpha, width in ((1.0, 90, 1.0), (0.92, 140, 1.2), (0.75, 80, 1.0)):
             p.setPen(QPen(qcol(main_col.name(), alpha), width))
             rad = r * rr
             p.drawEllipse(QRectF(cx - rad, cy - rad, rad * 2, rad * 2))
 
-        # 3. Rotating tick graduations (72 radial ticks)
+        # 6. Rotating Tick Graduations (72 radial ticks)
         p.setPen(QPen(qcol(main_col.name(), 120), 1.2))
         lines: List[QLineF] = []
         for i in range(72):
@@ -157,7 +420,7 @@ class ArcReactorWidget(QWidget):
             ))
         p.drawLines(lines)
 
-        # 4. Sweeping segmented arcs
+        # 7. Sweeping Segmented Arcs
         arc_specs = [
             (0.85, 120, 2, +1.0, acc_col, 2.2),
             (0.70, 80, 3, -1.2, main_col, 1.5),
@@ -172,17 +435,124 @@ class ArcReactorWidget(QWidget):
             for k in range(count):
                 p.drawArc(box, int((base_deg + k * (360.0 / count)) * 16), int(span * 16))
 
-        # 5. Core center disc & pulse
-        core_r = r * (0.22 + 0.08 * amp)
+        # 8. Orbiting Electron Energy Nodes
+        for node_i in range(4):
+            node_ang = math.radians(node_i * 90.0 + t * 45.0)
+            nx = cx + math.cos(node_ang) * (r * 0.92)
+            ny = cy + math.sin(node_ang) * (r * 0.92)
+            p.setBrush(QBrush(qcol(acc_col.name(), 220)))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QPointF(nx, ny), 3.0 + 1.5 * amp, 3.0 + 1.5 * amp)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+
+        # 9. Core Center Disc & Pulse
+        core_r = r * (0.24 + 0.08 * amp)
         p.setBrush(QBrush(qcol(main_col.name(), int(180 + 75 * amp))))
         p.setPen(QPen(qcol(acc_col.name()), 2.0))
         p.drawEllipse(QRectF(cx - core_r, cy - core_r, core_r * 2, core_r * 2))
 
-        # Core status text
-        p.setFont(QFont("Courier New", int(max(7, r * 0.07)), QFont.Weight.Bold))
+        # 10. Center Typography ("J.A.R.V.I.S")
+        f = QFont("Courier New", int(max(8, r * 0.09)), QFont.Weight.Bold)
+        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.5)
+        p.setFont(f)
         p.setPen(QPen(qcol("#ffffff"), 1))
-        label_text = self.state if not self.speaking else "SPEAKING"
-        p.drawText(QRectF(cx - 50, cy - 10, 100, 20), Qt.AlignmentFlag.AlignCenter, label_text)
+        p.drawText(QRectF(cx - core_r, cy - 10, core_r * 2, 20), Qt.AlignmentFlag.AlignCenter, "J.A.R.V.I.S")
+
+
+class WaveformVisualizerWidget(QWidget):
+    """Dynamic Sci-Fi Cyber Waveform Audio Visualizer (Mark LVI authentic styling)."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(95)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        self.state: str = "LISTENING"
+        self.speaking: bool = False
+        self.muted: bool = False
+        self._live_amp: float = 0.05
+        self._amp_disp: float = 0.05
+        self._phase: float = 0.0
+
+        # Animation timer (60 FPS)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._step)
+        self._timer.start(16)
+
+    def set_state(self, state: str) -> None:
+        self.state = state.upper()
+        self.update()
+
+    def set_amplitude(self, amp: float) -> None:
+        self._live_amp = max(0.0, min(1.0, float(amp)))
+
+    def _step(self) -> None:
+        rate = 0.06 if self.speaking else 0.03
+        self._phase += rate
+        self._amp_disp += (self._live_amp - self._amp_disp) * 0.18
+        self._live_amp = max(0.02, self._live_amp * 0.90)
+        self.update()
+
+    def paintEvent(self, _event: Any) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), qcol(HUDColors.BG))
+
+        w, h = float(self.width()), float(self.height())
+        cx, cy = w / 2.0, h / 2.0 - 2.0
+
+        amp = self._amp_disp
+        t = self._phase
+
+        # 1. Top status label
+        p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        status_txt = "MUTED" if self.muted else ("SPEAKING" if self.speaking else (self.state if self.state != "IDLE" else "ONLINE"))
+        col_main = HUDColors.RED if self.muted else (HUDColors.AMBER if self.speaking else HUDColors.CYAN)
+        p.setPen(QPen(qcol(col_main), 1))
+        p.drawText(QRectF(0, 2, w, 16), Qt.AlignmentFlag.AlignCenter, f"{status_txt} // FULL-DUPLEX AUDIO LINK")
+
+        # 2. Subtitle
+        p.setFont(QFont("Courier New", 7))
+        p.setPen(QPen(qcol(HUDColors.TEXT_DIM), 1))
+        p.drawText(QRectF(0, 18, w, 14), Qt.AlignmentFlag.AlignCenter, "GEMINI LIVE · CHARON · REAL-TIME STREAM")
+
+        # 3. Waveform bars (Symmetrical envelope)
+        N = 48
+        bw = 6.0
+        gap = 4.0
+        total_span = N * (bw + gap) - gap
+        wx0 = cx - total_span / 2.0
+        mid = (N - 1) / 2.0
+
+        for i in range(N):
+            if self.muted:
+                half_h = 2.0
+                bar_col = qcol(HUDColors.RED, 160)
+            else:
+                env = (1.0 - abs(i - mid) / mid) ** 0.68
+                wave1 = math.sin(t * 3.6 + i * 0.28)
+                wave2 = math.cos(t * 2.1 - i * 0.19)
+                shimmer = 0.6 + 0.4 * (wave1 * 0.7 + wave2 * 0.3)
+                idle = 3.0 + 2.5 * math.sin(t * 1.6 + i * 0.45)
+                live_h = idle + amp * 34.0 * env * shimmer
+                half_h = max(2.0, min(36.0, live_h))
+
+                if amp > 0.05:
+                    bar_hex = HUDColors.AMBER if self.speaking else (HUDColors.GREEN if half_h > 18 else HUDColors.CYAN)
+                    bar_col = qcol(bar_hex, int(180 + 75 * min(1.0, half_h / 24.0)))
+                else:
+                    bar_col = qcol(HUDColors.CYAN_DIM, int(90 + 50 * shimmer))
+
+            bx = wx0 + i * (bw + gap)
+            p.setBrush(QBrush(bar_col))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRectF(bx, cy - half_h + 14, bw, half_h * 2.0), 2.0, 2.0)
+
+        # 4. Bottom hint
+        p.setFont(QFont("Courier New", 7))
+        p.setPen(QPen(qcol(HUDColors.TEXT_DIM), 1))
+        hint_text = "[MICROPHONE MUTED - PRESS F4 TO UNMUTE]" if self.muted else "[ACOUSTIC BARGE-IN ARMED · SPEAK FREELY ANYTIME · F4 TO MUTE]"
+        p.drawText(QRectF(0, h - 16, w, 14), Qt.AlignmentFlag.AlignCenter, hint_text)
 
 
 class MetricBarWidget(QWidget):
@@ -294,8 +664,8 @@ class JarvisNativeHUD(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("JARVIS - SCI-FI DESKTOP NEURAL INTERFACE (MARK LVI)")
-        self.resize(1100, 720)
-        self.setMinimumSize(850, 560)
+        self.resize(1120, 750)
+        self.setMinimumSize(880, 580)
         self.setStyleSheet(f"background-color: {HUDColors.BG}; color: {HUDColors.TEXT_BRIGHT};")
 
         self.voice_thread: Optional[VoiceThread] = None
@@ -305,13 +675,16 @@ class JarvisNativeHUD(QMainWindow):
         self._init_telemetry_timer()
         self._start_voice_engine()
 
+        # Prompt API key configuration dialog on startup as requested by the user
+        QTimer.singleShot(150, self._check_startup_api_key)
+
     def _init_ui(self) -> None:
         """Construct the HUD window layout."""
         central = QWidget(self)
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
         root_layout.setContentsMargins(16, 12, 16, 16)
-        root_layout.setSpacing(12)
+        root_layout.setSpacing(10)
 
         # 1. Top Header Bar
         header = QHBoxLayout()
@@ -330,6 +703,16 @@ class JarvisNativeHUD(QMainWindow):
         header.addLayout(title_box)
 
         header.addStretch(1)
+
+        # API Key Config Button
+        self.api_key_btn = QPushButton("🔑 API KEY")
+        self.api_key_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self.api_key_btn.setStyleSheet(
+            f"background-color: #061f38; color: {HUDColors.CYAN}; "
+            "padding: 5px 14px; border-radius: 12px; border: 1px solid #00e5ff; cursor: pointer;"
+        )
+        self.api_key_btn.clicked.connect(self.open_api_key_dialog)
+        header.addWidget(self.api_key_btn)
 
         # Status pills
         self.status_pill = QLabel("● CONNECTING")
@@ -356,7 +739,7 @@ class JarvisNativeHUD(QMainWindow):
         sep.setStyleSheet(f"color: {HUDColors.BORDER};")
         root_layout.addWidget(sep)
 
-        # 2. Body Area (Left: Telemetry & Controls, Center: Arc Reactor, Right: Live Log)
+        # 2. Body Area (Left: Telemetry, Center: Arc Reactor + Waveform, Right: Stream Log)
         body = QHBoxLayout()
         body.setSpacing(14)
 
@@ -377,7 +760,7 @@ class JarvisNativeHUD(QMainWindow):
         left_col.addWidget(self.lat_bar)
         left_col.addWidget(self.disk_bar)
 
-        left_col.addSpacing(10)
+        left_col.addSpacing(8)
         subsys_title = QLabel("[SUBSYSTEMS]")
         subsys_title.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
         subsys_title.setStyleSheet(f"color: {HUDColors.TEXT_DIM};")
@@ -407,13 +790,17 @@ class JarvisNativeHUD(QMainWindow):
         left_col.addWidget(self.subsys_box)
         left_col.addStretch(1)
 
-        body.addLayout(left_col, 28)
+        body.addLayout(left_col, 26)
 
-        # Center Column: Arc Reactor Core
+        # Center Column: Arc Reactor Core + Cyber Waveform Visualizer
         center_col = QVBoxLayout()
+        center_col.setSpacing(6)
         self.reactor = ArcReactorWidget()
-        center_col.addWidget(self.reactor)
-        body.addLayout(center_col, 40)
+        center_col.addWidget(self.reactor, 1)
+
+        self.waveform = WaveformVisualizerWidget()
+        center_col.addWidget(self.waveform)
+        body.addLayout(center_col, 42)
 
         # Right Column: Interaction Stream Log
         right_col = QVBoxLayout()
@@ -440,6 +827,7 @@ class JarvisNativeHUD(QMainWindow):
         chips_layout.setSpacing(8)
 
         chips = [
+            ("🔑 Set API Key", "__apikey__"),
             ("Mute (F4)", "mute"),
             ("WhatsApp", "open whatsapp"),
             ("Search Aryan", "search contact Aryan in whatsapp"),
@@ -494,6 +882,27 @@ class JarvisNativeHUD(QMainWindow):
 
         root_layout.addLayout(input_bar)
 
+    def _check_startup_api_key(self) -> None:
+        """Prompt API key dialog on launch so the user can easily paste or review their key."""
+        key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not key or key.startswith("your_gemini") or os.getenv("PROMPT_KEY_ON_STARTUP", "1") == "1":
+            self.open_api_key_dialog()
+
+    def open_api_key_dialog(self) -> None:
+        """Open the futuristic API key configuration modal."""
+        current_key = os.getenv("GEMINI_API_KEY", "").strip()
+        dlg = ApiKeyDialog(current_key=current_key, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_key = os.getenv("GEMINI_API_KEY", "").strip()
+            self.append_log("SYS", f"Neural API Key verified: AIza...{new_key[-4:] if len(new_key) > 6 else '****'}", color=HUDColors.GREEN)
+            # Re-initialize voice engine if needed
+            if self.voice_thread is None or not self.voice_thread.isRunning():
+                self._start_voice_engine()
+            else:
+                self.append_log("SYS", "Connecting to Gemini Live with updated neural key...", color=HUDColors.CYAN)
+                self.voice_thread.stop()
+                self._start_voice_engine()
+
     def _init_telemetry_timer(self) -> None:
         """Start periodic system telemetry sampling."""
         self._telemetry_timer = QTimer(self)
@@ -516,6 +925,16 @@ class JarvisNativeHUD(QMainWindow):
 
     def _start_voice_engine(self) -> None:
         """Launch Gemini Live full-duplex voice thread."""
+        key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not key or key.startswith("your_gemini"):
+            self.status_pill.setText("● NO KEY")
+            self.status_pill.setStyleSheet(
+                f"background-color: #380b18; color: {HUDColors.RED}; "
+                "padding: 5px 12px; border-radius: 12px; border: 1px solid #661828;"
+            )
+            self.append_log("SYS", "Waiting for Gemini API Key. Click [🔑 API KEY] above to enter your key.", color=HUDColors.AMBER)
+            return
+
         self.append_log("SYS", "Connecting to Gemini Live full-duplex neural engine...", color=HUDColors.CYAN)
         self.voice_thread = VoiceThread(self)
         self.voice_thread.status_signal.connect(self._handle_voice_event)
@@ -534,6 +953,7 @@ class JarvisNativeHUD(QMainWindow):
                     "padding: 5px 12px; border-radius: 12px; border: 1px solid #186640;"
                 )
                 self.reactor.set_state("LISTENING")
+                self.waveform.set_state("LISTENING")
                 self.append_log("SYS", f"Live Session connected! Model: {event.get('model', 'gemini')}", color=HUDColors.GREEN)
             elif status == "connecting":
                 self.status_pill.setText("● CONNECTING")
@@ -542,6 +962,7 @@ class JarvisNativeHUD(QMainWindow):
                     "padding: 5px 12px; border-radius: 12px; border: 1px solid #14446b;"
                 )
                 self.reactor.set_state("THINKING")
+                self.waveform.set_state("CONNECTING")
             elif status == "error":
                 self.status_pill.setText("● ERROR")
                 self.status_pill.setStyleSheet(
@@ -550,28 +971,36 @@ class JarvisNativeHUD(QMainWindow):
                 )
                 self.append_log("ERR", event.get("message", "Voice error"), color=HUDColors.RED)
 
-        elif ev_type == "voice_live_hearing":
-            self.reactor.set_state("LISTENING")
-            self.reactor.set_amplitude(0.35)
-
         elif ev_type == "mic_amplitude":
             if not self._is_muted and not self.reactor.speaking:
                 try:
                     amp = float(event.get("level", 0.0))
                     self.reactor.set_amplitude(amp)
+                    self.waveform.set_amplitude(amp)
                 except Exception:
                     pass
+
+        elif ev_type == "voice_live_hearing":
+            self.reactor.set_state("LISTENING")
+            self.reactor.set_amplitude(0.40)
+            self.waveform.set_state("LISTENING")
+            self.waveform.set_amplitude(0.45)
 
         elif ev_type == "voice_live_speaking":
             self.reactor.speaking = True
             self.reactor.set_state("SPEAKING")
             self.reactor.set_amplitude(0.65)
+            self.waveform.speaking = True
+            self.waveform.set_state("SPEAKING")
+            self.waveform.set_amplitude(0.70)
 
         elif ev_type == "voice_turn":
             speaker = event.get("speaker", "assistant")
             text = event.get("text", "")
             self.reactor.speaking = False
             self.reactor.set_state("LISTENING")
+            self.waveform.speaking = False
+            self.waveform.set_state("LISTENING")
             if speaker == "user":
                 self.append_log("YOU", text, color=HUDColors.CYAN)
             else:
@@ -580,12 +1009,16 @@ class JarvisNativeHUD(QMainWindow):
         elif ev_type == "tool_step":
             tool_text = event.get("text", "")
             self.reactor.set_state("THINKING")
+            self.waveform.set_state("PROCESSING")
             self.append_log("TOOL", f"Executing: {tool_text}", color=HUDColors.AMBER)
 
     def _handle_chip_click(self, cmd: str) -> None:
         """Handle quick action button press."""
         if cmd == "__clear__":
             self.log_edit.clear()
+            return
+        elif cmd == "__apikey__":
+            self.open_api_key_dialog()
             return
         self.cmd_input.setText(cmd)
         self._send_text_directive()
@@ -608,6 +1041,7 @@ class JarvisNativeHUD(QMainWindow):
             return
 
         self.reactor.set_state("THINKING")
+        self.waveform.set_state("PROCESSING")
 
         threading.Thread(target=self._process_directive_async, args=(text,), daemon=True).start()
 
@@ -618,7 +1052,6 @@ class JarvisNativeHUD(QMainWindow):
             brain = JarvisBrain()
             res = brain.think(text)
             reply = res.response or "Directive completed."
-            # Schedule log append on Qt main thread via QTimer.singleShot
             QTimer.singleShot(0, lambda: self._on_directive_result(reply, res.steps))
         except Exception as exc:
             err_msg = f"Failed to execute directive: {exc}"
@@ -630,6 +1063,7 @@ class JarvisNativeHUD(QMainWindow):
             self.append_log("TOOL", step, color=HUDColors.AMBER)
         self.append_log("JARVIS", reply, color="#ffffff")
         self.reactor.set_state("LISTENING")
+        self.waveform.set_state("LISTENING")
 
     def _toggle_mic(self) -> None:
         """Toggle microphone mute."""
@@ -639,6 +1073,7 @@ class JarvisNativeHUD(QMainWindow):
         """Synchronize microphone mute state across UI and voice engine."""
         self._is_muted = bool(muted)
         self.reactor.muted = self._is_muted
+        self.waveform.muted = self._is_muted
         if self.voice_thread:
             self.voice_thread.set_muted(self._is_muted)
 
@@ -649,6 +1084,7 @@ class JarvisNativeHUD(QMainWindow):
                 "border: 1px solid #661828; border-radius: 4px; padding: 8px 14px;"
             )
             self.reactor.set_state("MUTED")
+            self.waveform.set_state("MUTED")
             self.append_log("SYS", "Microphone MUTED (F4). Audio transmission stopped. JARVIS cannot hear you.", color=HUDColors.RED)
         else:
             self.mic_btn.setText("MIC: ACTIVE (F4)")
@@ -657,6 +1093,7 @@ class JarvisNativeHUD(QMainWindow):
                 "border: 1px solid #186640; border-radius: 4px; padding: 8px 14px;"
             )
             self.reactor.set_state("LISTENING")
+            self.waveform.set_state("LISTENING")
             self.append_log("SYS", "Microphone ACTIVE. Listening to voice...", color=HUDColors.GREEN)
 
     def keyPressEvent(self, event: Any) -> None:
