@@ -1,5 +1,6 @@
 # Global & Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *$py.class
 *.so
@@ -38,6 +39,7 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 *.db
+memory/preferences.json
 vector_store/
 chroma_db/
 cache/
@@ -65,7 +67,9 @@ Thumbs.db
 # Documentation & Sprint Planning Artifacts (Keep local only)
 *.pdf
 generate_pdf.py
+docs/generate_playbook_pdf.py
 WEEK_1_EXECUTION_PLAN.md
+WEEK_2_EXECUTION_PLAN.md
 
 # --- Trupti: Messaging ---
 messaging/contacts.json
@@ -78,3 +82,12 @@ run_day1_to_day3.bat
 
 # Local runner scripts
 push_to_github.bat
+messaging/*.bat
+
+# Taste-Skill temp
+.taste-skill/
+
+# Agent skills & local configs
+.agents/
+skills-lock.json
+

@@ -10,6 +10,22 @@ from tools.base import BaseTool, ToolResult
 from tools.safety import is_path_safe
 
 
+def normalize_target_path(clean_path: str) -> str:
+    """Normalize file path, mapping desktop/documents/downloads to actual user directories."""
+    clean = clean_path.strip()
+    clean_norm = clean.replace("\\", "/")
+    parts = [p for p in clean_norm.split("/") if p]
+    for idx, part in enumerate(parts):
+        low = part.lower()
+        if low == "desktop":
+            sub = Path(*parts[idx + 1:]) if idx + 1 < len(parts) else Path()
+            return str(Path.home() / "Desktop" / sub)
+        if low in ("documents", "downloads"):
+            sub = Path(*parts[idx + 1:]) if idx + 1 < len(parts) else Path()
+            return str(Path.home() / low.capitalize() / sub)
+    return os.path.expanduser(clean)
+
+
 class FileContent(str):
     """String containing file content with optional dictionary-like access."""
 
@@ -65,11 +81,7 @@ class ReadFileTool(BaseTool):
 
             clean_path = target_path.strip()
 
-            # Normalize user home and Desktop references
-            expanded_path = os.path.expanduser(clean_path)
-            clean_lower = clean_path.replace("\\", "/").lower()
-            if clean_lower.startswith("desktop/") or clean_lower == "desktop":
-                expanded_path = str(Path.home() / clean_path)
+            expanded_path = normalize_target_path(clean_path)
 
             # Enforce path security isolation first
             if not is_path_safe(expanded_path):
@@ -195,17 +207,9 @@ class WriteFileTool(BaseTool):
 
             target_content = content if content is not None else (text if text is not None else (data if data is not None else ""))
             if not isinstance(target_content, str):
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="content must be a string."
-                )
+                target_content = str(target_content)
 
-            # Normalize user home and Desktop references
-            expanded_path = os.path.expanduser(clean_path)
-            clean_lower = clean_path.replace("\\", "/").lower()
-            if clean_lower.startswith("desktop/") or clean_lower == "desktop":
-                expanded_path = str(Path.home() / clean_path)
+            expanded_path = normalize_target_path(clean_path)
 
             # Enforce path security isolation first
             if not is_path_safe(expanded_path):

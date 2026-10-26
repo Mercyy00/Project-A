@@ -63,7 +63,7 @@ def run_voice_turn(auto_listen: bool = False) -> bool:
     print("\n[STATUS: LISTENING] Speak now (stops automatically on 5 sec silence)...")
     try:
         # Step 1: Listen with adaptive 5-second silence threshold (allows natural thinking pauses)
-        result = transcriber.listen(max_seconds=15, silence_seconds=5.0)
+        result = transcriber.listen(max_seconds=15, silence_seconds=float(os.getenv("SILENCE_SECONDS", "1.2")))
         user_text = result.get("text", "").strip()
         speech_end_time = result.get("speech_end_time", time.time())
 

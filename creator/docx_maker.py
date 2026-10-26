@@ -1,6 +1,6 @@
 """Day 3: Themed Word DOCX Maker using python-docx (Claude-Quality Elevation).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.docx_maker
 
 Generates publication-grade, beautifully styled Word (.docx) documents with:
@@ -29,6 +29,7 @@ from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
 
+from creator.chart_maker import generate_chart
 from creator.themes import (
     THEMES,
     contains_devanagari,
@@ -146,6 +147,10 @@ def make_docx(
     out_dir: str = "workspace",
     subtitle: Optional[str] = None,
     auto_open: bool = True,
+    cover_page: bool = True,
+    header_text: Optional[str] = None,
+    footer_text: Optional[str] = None,
+    author: Optional[str] = None,
 ) -> str:
     """Build a themed, Claude-quality Word document using python-docx.
 
@@ -156,6 +161,9 @@ def make_docx(
         out_dir: Target output directory.
         subtitle: Optional subtitle for executive cover page.
         auto_open: If True, opens the generated Word document automatically.
+        cover_page: Whether to include an executive cover page (default: True).
+        header_text: Optional running header text.
+        footer_text: Optional running footer text.
 
     Returns:
         str: Absolute filesystem path to the created DOCX file.
@@ -169,6 +177,7 @@ def make_docx(
         out_path = target_dir / f"{safe_name}_{theme_cfg['name']}.docx"
 
         doc = docx.Document()
+        doc_author = (author or "").strip() or "Project JARVIS"
 
         # Page margins
         for section in doc.sections:
@@ -180,7 +189,7 @@ def make_docx(
             # Header & Footer branding
             header = section.header
             header_p = header.paragraphs[0]
-            header_p.text = f"{title[:40]} | JARVIS Autonomous Document Engine"
+            header_p.text = header_text or f"{title[:40]} | JARVIS Autonomous Document Engine"
             header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             if header_p.runs:
                 _format_run(
@@ -193,7 +202,12 @@ def make_docx(
 
             footer = section.footer
             footer_p = footer.paragraphs[0]
-            footer_p.text = f"Theme: {theme_cfg['name'].replace('_', ' ').title()}  •  Author: Vidhita (Documents)  •  Project JARVIS"
+            if footer_text:
+                footer_p.text = footer_text
+            elif author and author.strip():
+                footer_p.text = f"Theme: {theme_cfg['name'].replace('_', ' ').title()}  •  Author: {author.strip()}  •  Project JARVIS"
+            else:
+                footer_p.text = f"Theme: {theme_cfg['name'].replace('_', ' ').title()}  •  Project JARVIS Document Engine"
             footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             if footer_p.runs:
                 _format_run(
@@ -212,55 +226,67 @@ def make_docx(
         border_hex = theme_cfg.get("border_color", "#CBD5E1").lstrip("#")
 
         # -------------------------------------------------------------
-        # 1. Executive Cover Page
+        # 1. Executive Cover Page (Optional)
         # -------------------------------------------------------------
-        # Accent top banner spacing
-        banner_p = doc.add_paragraph()
-        banner_p.paragraph_format.space_before = Pt(36)
-        banner_p.paragraph_format.space_after = Pt(8)
+        if cover_page:
+            # Accent top banner spacing
+            banner_p = doc.add_paragraph()
+            banner_p.paragraph_format.space_before = Pt(36)
+            banner_p.paragraph_format.space_after = Pt(8)
 
-        # Title
-        title_p = doc.add_paragraph()
-        t_run = title_p.add_run()
-        _format_run(t_run, title, font_name, theme_cfg["spacing"]["title_size"], prim_rgb, bold=True)
-        title_p.paragraph_format.space_after = Pt(6)
+            # Title
+            title_p = doc.add_paragraph()
+            t_run = title_p.add_run()
+            _format_run(t_run, title, font_name, theme_cfg["spacing"]["title_size"], prim_rgb, bold=True)
+            title_p.paragraph_format.space_after = Pt(6)
 
-        # Subtitle
-        sub_p = doc.add_paragraph()
-        sub_text = subtitle or "JARVIS Autonomous Intelligence • Executive Document"
-        s_run = sub_p.add_run()
-        _format_run(s_run, sub_text, font_name, 13, sub_rgb, italic=True)
-        sub_p.paragraph_format.space_after = Pt(28)
+            # Subtitle
+            sub_p = doc.add_paragraph()
+            sub_text = subtitle or "JARVIS Autonomous Intelligence • Executive Document"
+            s_run = sub_p.add_run()
+            _format_run(s_run, sub_text, font_name, 13, sub_rgb, italic=True)
+            sub_p.paragraph_format.space_after = Pt(28)
 
-        # Executive Metadata Card Table
-        meta_table = doc.add_table(rows=2, cols=2)
-        meta_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-        meta_table.autofit = False
+            # Executive Metadata Card Table
+            meta_table = doc.add_table(rows=2, cols=2)
+            meta_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            meta_table.autofit = False
 
-        meta_rows_data = [
-            [("AUTHOR", "Vidhita (Document Engineer) • Pair D"), ("STATUS", "Production Verified")],
-            [("THEME", theme_cfg["name"].replace("_", " ").title()), ("ENGINE", "python-docx Executive")],
-        ]
-        for r_idx, row in enumerate(meta_rows_data):
-            for c_idx, (label, val) in enumerate(row):
-                cell = meta_table.cell(r_idx, c_idx)
-                cell.width = Inches(3.3)
-                _set_cell_background(cell, theme_cfg.get("card_bg", "#F8FAFC"))
-                _set_cell_margins(cell, top=160, bottom=160, left=180, right=180)
+            meta_rows_data = [
+                [("AUTHOR", doc_author), ("STATUS", "Production Verified")],
+                [("THEME", theme_cfg["name"].replace("_", " ").title()), ("ENGINE", "python-docx Executive")],
+            ]
+            for r_idx, row in enumerate(meta_rows_data):
+                for c_idx, (label, val) in enumerate(row):
+                    cell = meta_table.cell(r_idx, c_idx)
+                    cell.width = Inches(3.3)
+                    _set_cell_background(cell, theme_cfg.get("card_bg", "#F8FAFC"))
+                    _set_cell_margins(cell, top=160, bottom=160, left=180, right=180)
 
-                cp = cell.paragraphs[0]
-                cp.paragraph_format.space_after = Pt(2)
-                l_run = cp.add_run()
-                _format_run(l_run, f"{label}: ", font_name, 9, sub_rgb, bold=True)
-                v_run = cp.add_run()
-                _format_run(v_run, val, font_name, 10, text_rgb)
+                    cp = cell.paragraphs[0]
+                    cp.paragraph_format.space_after = Pt(2)
+                    l_run = cp.add_run()
+                    _format_run(l_run, f"{label}: ", font_name, 9, sub_rgb, bold=True)
+                    v_run = cp.add_run()
+                    _format_run(v_run, val, font_name, 10, text_rgb)
 
-        _set_card_borders(meta_table, border_hex)
+            _set_card_borders(meta_table, border_hex)
 
-        # Space and PageBreak to move content to Page 2
-        post_p = doc.add_paragraph()
-        post_p.paragraph_format.space_before = Pt(120)
-        doc.add_page_break()
+            # Space and PageBreak to move content to Page 2
+            post_p = doc.add_paragraph()
+            post_p.paragraph_format.space_before = Pt(120)
+            doc.add_page_break()
+        else:
+            # Inline header for single-page or cover-free documents
+            title_p = doc.add_paragraph()
+            t_run = title_p.add_run()
+            _format_run(t_run, title, font_name, theme_cfg["spacing"]["title_size"], prim_rgb, bold=True)
+            title_p.paragraph_format.space_after = Pt(4)
+            if subtitle:
+                sub_p = doc.add_paragraph()
+                s_run = sub_p.add_run()
+                _format_run(s_run, subtitle, font_name, 12, sub_rgb, italic=True)
+                sub_p.paragraph_format.space_after = Pt(14)
 
         # -------------------------------------------------------------
         # 2. Content Sections
@@ -366,6 +392,52 @@ def make_docx(
                     # Space after table
                     tbl_gap = doc.add_paragraph()
                     tbl_gap.paragraph_format.space_before = Pt(8)
+
+            # Chart Embedding (Days 4 & 6 Deliverable)
+            chart_cfg = sec.get("chart")
+            chart_path = sec.get("chart_path") or sec.get("image_path")
+            if chart_cfg and isinstance(chart_cfg, dict):
+                try:
+                    if "labels" in chart_cfg and "values" in chart_cfg:
+                        from creator.charts import make_chart
+                        c_kind = chart_cfg.get("kind", chart_cfg.get("type", "bar"))
+                        c_labels = chart_cfg.get("labels", [])
+                        c_values = chart_cfg.get("values", [])
+                        c_title = chart_cfg.get("title", f"{heading} Chart")
+                        chart_path = make_chart(
+                            kind=c_kind,
+                            labels=c_labels,
+                            values=c_values,
+                            title=c_title,
+                            theme=theme,
+                            out_dir=out_dir,
+                        )
+                    else:
+                        c_type = chart_cfg.get("type", chart_cfg.get("kind", "bar"))
+                        c_data = chart_cfg.get("data", {})
+                        c_title = chart_cfg.get("title", f"{heading} Chart")
+                        chart_path = generate_chart(
+                            chart_type=c_type,
+                            data=c_data,
+                            title=c_title,
+                            theme=theme,
+                            out_dir=out_dir,
+                        )
+                except Exception:
+                    chart_path = None
+            elif chart_cfg and isinstance(chart_cfg, str) and os.path.exists(chart_cfg):
+                chart_path = chart_cfg
+
+            if chart_path and os.path.exists(chart_path):
+                try:
+                    pic_p = doc.add_paragraph()
+                    pic_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pic_p.paragraph_format.space_before = Pt(8)
+                    pic_p.paragraph_format.space_after = Pt(8)
+                    r = pic_p.add_run()
+                    r.add_picture(chart_path, width=Inches(5.5))
+                except Exception:
+                    pass
 
             # Optional section page break
             if sec.get("page_break_after"):

@@ -35,3 +35,88 @@ As Team Lead and Core Brain architect, today's focus is two-fold:
 - Added `pynput>=1.7.6` to `requirements.txt`.
 - Isolated `.env` variable bleed (`GEMINI_MODEL`, `MODEL_NAME`) in `tests/test_brain.py`.
 - Verified test suite passes hermetically across modules.
+
+
+---
+
+# Week 2 Plan: Autonomous Agentic Intelligence & Proactive Voice Assistant (Days 8–14)
+
+## Overview & Strategic Objectives
+In Week 2, Project JARVIS transitions from an interactive reactive assistant into an autonomous proactive agent:
+1. **Full-Duplex Voice & Interruption (Day 8):** Continuous VAD and Barge-In detection that mutes TTS and halts LLM generation immediately upon user speech.
+2. **Semantic Vector Memory & Code RAG (Day 9):** Persistent ChromaDB integration to recall user facts and index local workspace source code.
+3. **Multi-Step ReAct Planner (Day 10):** Structured task decomposition allowing JARVIS to plan, chain up to 8 tools, observe intermediate states, and self-correct.
+4. **Real-Time Web Intelligence (Day 11):** Clean article scraping, table parsing, live web research, and citation attribution.
+5. **Proactive Watchdog & Alerts (Day 12):** Background scheduler for hardware health warnings, scheduled reminders, and proactive Telegram push notifications.
+6. **Air-Gapped Offline LLM Fallback (Day 13):** Triple-engine failover (`Groq LPU ➔ Gemini ➔ Local Ollama`) with local Whisper and offline tools.
+7. **Week 2 Release 2.0 Packaging (Day 14):** 350+ unit tests, multi-channel stress tests, and one-click installer.
+
+---
+
+## Day 8 Implementation: Full-Duplex Stream Cancellation & Abort Mechanics (Core Brain)
+
+### Architectural Design
+1. **Thread-Safe Cancellation Bridging (`BridgedCancelEvent`):**
+   - Implemented in `core/service.py` to seamlessly connect `asyncio.Event` (used by FastAPI/WebSocket and asyncio event loops) with `threading.Event` (used in worker threads running synchronous LLM generators).
+   - Exposes `.is_set()`, `.set()`, and `.wait(timeout)` with zero CPU overhead.
+
+2. **Core Brain Generation Abort Protocol (`core/brain.py`):**
+   - Added `interrupt()`, `abort()`, and `is_interrupted` property to `JarvisBrain`.
+   - Updated `chat_stream()`, `stream_chat()`, `_chat_stream_with_groq()`, and `_chat_stream_with_gemini()` to accept optional `cancel_event`.
+   - Verified that token generation halts in <20ms upon cancellation, closing stream sockets where applicable and preventing partial truncated turns from polluting history or memory.
+
+3. **Service Layer API (`core/service.py`):**
+   - Exposed `interrupt_generation()` and `abort_stream()`.
+   - When cancelled, `handle_text_stream()` emits a dedicated `{"type": "interrupted", "text": "...", "source": source}` event.
+
+4. **Module Handoff Requirements:**
+   - **For Rohit (UI - `ui/server.py`):** When receiving `{"action": "interrupt"}` over WebSocket, invoke `core.service.interrupt_generation()`.
+   - **For Aryan & Madhuri (Voice - `voice/stt.py`):** On barge-in voice detection, invoke `core.service.interrupt_generation()` and call `voice.tts.stop_speaking()`.
+
+## Day 8 Implementation: Document Intelligence, Multi-Format Reader & Summarizer (Creator Engine)
+
+### Architectural Design
+1. **Multi-Format Ingestion Engine (`creator/document_reader.py`):**
+   - High-fidelity text, heading hierarchy, 2D table matrices, and metadata extraction across PDF (`pypdf`), Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+   - Zero-dependency HTML5 parser (`_WebArtifactHTMLParser`) extracting bento metric cards and data tables.
+   - Devanagari Unicode script detection (`_contains_devanagari`).
+
+2. **Structural Inspection & Table Extraction:**
+   - `inspect_document(file_path)` provides sub-millisecond structural diagnostics (page count, table count, headings, words, valid format).
+   - `extract_tables(file_path)` yields 2D matrices preserving column headers and rows.
+
+3. **Dual-Engine Executive Summarizer:**
+   - `summarize_document(file_path)` utilizes Google Gemini API with fallback to statistical extractive NLP heuristic.
+   - Complies with Day 8 Stream Cancellation Token protocol (`cancel_event` aborts within 20ms).
+
+4. **Central Registry & Brain Tools (`creator/tools.py`):**
+   - Exposed `ReadDocumentTool`, `SummarizeDocumentTool`, and `InspectDocumentTool`.
+   - Expands Creator tools count to 11 registered tools.
+
+---
+
+## Day 9 Implementation: Document Semantic RAG, Chunking & Grounded Citation Q&A (Creator Engine)
+
+### Architectural Design
+1. **Multi-Format Semantic Chunking Engine (`creator/document_rag.py`):**
+   - Ingests PDF, Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+   - Decomposes documents into sliding-window semantic passages preserving heading breadcrumbs (`["Title", "Heading 1"]`), 1-based page/slide numbers, and char offsets.
+   - Dedicated structural chunk isolation: encapsulates 2D tables (`_format_table_as_chunk`) and bento KPI metrics (`_format_metrics_as_chunk`) into intact chunks without truncating rows or numbers.
+   - Devanagari script awareness: respects Marathi Danda (`।`) and periods for authentic Indic sentence tokenization.
+
+2. **Hybrid Semantic Relevance Scoring (`search_document`):**
+   - Ranks passages using BM25/TF-IDF token matching with heading context weight boosts (1.5x) and table/metric intent boosts (1.3x).
+   - Generates verified, human-readable citations: `[filename - Page X, Section: "Heading"]`.
+
+3. **Grounded Autonomous Citation Q&A (`ask_document`):**
+   - Primary: Google Gemini (`gemini-3.5-flash-lite`) with strict grounding prompt preventing hallucination and enforcing inline citations.
+   - Fallback: Deterministic extractive NLP algorithm isolating high-signal sentences when offline or quota-limited.
+   - Stream Cancellation Token: sub-20ms abort on `cancel_event`.
+
+4. **Multi-Document Workspace Knowledge Indexer (`index_workspace_documents` / `query_workspace_knowledge`):**
+   - Recursively indexes workspace documents (`workspace/`) into `.document_index.json`.
+   - Enables cross-document semantic search and question answering across the entire project knowledge base.
+
+5. **Central Registry & Brain Tools (`creator/tools.py`):**
+   - Exposed `ChunkDocumentTool` (`chunk_document`), `SearchDocumentTool` (`search_document`), `AskDocumentTool` (`ask_document`), and `IndexWorkspaceDocumentsTool` (`index_workspace_documents`).
+   - Expands Creator tools count to 15 registered tools in `TOOL_REGISTRY`.
