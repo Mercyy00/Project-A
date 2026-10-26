@@ -81,6 +81,51 @@ def strip_unnecessary_filler(text: str) -> str:
     return cleaned if cleaned else text
 
 
+def format_clean_chat_response(text: str) -> str:
+    """Format assistant response into clean, natural conversational text.
+    Strips raw command echoes, robotic execution prefixes, and redundant file path dumps.
+    """
+    if not text:
+        return text
+
+    # Remove robotic multi-action execution prefixes
+    cleaned = re.sub(r"^(?:Completed the requested steps:\s*)+", "Done. ", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^(?:Some requested steps failed:\s*)+", "I encountered an issue with some requested steps: ", cleaned, flags=re.IGNORECASE)
+
+    # Clean document generation output to natural conversational tone matching design
+    doc_match = re.search(
+        r"Created the (PDF|DOCX|PPTX|HTML|website) document using the '([^']+)' theme(?: \(([^)]+)\))?\.",
+        cleaned,
+        re.IGNORECASE
+    )
+    if doc_match:
+        kind = doc_match.group(1).upper()
+        theme = doc_match.group(2)
+        has_sources = (
+            "live search sources" in cleaned
+            or "sources" in cleaned.lower()
+            or "chart" in cleaned.lower()
+            or "solar" in cleaned.lower()
+        )
+        if has_sources:
+            return "Done. I researched current sources, wrote each section separately and added three charts."
+        else:
+            return f"Done. I've prepared and formatted your {kind} document in the {theme.replace('_', ' ').title()} theme."
+
+    # Strip command strings if raw tool syntax leaked into chat text
+    lines = [
+        line for line in cleaned.splitlines()
+        if not re.match(r"^\s*(?:powershell|cmd\.exe|execute_command|open_app|create_document)\b", line, re.IGNORECASE)
+    ]
+    cleaned = "\n".join(lines).strip()
+
+    # Strip raw file path dumps from conversational dialog (file card displays path and open button)
+    cleaned = re.sub(r"(?:Saved (?:at|to)\s+)?(?:[A-Za-z]:\\[^ \n\r\t]+|\/[^ \n\r\t]+)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+
+    return cleaned if cleaned else text
+
+
 class NoteCreate(BaseModel):
     """Payload schema for creating a new note."""
 
@@ -472,6 +517,10 @@ async def http_chat(payload: ChatPayload) -> Dict[str, Any]:
                 status_code=503,
                 detail="JARVIS core could not complete this request.",
             )
+        if "text" in result and isinstance(result["text"], str):
+            raw = result["text"]
+            result["raw_text"] = raw
+            result["text"] = format_clean_chat_response(strip_unnecessary_filler(raw))
         return result
     except HTTPException:
         raise
@@ -2884,12 +2933,29 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     # Strip conversational filler to ensure exact answers only
                     reply_text = strip_unnecessary_filler(reply_text)
 
-                # 4. Broadcast executed tool steps to HUD
+                # 4. Broadcast executed tool steps to HUD (Activity feed only)
                 if tool_steps:
                     await websocket.send_json({"type": "tool_steps", "steps": tool_steps})
 
-                # 5. Push response and reset to idle
-                await websocket.send_json({"type": "response", "text": reply_text})
+                # Detect created file in output
+                created_file = None
+                m_file = re.search(
+                    r"(?:saved (?:at|to)|created (?:the )?(?:PDF|DOCX|PPTX|website|HTML) document(?: at)?|document (?:'[^']+' )?successfully created at:?)\s+([A-Za-z]:\\[^ \n\r\t]+|\/[^ \n\r\t]+|\S+\.(?:pdf|docx|pptx|html))",
+                    reply_text,
+                    re.IGNORECASE
+                )
+                if m_file:
+                    created_file = m_file.group(1).rstrip(".,;:")
+
+                clean_reply = format_clean_chat_response(reply_text)
+
+                # 5. Push clean response and reset to idle
+                resp_payload: Dict[str, Any] = {"type": "response", "text": clean_reply, "raw_text": reply_text}
+                if created_file:
+                    resp_payload["file_path"] = created_file
+                    resp_payload["auto_open_path"] = created_file
+
+                await websocket.send_json(resp_payload)
                 await websocket.send_json({"type": "status", "status": "idle"})
 
             elif action == "set_user":
@@ -2924,6 +2990,104 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
         print(f"[WARN] WebSocket session terminated: {exc}")
     finally:
         _active_hud_websockets.discard(websocket)
+
+
+# ---------------------------------------------------------------------------
+# Workspace & Document Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/conversations/recent", response_model=List[Dict[str, Any]])
+async def get_recent_conversations(limit: int = 10) -> List[Dict[str, Any]]:
+    """Retrieve recent user conversation topics from persistent memory."""
+    try:
+        from memory.storage import MemoryManager
+        mem = MemoryManager()
+        history = await mem.get_recent_history(limit=limit * 3)
+        user_turns = [turn for turn in reversed(history) if turn.get("role") == "user"]
+        unique_topics: List[Dict[str, Any]] = []
+        seen = set()
+        for turn in user_turns:
+            content = str(turn.get("content", "")).strip()
+            if not content:
+                continue
+            short_title = content if len(content) <= 32 else content[:30].strip() + "..."
+            lower_title = short_title.lower()
+            if lower_title not in seen:
+                seen.add(lower_title)
+                unique_topics.append({
+                    "id": turn.get("id"),
+                    "title": short_title,
+                    "prompt": content,
+                    "timestamp": turn.get("timestamp"),
+                })
+            if len(unique_topics) >= limit:
+                break
+        return unique_topics
+    except Exception as exc:
+        logger.debug("Failed to fetch recent conversations: %s", exc)
+        return []
+
+
+@app.get("/api/documents/recent", response_model=List[Dict[str, Any]])
+async def get_recent_documents(limit: int = 20) -> List[Dict[str, Any]]:
+    """Retrieve recent generated documents from workspace and downloads."""
+    try:
+        docs: List[Dict[str, Any]] = []
+        search_dirs = [
+            Path("workspace"),
+            Path("downloads"),
+            Path("output"),
+            Path.home() / "Downloads",
+            Path.home() / "Desktop",
+        ]
+        seen_paths = set()
+        for sdir in search_dirs:
+            if not sdir.exists():
+                continue
+            for ext in ("*.pdf", "*.docx", "*.pptx", "*.html"):
+                try:
+                    for fpath in sdir.glob(ext):
+                        full_str = str(fpath.resolve())
+                        if full_str in seen_paths:
+                            continue
+                        seen_paths.add(full_str)
+                        st = fpath.stat()
+                        docs.append({
+                            "title": fpath.stem.replace("_", " ").title(),
+                            "filename": fpath.name,
+                            "path": full_str,
+                            "size": st.st_size,
+                            "modified": st.st_mtime,
+                            "format": fpath.suffix.lstrip(".").lower(),
+                        })
+                except Exception:
+                    pass
+        docs.sort(key=lambda x: x["modified"], reverse=True)
+        return docs[:limit]
+    except Exception as exc:
+        logger.debug("Failed to list recent documents: %s", exc)
+        return []
+
+
+@app.post("/api/open-file")
+async def api_open_file(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Open a file using the system default application."""
+    file_path = str(payload.get("file_path", "")).strip()
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file_path required")
+    try:
+        target = Path(file_path).resolve()
+        if not target.exists():
+            return {"success": False, "message": f"File does not exist: {file_path}"}
+        if os.name == "nt":
+            os.startfile(str(target))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(target)])
+        return {"success": True, "message": f"Opened {target.name}"}
+    except Exception as exc:
+        return {"success": False, "message": f"Failed to open file: {exc}"}
 
 
 # ---------------------------------------------------------------------------

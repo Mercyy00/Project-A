@@ -23,7 +23,7 @@ def test_service_worker_endpoint():
     res = client.get("/sw.js")
     assert res.status_code == 200
     assert "javascript" in res.headers["content-type"]
-    assert "jarvis-pwa-v6" in res.text
+    assert "jarvis-pwa-v7" in res.text
 
 
 def test_icon_endpoint():
