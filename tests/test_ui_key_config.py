@@ -31,7 +31,7 @@ def test_set_key_invalid_probe_rejected():
     """Verify invalid key that fails live GenAI verification returns 400/401."""
     with patch("google.genai.Client") as mock_client_cls:
         mock_client = MagicMock()
-        mock_client.models.generate_content.side_effect = Exception("403 API_KEY_INVALID")
+        mock_client.models.get.side_effect = Exception("403 API_KEY_INVALID")
         mock_client_cls.return_value = mock_client
 
         response = client.post("/api/config/set-key", json={"gemini_api_key": "AIzaSy_fake_invalid_key"})
@@ -44,17 +44,21 @@ def test_set_key_successful_auth():
     with patch("google.genai.Client") as mock_client_cls, \
          patch("pathlib.Path.write_text"):
         mock_client = MagicMock()
-        mock_resp = MagicMock()
-        mock_resp.text = "OK"
-        mock_client.models.generate_content.return_value = mock_resp
         mock_client_cls.return_value = mock_client
 
         response = client.post(
             "/api/config/set-key",
-            json={"gemini_api_key": "AIzaSy_valid_mock_key_12345", "groq_api_key": "gsk_valid_mock"}
+            json={"gemini_api_key": "AIzaSy_valid_mock_key_12345"}
         )
         assert response.status_code == 200
         data = response.json()
         assert data.get("success") is True
         assert os.environ.get("GEMINI_API_KEY") == "AIzaSy_valid_mock_key_12345"
-        assert os.environ.get("GROQ_API_KEY") == "gsk_valid_mock"
+        mock_client.models.get.assert_called_once()
+
+
+def test_set_providers_rejects_unimplemented_tts_engine():
+    """The settings API must reject TTS options that silently resolve to Edge."""
+    response = client.post("/api/config/providers", json={"tts_provider": "piper"})
+    assert response.status_code == 400
+    assert "edge" in response.json()["detail"]

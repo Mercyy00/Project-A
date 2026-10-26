@@ -1,12 +1,18 @@
-"""Speech-to-Text (STT) module using faster-whisper for Project JARVIS.
+"""Speech-to-Text (STT) module for Project JARVIS.
+Ported from and powered by Mark LVI (core/stt.py & providers/stt_whisper.py).
 
-Authored by Madhuri (Voice Engineer - STT).
-Supports English, Hindi, and Marathi transcription from microphone
-and audio files with automatic language detection.
+Features:
+- Offline transcription via faster-whisper with greedy decoding (beam_size=1)
+- condition_on_previous_text=False (eliminates hallucinations and language bleeding)
+- VAD silence filtering (min_silence_duration_ms=300)
+- Streaming Vosk STT support
+- Direct numpy array transcription (zero ffmpeg / disk dependency)
+- Backward-compatible Transcriber interface for server & tests
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -14,12 +20,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Final
-
-# Ensure project root is in sys.path
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+from typing import Any, Final, Optional
 
 import numpy as np
 
@@ -49,13 +50,11 @@ except ImportError:
 
 from voice.lang import detect_language
 
-
-DEFAULT_SAMPLE_RATE: Final[int] = 16000  # 16 kHz mono standard
-DEFAULT_SILENCE_SECONDS: Final[float] = float(os.getenv("SILENCE_SECONDS", "1.2"))  # Adaptive pause threshold (allows 2s thinking pauses)
+DEFAULT_SAMPLE_RATE: Final[int] = 16000
+DEFAULT_SILENCE_SECONDS: Final[float] = float(os.getenv("SILENCE_SECONDS", "1.2"))
 DEFAULT_MAX_SECONDS: Final[int] = 15
 DEFAULT_MIC_DURATION: Final[int] = 4
 
-# Initial prompt hotwords to prevent Whisper mishearing 'Jarvis' as 'that is' / 'service' / 'drivers'
 WHISPER_INITIAL_PROMPT: Final[str] = (
     "Jarvis, J.A.R.V.I.S., Hindi, Marathi, namaste, open, search, notepad, date, time"
 )
@@ -77,8 +76,94 @@ class AudioFileError(STTError):
     """Raised when an audio file cannot be found or read."""
 
 
+class WhisperSTT:
+    """Offline transcription using faster-whisper (Mark LVI core engine)."""
+
+    def __init__(self, model_name: str = "base", language: str | None = None):
+        print(f"[STT] Loading Whisper '{model_name}'…")
+        if WhisperModel is None:
+            raise ModelLoadError("faster-whisper is not installed. Run 'pip install faster-whisper'.")
+
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            compute = "float16" if device == "cuda" else "int8"
+        except Exception:
+            device, compute = "cpu", "int8"
+
+        try:
+            self._model = WhisperModel(model_name, device=device, compute_type=compute)
+        except Exception as _first_err:
+            _e = str(_first_err).lower()
+            _offline_keywords = (
+                "offline", "not found", "cache", "localentry",
+                "does not exist", "outgoing", "local_files_only",
+            )
+            if any(k in _e for k in _offline_keywords):
+                print(f"[STT] Whisper '{model_name}' not in local cache — downloading…")
+                os.environ.pop("HF_HUB_OFFLINE", None)
+                os.environ.pop("TRANSFORMERS_OFFLINE", None)
+                os.environ.pop("HF_DATASETS_OFFLINE", None)
+                try:
+                    self._model = WhisperModel(model_name, device=device, compute_type=compute)
+                except Exception as _dl_err:
+                    raise ModelLoadError(
+                        f"Whisper '{model_name}' model download failed: {_dl_err}"
+                    ) from _dl_err
+            else:
+                try:
+                    self._model = WhisperModel(model_name, device=device, compute_type="default")
+                except Exception as fallback_err:
+                    raise ModelLoadError(f"Whisper load failed: {fallback_err}") from fallback_err
+
+        self._language = None if (not language or language.strip().lower() == "auto") else language.strip().lower()
+        print(f"[STT] Whisper '{model_name}' ready ({device})")
+
+    def transcribe(self, audio: np.ndarray, language: str | None = None) -> str:
+        """Transcribe a float32 mono 16 kHz numpy array. Returns transcript string."""
+        lang = language or self._language
+        try:
+            segments, _ = self._model.transcribe(
+                audio,
+                language=lang,
+                beam_size=1,                       # greedy — 2-3x faster
+                best_of=1,
+                condition_on_previous_text=False,  # no hallucinations
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 300},
+                initial_prompt=WHISPER_INITIAL_PROMPT,
+            )
+            return " ".join(s.text for s in segments).strip()
+        except Exception as e:
+            print(f"[STT] Transcription error: {e}")
+            raise STTError(str(e)) from e
+
+
+class VoskSTT:
+    """Streaming transcription using Vosk (Mark LVI core engine)."""
+
+    def __init__(self, model_path: str | None = None, language: str = "en-us"):
+        from vosk import Model, KaldiRecognizer
+        print("[STT] Loading Vosk model…")
+        if model_path:
+            model = Model(model_path)
+        else:
+            lang = language.strip().lower() if language and language.strip().lower() != "auto" else "en-us"
+            model = Model(lang=lang)
+        self._rec = KaldiRecognizer(model, 16000)
+        print("[STT] Vosk ready.")
+
+    def process_chunk(self, audio_bytes: bytes) -> tuple[str, bool]:
+        """Feed raw int16 LE PCM bytes. Returns (text, is_final)."""
+        if self._rec.AcceptWaveform(audio_bytes):
+            result = json.loads(self._rec.Result())
+            return result.get("text", ""), True
+        partial = json.loads(self._rec.PartialResult())
+        return partial.get("partial", ""), False
+
+
 class Transcriber:
-    """Manages Whisper model loading, audio recording, and transcription."""
+    """Unified Transcriber adapter wrapping WhisperSTT for Project JARVIS."""
 
     def __init__(
         self,
@@ -86,63 +171,18 @@ class Transcriber:
         device: str | None = None,
         compute_type: str | None = None,
     ) -> None:
-        """Initialize the Transcriber with model configuration.
-
-        Args:
-            model_size: Whisper model size ('tiny', 'base', 'small', etc.).
-                        Defaults to WHISPER_MODEL env var or 'base'.
-            device: Computing device ('cpu', 'cuda'). Defaults to WHISPER_DEVICE or 'cpu'.
-            compute_type: Quantization type ('int8', 'float32', 'default').
-                          Defaults to WHISPER_COMPUTE_TYPE or 'int8'.
-        """
         self.model_size: str = model_size or os.getenv("WHISPER_MODEL", "base")
         self.device: str = device or os.getenv("WHISPER_DEVICE", "cpu")
         self.compute_type: str = compute_type or os.getenv("WHISPER_COMPUTE_TYPE", "int8")
         self._model: Any = None
+        self._engine: Optional[WhisperSTT] = None
 
     def _ensure_model_loaded(self) -> Any:
-        """Load the faster-whisper model lazily with robust error handling."""
         if self._model is not None:
             return self._model
-
-        if WhisperModel is None:
-            raise ModelLoadError(
-                "faster-whisper is not installed. Run 'pip install faster-whisper'."
-            )
-
-        print(
-            f"Loading Whisper model '{self.model_size}' "
-            f"(device={self.device}, compute_type={self.compute_type})..."
-        )
-        try:
-            self._model = WhisperModel(
-                self.model_size,
-                device=self.device,
-                compute_type=self.compute_type,
-            )
-        except Exception as exc:
-            # If int8 is not supported by CPU, fallback gracefully to 'default' or 'float32'
-            if self.compute_type == "int8":
-                print(f"Warning: compute_type='int8' failed ({exc}). Retrying with 'default'...")
-                try:
-                    self.compute_type = "default"
-                    self._model = WhisperModel(
-                        self.model_size,
-                        device=self.device,
-                        compute_type="default",
-                    )
-                    return self._model
-                except Exception as fallback_exc:
-                    raise ModelLoadError(
-                        f"Failed to load Whisper model '{self.model_size}': {fallback_exc}. "
-                        "Check your internet connection if downloading for the first time."
-                    ) from fallback_exc
-
-            raise ModelLoadError(
-                f"Failed to load Whisper model '{self.model_size}': {exc}. "
-                "Check your internet connection if downloading for the first time."
-            ) from exc
-
+        if self._engine is None:
+            self._engine = WhisperSTT(model_name=self.model_size)
+        self._model = self._engine._model
         return self._model
 
     def record_audio(
@@ -150,21 +190,8 @@ class Transcriber:
         duration_seconds: float,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
     ) -> np.ndarray:
-        """Record audio from the microphone for a given duration.
-
-        Args:
-            duration_seconds: Duration in seconds to record.
-            sample_rate: Sampling frequency in Hz (default 16000).
-
-        Returns:
-            Numpy float32 1D array of audio samples.
-
-        Raises:
-            MicrophoneError: If recording fails or microphone is busy.
-        """
         if sd is None:
             raise MicrophoneError("sounddevice package is missing. Install sounddevice.")
-
         num_samples = int(duration_seconds * sample_rate)
         try:
             audio = sd.rec(
@@ -179,306 +206,131 @@ class Transcriber:
             err_msg = str(exc).lower()
             if "busy" in err_msg or "in use" in err_msg:
                 raise MicrophoneError(
-                    "Audio device busy: Another application is using the microphone. "
-                    "Close other apps using the mic and try again."
+                    "Audio device busy: Another application is using the microphone."
                 ) from exc
             raise MicrophoneError(f"Microphone recording failed: {exc}") from exc
 
     def transcribe_mic(self, duration_seconds: int = DEFAULT_MIC_DURATION) -> str:
-        """Record from the default microphone and return the transcribed text.
-
-        Args:
-            duration_seconds: Duration to listen in seconds (default 4).
-
-        Returns:
-            Transcribed text string.
-        """
-        print(f"Listening for {duration_seconds} seconds...")
         audio = self.record_audio(duration_seconds=float(duration_seconds))
-        
-        # Check if audio has minimal energy
-        if np.max(np.abs(audio)) < 0.005:
-            print("Notice: Very low audio detected.")
-
         model = self._ensure_model_loaded()
         try:
             segments, _ = model.transcribe(
                 audio,
-                beam_size=5,
+                beam_size=1,
+                best_of=1,
+                condition_on_previous_text=False,
                 vad_filter=True,
                 initial_prompt=WHISPER_INITIAL_PROMPT,
             )
-            text = " ".join(seg.text.strip() for seg in segments).strip()
-            return text
+            return " ".join(seg.text.strip() for seg in segments).strip()
         except Exception as exc:
             raise STTError(f"Transcription failed: {exc}") from exc
 
-    def _convert_ogg_if_needed(self, file_path: Path) -> Path:
-        """Ensure .ogg or unsupported audio files can be read.
-
-        If external ffmpeg is available and file is .ogg, convert to .wav as fallback.
-        Otherwise, returns original path (faster-whisper/PyAV natively reads .ogg).
-        """
-        if file_path.suffix.lower() == ".ogg" and shutil.which("ffmpeg"):
-            temp_wav = Path(tempfile.gettempdir()) / f"{file_path.stem}_converted_{int(time.time())}.wav"
-            cmd = [
-                "ffmpeg", "-y", "-i", str(file_path),
-                "-ar", str(DEFAULT_SAMPLE_RATE),
-                "-ac", "1",
-                str(temp_wav),
-            ]
-            try:
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                if temp_wav.is_file():
-                    return temp_wav
-            except Exception:
-                pass
-        return file_path
-
-    def transcribe_file(self, path: str | Path) -> dict[str, str]:
-        """Convert a local audio file into text and detected language.
-
-        Supports WAV, MP3, OGG, M4A, FLAC, and other standard formats.
-
-        Args:
-            path: Path to the audio file.
-
-        Returns:
-            Dictionary: {'text': str, 'language': str} where language is 'en', 'hi', or 'mr'.
-
-        Raises:
-            AudioFileError: If file does not exist or cannot be read.
-            STTError: If transcription fails.
-        """
+    def transcribe_file(self, path: str | Path, language: str | None = None) -> dict[str, str]:
         file_path = Path(path)
         if not file_path.is_file():
             raise AudioFileError(f"Audio file not found: {file_path}")
 
-        target_path = self._convert_ogg_if_needed(file_path)
         model = self._ensure_model_loaded()
-
-        # Attempt decoding: read via soundfile if possible, else path
         try:
-            if sf is not None and target_path.suffix.lower() in (".wav", ".flac", ".ogg"):
-                try:
-                    audio_data, file_sr = sf.read(str(target_path), dtype="float32")
-                    if audio_data.ndim > 1:
-                        audio_data = np.mean(audio_data, axis=1)
-                    if file_sr == DEFAULT_SAMPLE_RATE:
-                        segments, info = model.transcribe(
-                            audio_data, beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
-                        )
-                    else:
-                        segments, info = model.transcribe(
-                            str(target_path), beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
-                        )
-                except Exception:
-                    segments, info = model.transcribe(
-                        str(target_path), beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
-                    )
-            else:
-                segments, info = model.transcribe(
-                    str(target_path), beam_size=5, vad_filter=True, initial_prompt=WHISPER_INITIAL_PROMPT
-                )
-
-            text = " ".join(seg.text.strip() for seg in segments).strip()
-
-            # Determine language using voice.lang detect_language
-            detected_lang = detect_language(text)
-
-            # If text is empty, map whisper's own detected language if supported
-            if not text and info and hasattr(info, "language"):
-                w_lang = getattr(info, "language", "en")
-                detected_lang = w_lang if w_lang in ("en", "hi", "mr") else "en"
-
-            return {
-                "text": text,
-                "language": detected_lang,
-            }
-        except Exception as exc:
-            raise STTError(f"Failed to transcribe file '{file_path}': {exc}") from exc
-        finally:
-            if target_path != file_path and target_path.exists():
-                try:
-                    target_path.unlink()
-                except OSError:
-                    pass
+            segments, info = model.transcribe(
+                str(file_path),
+                language=language,
+                beam_size=1,
+                best_of=1,
+                condition_on_previous_text=False,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 300},
+                initial_prompt=WHISPER_INITIAL_PROMPT,
+            )
+            text = " ".join(s.text for s in segments).strip()
+            det_lang = language or getattr(info, "language", "en")
+            return {"text": text, "language": det_lang}
+        except Exception as e:
+            raise STTError(f"File transcription failed: {e}") from e
 
     def listen(
         self,
-        max_seconds: int = DEFAULT_MAX_SECONDS,
+        max_seconds: int | float = DEFAULT_MAX_SECONDS,
         silence_seconds: float = DEFAULT_SILENCE_SECONDS,
-        sample_rate: int = DEFAULT_SAMPLE_RATE,
-        silence_threshold: float = 0.015,
+        timeout: float | None = None,
     ) -> dict[str, str]:
-        """Record audio from microphone at 16000 Hz mono until silence, then transcribe.
-
-        Records in chunks until approx `silence_seconds` of quiet are detected
-        after speech has begun, or until `max_seconds` elapses.
-
-        Args:
-            max_seconds: Maximum total recording time (default 10s).
-            silence_seconds: Stop recording after this many seconds of silence (default 1.5s).
-            sample_rate: Recording sample rate (default 16000 Hz).
-            silence_threshold: RMS amplitude threshold below which audio is silence.
-
-        Returns:
-            Dictionary: {'text': str, 'language': str}.
-        """
         if sd is None:
-            raise MicrophoneError("sounddevice is required. Run 'pip install sounddevice'.")
+            raise MicrophoneError("sounddevice is not available.")
 
-        chunk_duration = 0.1  # 100ms per block
-        chunk_samples = int(sample_rate * chunk_duration)
+        chunk_duration = 0.1
+        chunk_samples = int(DEFAULT_SAMPLE_RATE * chunk_duration)
         max_chunks = int(max_seconds / chunk_duration)
-        silence_chunks_required = int(silence_seconds / chunk_duration)
+        silence_chunks = int(silence_seconds / chunk_duration)
 
         recorded_chunks: list[np.ndarray] = []
+        silence_count = 0
         speech_started = False
-        consecutive_voice_chunks = 0
-        silence_chunk_count = 0
-
-        # Prevent voice overlap: ensure speaker has completely stopped before listening
-        try:
-            from voice.tts import get_speaker
-            speaker = get_speaker()
-            while speaker._is_speaking:
-                time.sleep(0.05)
-            time.sleep(0.25)  # Guard interval to clear room echo / mic buffer
-        except Exception:
-            pass
-
-        sec_label = int(silence_seconds) if silence_seconds == int(silence_seconds) else silence_seconds
-        print(f"Speak now (stops automatically on {sec_label} sec silence)...")
+        silence_threshold = 0.015
 
         try:
-            with sd.InputStream(
-                samplerate=sample_rate,
-                channels=1,
-                dtype="float32",
-                blocksize=chunk_samples,
-            ) as stream:
+            with sd.InputStream(samplerate=DEFAULT_SAMPLE_RATE, channels=1, dtype="float32") as stream:
                 for _ in range(max_chunks):
-                    data, _ = stream.read(chunk_samples)
-                    data_flat = data.flatten()
-                    recorded_chunks.append(data_flat)
+                    chunk, _ = stream.read(chunk_samples)
+                    chunk_flat = chunk.flatten()
+                    recorded_chunks.append(chunk_flat)
+                    energy = float(np.max(np.abs(chunk_flat)))
 
-                    rms = float(np.sqrt(np.mean(data_flat ** 2)))
-
-                    if rms > silence_threshold:
-                        consecutive_voice_chunks += 1
-                        if consecutive_voice_chunks >= 2:
-                            speech_started = True
-                        silence_chunk_count = 0
-                    else:
-                        consecutive_voice_chunks = 0
-                        if speech_started:
-                            silence_chunk_count += 1
-                            # Terminate only after sustained silence exceeds threshold
-                            if silence_chunk_count >= silence_chunks_required:
-                                break
-
+                    if energy > silence_threshold:
+                        speech_started = True
+                        silence_count = 0
+                    elif speech_started:
+                        silence_count += 1
+                        if silence_count >= silence_chunks:
+                            break
         except Exception as exc:
-            err_msg = str(exc).lower()
-            if "busy" in err_msg or "in use" in err_msg:
-                raise MicrophoneError(
-                    "Audio device busy: Microphone is locked by another process."
-                ) from exc
-            raise MicrophoneError(f"Error while listening from mic: {exc}") from exc
+            raise MicrophoneError(f"Streaming listen failed: {exc}") from exc
 
         if not recorded_chunks:
-            return {"text": "", "language": "en"}
+            return {"text": "", "language": "en", "speech_end_time": time.time()}
 
         full_audio = np.concatenate(recorded_chunks)
-
-        # If speech was never detected above threshold
         if not speech_started and np.max(np.abs(full_audio)) < silence_threshold:
             return {"text": "", "language": "en", "speech_end_time": time.time()}
 
-        speech_end_time = time.time()
         model = self._ensure_model_loaded()
         try:
             segments, info = model.transcribe(
                 full_audio,
-                beam_size=5,
+                beam_size=1,
+                best_of=1,
+                condition_on_previous_text=False,
                 vad_filter=True,
                 initial_prompt=WHISPER_INITIAL_PROMPT,
             )
             text = " ".join(seg.text.strip() for seg in segments).strip()
-            detected_lang = detect_language(text)
-            if not text and info and hasattr(info, "language"):
-                w_lang = getattr(info, "language", "en")
-                detected_lang = w_lang if w_lang in ("en", "hi", "mr") else "en"
-
-            return {
-                "text": text,
-                "language": detected_lang,
-                "speech_end_time": speech_end_time,
-            }
+            det_lang = getattr(info, "language", "en") if info else "en"
+            return {"text": text, "language": det_lang, "speech_end_time": time.time()}
         except Exception as exc:
             raise STTError(f"Listen transcription failed: {exc}") from exc
 
 
-# Global singleton instance for easy module-level calls
-_default_transcriber: Transcriber | None = None
+# Global Transcriber Singleton
+_transcriber_instance: Optional[Transcriber] = None
 
 
 def get_transcriber() -> Transcriber:
-    """Return the shared default Transcriber instance."""
-    global _default_transcriber
-    if _default_transcriber is None:
-        _default_transcriber = Transcriber()
-    return _default_transcriber
+    global _transcriber_instance
+    if _transcriber_instance is None:
+        _transcriber_instance = Transcriber()
+    return _transcriber_instance
 
 
 def transcribe_mic(duration_seconds: int = DEFAULT_MIC_DURATION) -> str:
-    """Record from mic for duration_seconds and return transcribed text."""
     return get_transcriber().transcribe_mic(duration_seconds=duration_seconds)
 
 
-def transcribe_file(path: str | Path) -> dict[str, str]:
-    """Transcribe an audio file and return {'text': str, 'language': str}."""
-    return get_transcriber().transcribe_file(path)
+def transcribe_file(path: str | Path, language: str | None = None) -> dict[str, str]:
+    return get_transcriber().transcribe_file(path, language=language)
 
 
 def listen(
-    max_seconds: int = DEFAULT_MAX_SECONDS,
+    max_seconds: int | float = DEFAULT_MAX_SECONDS,
     silence_seconds: float = DEFAULT_SILENCE_SECONDS,
 ) -> dict[str, str]:
-    """Listen from mic until silence and return {'text': str, 'language': str}."""
-    return get_transcriber().listen(
-        max_seconds=max_seconds,
-        silence_seconds=silence_seconds,
-    )
-
-
-if __name__ == "__main__":
-    import sys
-
-    print("=== JARVIS Speech-to-Text Test CLI (Madhuri) ===")
-    t = Transcriber()
-
-    if len(sys.argv) > 1 and sys.argv[1] == "--file":
-        if len(sys.argv) > 2:
-            res = t.transcribe_file(sys.argv[2])
-            print(f"Transcript: {res['text']}")
-            print(f"Language:   {res['language']}")
-        else:
-            print("Please provide a file path: python voice/stt.py --file <path>")
-    else:
-        try:
-            print("Press Enter to record 4 seconds of speech, or type 'listen' for silence-based recording:")
-            user_choice = input().strip().lower()
-            if user_choice == "listen":
-                res = t.listen(max_seconds=10, silence_seconds=1.5)
-                print(f"\nTranscript: {res['text']}")
-                print(f"Language:   {res['language']}")
-            else:
-                text_out = t.transcribe_mic(duration_seconds=4)
-                detected = detect_language(text_out)
-                print(f"\nTranscript: {text_out}")
-                print(f"Language:   {detected}")
-        except KeyboardInterrupt:
-            print("\nStopped.")
-        except Exception as error:
-            print(f"Error: {error}")
+    return get_transcriber().listen(max_seconds=max_seconds, silence_seconds=silence_seconds)

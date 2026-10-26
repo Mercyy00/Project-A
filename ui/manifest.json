@@ -1,0 +1,21 @@
+{
+  "name": "J.A.R.V.I.S. Autonomous AI Assistant",
+  "short_name": "JARVIS",
+  "description": "Autonomous Desktop AI Assistant with Mark LVI Neural Core",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070a0f",
+  "theme_color": "#070a0f",
+  "orientation": "any",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

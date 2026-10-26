@@ -115,15 +115,20 @@ def test_websocket_channel() -> None:
             assert msg1["type"] == "status"
             assert msg1["status"] == "thinking"
 
-            # Receive response (may be preceded by tool_steps if tools executed)
-            msg2 = ws.receive_json()
-            if msg2.get("type") == "tool_steps":
-                assert "steps" in msg2
-                msg2 = ws.receive_json()
+            # Streaming responses can contain a start marker and chunks before
+            # the final response; tool traces may also arrive before completion.
+            response = None
+            for _ in range(20):
+                event = ws.receive_json()
+                if event.get("type") == "tool_steps":
+                    assert "steps" in event
+                elif event.get("type") == "response":
+                    response = event
+                    break
 
-            assert msg2["type"] == "response"
-            assert "text" in msg2
-            assert len(msg2["text"]) > 0
+            assert response is not None
+            assert "text" in response
+            assert len(response["text"]) > 0
 
             # Receive idle status
             msg3 = ws.receive_json()

@@ -11,7 +11,6 @@ writes documents, keeps notes and answers in English, Hindi and Marathi.
 
 [![Python](https://img.shields.io/badge/Python-3.11%20|%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-WebSocket%20HUD-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Groq](https://img.shields.io/badge/LLM-Groq%20LPU-F55036)](https://groq.com)
 [![Gemini](https://img.shields.io/badge/LLM-Google%20Gemini-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
 [![Whisper](https://img.shields.io/badge/STT-faster--whisper-2EA44F)](https://github.com/SYSTRAN/faster-whisper)
 [![Edge-TTS](https://img.shields.io/badge/TTS-Edge--TTS-8957E5)](https://github.com/rany2/edge-tts)
@@ -33,7 +32,7 @@ writes documents, keeps notes and answers in English, Hindi and Marathi.
 
 ## Features
 
-**Dual-engine brain.** Groq LPU runs `qwen/qwen3.8-27b` for fast reasoning and tool calling. If Groq hits a rate limit or quota (HTTP 429), JARVIS fails over to Google Gemini automatically, so a conversation never stalls. Replies adapt to the language you speak.
+**Gemini brain.** Google Gemini Flash-Lite handles chat and tool calls. JARVIS keeps a bounded conversation window and stops immediately on quota errors instead of spending more requests on retries. Replies adapt to the language you speak.
 
 **Voice in three languages.** Speech-to-text runs locally with `faster-whisper` and stops listening after 1.5 seconds of silence. It detects English, Hindi and Marathi, and answers with matching neural voices through Edge-TTS. When you are offline, `pyttsx3` takes over.
 
@@ -82,7 +81,7 @@ flowchart TD
         CLI["Terminal<br/>main_cli.py"]
     end
 
-    BRAIN["Core brain · core/<br/>Groq LPU with automatic Gemini failover<br/>ReAct tool-calling loop"]
+    BRAIN["Core brain · core/<br/>Google Gemini<br/>ReAct tool-calling loop"]
     REG["Tool registry · tools/registry.py<br/>auto-loads every module's TOOLS"]
 
     HUD --> BRAIN
@@ -102,7 +101,7 @@ A message from any front end goes to the core brain. The brain decides whether t
 
 | Layer | What it uses |
 | :-- | :-- |
-| Brain | Groq (`qwen/qwen3.8-27b`, with `openai/gpt-oss` fallbacks) and Google Gemini through `google-genai`, with automatic quota failover |
+| Brain | Google Gemini through `google-genai`; Flash-Lite is the default model |
 | Server and HUD | FastAPI, WebSocket at `/ws/jarvis`, REST endpoints (`/health`, `/api/notes`, `/api/telemetry`, `/api/tools`, `/api/tts`, `/api/stt`), single-file HTML, CSS and JS front end |
 | Voice | `faster-whisper` (base, CPU, int8), Edge-TTS, `pygame` playback, `pyttsx3` fallback |
 | Vision | `mss` screen capture, JPEG downscaled to 1280px, Gemini multimodal analysis |
@@ -130,12 +129,11 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Open `.env` and add at least one LLM key. Everything else has a sensible default.
+Open `.env` and add your Gemini API key. Everything else has a sensible default.
 
 ```ini
 GEMINI_API_KEY=your_gemini_api_key_here
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=qwen/qwen3.8-27b
+GEMINI_MODEL=gemini-3.5-flash-lite
 
 # Optional
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
@@ -165,9 +163,10 @@ Double-click **`START_JARVIS.bat`** (or the **`Project JARVIS`** Desktop shortcu
 
 | Interface | Command | Notes |
 | :-- | :-- | :-- |
+| **Native PyQt6 Sci-Fi Desktop HUD** (Mark-LVI) | python main.py --qt (or python main.py --native) | Vector-drawn Arc Reactor, live mic reactivity, full-duplex voice, F4 mute, gauges, and directive prompt |
 | **Desktop Application Window** (recommended) | `python main.py` (or `python main.py --app`) | Launches standalone desktop app window (no URL bar, no tabs) |
 | **Web HUD (Browser Tab)** | `python main.py --browser` | Opens in your default browser tab at <http://127.0.0.1:8000> |
-| **Spoken Voice Loop** | `python main.py --voice` | Real-time multilingual voice loop (`--auto` for continuous) |
+| **Spoken Voice Loop** | `python main.py --voice` | Gemini Live audio using the Mark-LVI Charon voice |
 | **Terminal Command Center** | `python main.py --cli` | Interactive REPL with slash commands (`/doctor`, `/stats`, `/tools`, `/mode`) |
 | **Telegram Remote Bridge** | `python main.py --telegram` | Owner-authorized remote assistant |
 | **Full Stack (Concurrent)** | `python main.py --all` | Launches FastAPI Web HUD backend and background services simultaneously |
@@ -189,7 +188,7 @@ One-click Windows launcher: `run.bat` (supports flags like `run.bat --cli`, `run
 
 ```text
 Project-A/
-├── core/        Brain: Groq + Gemini failover, tool loop, async service
+├── core/        Gemini brain, bounded context, selective tools, async service
 ├── voice/       Speech-to-text, text-to-speech, language detection, benchmarks
 ├── vision/      Screen capture and Gemini screen understanding
 ├── tools/       Tool registry, app launcher, files, GUI control, windows, code runner

@@ -56,12 +56,29 @@
 - [ ] **Task 12: Continuous VAD & Zero-Latency Audio Muting on Speech** (`voice/stt.py`, `voice/tts.py`) - Pair B
 - [ ] **Task 13: Non-Blocking Guard Interruption Logging** (`tools/guard.py`) - Pair C
 - [ ] **Task 14: Telegram Voice Note Audio Transcribe Handler** (`messaging/telegram_bot.py`) - Pair D
+- [x] **Task 14b: Multi-Format Document Reader, Table Extractor & Summarizer Suite** (`creator/document_reader.py`, `creator/tools.py`, `tests/test_creator.py`) - Vidhita (Creator - Pair D) [PASSED]
+  - Full-fidelity ingestion across PDF (`pypdf`), Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+  - Sub-millisecond structural inspection (`inspect_document`) and 2D table extraction matrix (`extract_tables`).
+  - Autonomous AI & offline heuristic executive summarizer (`summarize_document`) with sub-20ms cancellation token abort.
+  - Central tool registry integration: `read_document`, `summarize_document`, and `inspect_document` (11 Creator tools registered).
+  - 76/76 unit and acceptance tests passing hermetically.
 
 ### Day 9: Long-Term Semantic Vector Memory (RAG) & Workspace Indexing
-- [ ] **Task 15: ChromaDB Persistent Vector Memory Store** (`memory/vector_store.py`) - Pair A
-- [ ] **Task 16: Local Workspace & Codebase Semantic Search Tool** (`tools/file_tools.py`) - Pair C
-- [ ] **Task 17: User Accent Adaptation & Whisper Prompt Priming** (`voice/stt.py`) - Pair B
-- [ ] **Task 18: Multi-Format Document Summarizer Tool** (`creator/document_reader.py`) - Pair D
+- [x] **Task 15: ChromaDB Persistent Vector Memory Store** (`memory/vector_store.py`) - Pair A [PASSED]
+- [x] **Task 16: Local Workspace & Codebase Semantic Search Tool** (`tools/semantic_memory_tool.py`, `tools/file_manager_tool.py`) - Pair C [PASSED]
+- [x] **Task 17: User Accent Adaptation & Whisper Prompt Priming** (`voice/stt.py`) - Pair B [PASSED]
+- [x] **Task 18: Multi-Format Document Summarizer Tool** (`creator/document_reader.py`) - Vidhita (Pair D) [PASSED]
+- [x] **Task 18b: Document Semantic RAG, Chunking & Grounded Citation Q&A Suite** (`creator/document_rag.py`, `creator/tools.py`, `tests/test_creator.py`) - Vidhita (Creator - Pair D) [PASSED]
+  - Multi-format semantic chunking across PDF, Word (.docx), PowerPoint (.pptx), HTML Web Artifacts, and Markdown.
+  - Heading breadcrumb tracking, 1-based page/slide number offsets, and dedicated table matrix & bento card chunk isolation.
+  - Devanagari script awareness (accurate sentence boundary tokenization for Marathi and Hindi text).
+  - Hybrid relevance scoring (BM25 term frequency, heading context boost, and metric/table intent boost).
+  - Grounded autonomous Q&A (`ask_document` / `query_document`) with Google Gemini 3.5 Flash-Lite and exact page/slide citations.
+  - Resilient offline extractive QA fallback with exact citations when offline or quota-limited.
+  - Full-Duplex stream cancellation token compliance (sub-20ms abort on `cancel_event`).
+  - Workspace multi-document indexing (`index_workspace_documents`) with cached JSON catalog and cross-document search (`query_workspace_knowledge`).
+  - Central tool registry integration: `chunk_document`, `search_document`, `ask_document`, `index_workspace_documents` (15 Creator tools registered).
+  - 95/95 unit and acceptance tests passing hermetically.
 
 ### Day 10: Multi-Step Autonomous Agent Workflows & Look-Decide-Act Loop
 - [ ] **Task 19: Recursive ReAct Goal Planner with Step Milestones** (`core/brain.py`, `ui/index.html`) - Pair A

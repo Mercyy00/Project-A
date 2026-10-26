@@ -73,3 +73,50 @@ In Week 2, Project JARVIS transitions from an interactive reactive assistant int
    - **For Rohit (UI - `ui/server.py`):** When receiving `{"action": "interrupt"}` over WebSocket, invoke `core.service.interrupt_generation()`.
    - **For Aryan & Madhuri (Voice - `voice/stt.py`):** On barge-in voice detection, invoke `core.service.interrupt_generation()` and call `voice.tts.stop_speaking()`.
 
+## Day 8 Implementation: Document Intelligence, Multi-Format Reader & Summarizer (Creator Engine)
+
+### Architectural Design
+1. **Multi-Format Ingestion Engine (`creator/document_reader.py`):**
+   - High-fidelity text, heading hierarchy, 2D table matrices, and metadata extraction across PDF (`pypdf`), Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+   - Zero-dependency HTML5 parser (`_WebArtifactHTMLParser`) extracting bento metric cards and data tables.
+   - Devanagari Unicode script detection (`_contains_devanagari`).
+
+2. **Structural Inspection & Table Extraction:**
+   - `inspect_document(file_path)` provides sub-millisecond structural diagnostics (page count, table count, headings, words, valid format).
+   - `extract_tables(file_path)` yields 2D matrices preserving column headers and rows.
+
+3. **Dual-Engine Executive Summarizer:**
+   - `summarize_document(file_path)` utilizes Google Gemini API with fallback to statistical extractive NLP heuristic.
+   - Complies with Day 8 Stream Cancellation Token protocol (`cancel_event` aborts within 20ms).
+
+4. **Central Registry & Brain Tools (`creator/tools.py`):**
+   - Exposed `ReadDocumentTool`, `SummarizeDocumentTool`, and `InspectDocumentTool`.
+   - Expands Creator tools count to 11 registered tools.
+
+---
+
+## Day 9 Implementation: Document Semantic RAG, Chunking & Grounded Citation Q&A (Creator Engine)
+
+### Architectural Design
+1. **Multi-Format Semantic Chunking Engine (`creator/document_rag.py`):**
+   - Ingests PDF, Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+   - Decomposes documents into sliding-window semantic passages preserving heading breadcrumbs (`["Title", "Heading 1"]`), 1-based page/slide numbers, and char offsets.
+   - Dedicated structural chunk isolation: encapsulates 2D tables (`_format_table_as_chunk`) and bento KPI metrics (`_format_metrics_as_chunk`) into intact chunks without truncating rows or numbers.
+   - Devanagari script awareness: respects Marathi Danda (`।`) and periods for authentic Indic sentence tokenization.
+
+2. **Hybrid Semantic Relevance Scoring (`search_document`):**
+   - Ranks passages using BM25/TF-IDF token matching with heading context weight boosts (1.5x) and table/metric intent boosts (1.3x).
+   - Generates verified, human-readable citations: `[filename - Page X, Section: "Heading"]`.
+
+3. **Grounded Autonomous Citation Q&A (`ask_document`):**
+   - Primary: Google Gemini (`gemini-3.5-flash-lite`) with strict grounding prompt preventing hallucination and enforcing inline citations.
+   - Fallback: Deterministic extractive NLP algorithm isolating high-signal sentences when offline or quota-limited.
+   - Stream Cancellation Token: sub-20ms abort on `cancel_event`.
+
+4. **Multi-Document Workspace Knowledge Indexer (`index_workspace_documents` / `query_workspace_knowledge`):**
+   - Recursively indexes workspace documents (`workspace/`) into `.document_index.json`.
+   - Enables cross-document semantic search and question answering across the entire project knowledge base.
+
+5. **Central Registry & Brain Tools (`creator/tools.py`):**
+   - Exposed `ChunkDocumentTool` (`chunk_document`), `SearchDocumentTool` (`search_document`), `AskDocumentTool` (`ask_document`), and `IndexWorkspaceDocumentsTool` (`index_workspace_documents`).
+   - Expands Creator tools count to 15 registered tools in `TOOL_REGISTRY`.

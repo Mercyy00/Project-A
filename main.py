@@ -20,6 +20,15 @@ import time
 import webbrowser
 from pathlib import Path
 
+# Ensure console stdout and stderr never crash on Windows charmap / cp1252
+for _stream in ("stdout", "stderr"):
+    try:
+        _s = getattr(sys, _stream, None)
+        if _s is not None and hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Ensure project root is in sys.path
 _project_root = Path(__file__).resolve().parent
 if str(_project_root) not in sys.path:
@@ -77,6 +86,7 @@ def launch_ui(
     port: int = 8000,
     open_browser: bool = True,
     app_mode: bool = True,
+    reload: bool = False,
 ) -> None:
     """Launch the FastAPI Web HUD backend and open the desktop application window."""
     try:
@@ -96,6 +106,8 @@ def launch_ui(
     print("=" * 60)
     print(f"[*] Starting server at: {url}")
     print(f"[*] Window Mode: {mode_desc}")
+    if reload:
+        print("[*] Dev Mode: Live auto-reload active")
     print("[*] Press Ctrl+C to stop.\n")
 
     if open_browser:
@@ -103,21 +115,39 @@ def launch_ui(
         timer.daemon = True
         timer.start()
 
-    uvicorn.run("ui.server:app", host=host, port=port, reload=False)
+    uvicorn.run("ui.server:app", host=host, port=port, reload=reload)
 
 
-def launch_voice(auto_mode: bool = False) -> None:
-    """Launch the interactive spoken multilingual voice loop."""
-    from main_voice import main as run_voice
-    if auto_mode:
-        sys.argv.append("--auto")
-    run_voice()
+def launch_voice() -> None:
+    """Launch Mark-LVI's Gemini Live voice with the Charon prebuilt voice."""
+    launch_live()
 
 
 def launch_live() -> None:
     """Launch the real-time bidirectional Gemini Live streaming voice loop."""
     from voice.gemini_live import main as run_live
     run_live()
+
+
+def launch_qt() -> None:
+    """Launch the native PyQt6 Desktop HUD Interface with auto-install resilience."""
+    try:
+        from ui.pyqt_hud import launch_pyqt_hud
+    except ModuleNotFoundError as err:
+        missing_mod = str(err).split("'")[1] if "'" in str(err) else str(err)
+        print(f"[*] Missing module '{missing_mod}'. Setting up dependencies from requirements.txt...")
+        import subprocess
+        res = subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--prefer-binary"])
+        if res.returncode == 0:
+            print("[OK] Dependencies installed successfully! Launching HUD...")
+            from ui.pyqt_hud import launch_pyqt_hud
+        else:
+            print(f"[ERROR] Failed to auto-install {missing_mod}. Please run: pip install -r requirements.txt")
+            sys.exit(1)
+    print("=" * 60)
+    print("     PROJECT JARVIS - NATIVE PYQT6 SCI-FI DESKTOP HUD")
+    print("=" * 60)
+    launch_pyqt_hud()
 
 
 def launch_cli() -> None:
@@ -218,7 +248,7 @@ def main() -> None:
     group.add_argument(
         "--voice",
         action="store_true",
-        help="Launch the interactive multilingual spoken voice loop",
+        help="Launch Gemini Live voice using the Mark-LVI Charon voice",
     )
     group.add_argument(
         "--cli",
@@ -241,6 +271,14 @@ def main() -> None:
         "--all",
         action="store_true",
         help="Concurrently launch FastAPI Web HUD and background services",
+    )
+    group.add_argument(
+        "--qt",
+        "--native",
+        "--gui",
+        dest="qt_mode",
+        action="store_true",
+        help="Launch the native PyQt6 Sci-Fi Desktop HUD Window (Mark-LVI widget)",
     )
     parser.add_argument(
         "--desktop",
@@ -279,19 +317,22 @@ def main() -> None:
         help="Do not automatically open browser when starting Web HUD",
     )
     parser.add_argument(
-        "--auto",
+        "--reload",
+        "--dev",
+        dest="reload",
         action="store_true",
-        help="Continuous listening mode for voice interface",
+        help="Run in development mode with live auto-reloading",
     )
-
     args = parser.parse_args()
 
     if args.check:
         launch_doctor(run_live_ping=args.live_ping)
+    elif args.qt_mode:
+        launch_qt()
     elif args.live:
         launch_live()
     elif args.voice:
-        launch_voice(auto_mode=args.auto)
+        launch_voice()
     elif args.cli:
         launch_cli()
     elif args.telegram:
@@ -300,7 +341,13 @@ def main() -> None:
         launch_all(host=args.host, port=args.port, open_browser=not args.no_browser, app_mode=args.app_mode)
     else:
         # Default mode is Desktop Application Window
-        launch_ui(host=args.host, port=args.port, open_browser=not args.no_browser, app_mode=args.app_mode)
+        launch_ui(
+            host=args.host,
+            port=args.port,
+            open_browser=not args.no_browser,
+            app_mode=args.app_mode,
+            reload=args.reload,
+        )
 
 
 if __name__ == "__main__":

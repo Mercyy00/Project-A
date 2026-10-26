@@ -374,7 +374,7 @@ def test_send_telegram_tool_execution_success(mock_send: Any) -> None:
     result = tool.run(text="Meeting alert at 4 PM")
     assert result.success is True
     assert "Meeting alert" in result.message
-    mock_send.assert_called_once_with("Meeting alert at 4 PM")
+    mock_send.assert_called_once_with("Meeting alert at 4 PM", file_path=None)
 
 
 @patch("messaging.tools.send_telegram", return_value=False)
@@ -401,6 +401,29 @@ def test_tool_registry_autoload_messaging_tools() -> None:
     auto_load_module_tools()
     assert "send_telegram" in TOOL_REGISTRY
     assert isinstance(TOOL_REGISTRY["send_telegram"], SendTelegramTool)
+    assert "search_whatsapp_contacts" in TOOL_REGISTRY
+    assert "send_whatsapp" in TOOL_REGISTRY
+
+
+@patch("messaging.tools.load_saved_contacts", return_value={"Alex Morgan": "+10000000000"})
+def test_whatsapp_contact_search_does_not_expose_phone_numbers(mock_load: Any) -> None:
+    """Contact search returns matching saved names while keeping numbers private."""
+    from messaging.tools import SearchWhatsAppContactsTool
+
+    result = SearchWhatsAppContactsTool().run(query="alex")
+    assert result.success is True
+    assert result.data == {"contacts": ["Alex Morgan"]}
+    assert "+10000000000" not in result.message
+
+
+@patch("messaging.tools.send_whatsapp", return_value="WhatsApp message successfully queued for Alex.")
+def test_whatsapp_tool_dispatches_exact_contact_and_message(mock_send: Any) -> None:
+    """Tool dispatch accepts an exact contact and message from the core confirmation gate."""
+    from messaging.tools import SendWhatsAppTool
+
+    result = SendWhatsAppTool().run(contact="Alex", message="I am on my way")
+    assert result.success is True
+    mock_send.assert_called_once_with("Alex", "I am on my way")
 
 
 # ==============================================================================
@@ -409,11 +432,12 @@ def test_tool_registry_autoload_messaging_tools() -> None:
 
 def test_day3_acceptance_what_is_the_date() -> None:
     """Day 3 Acceptance test: 'What is the date today?' returns accurate date response."""
-    brain = JarvisBrain()
-    response = brain.chat("What is the date today?")
-    assert isinstance(response, str)
-    assert len(response) > 0
-    assert "date" in response.lower() or "today" in response.lower()
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key_dummy"}):
+        brain = JarvisBrain()
+        response = brain.chat("What is the date today?")
+        assert isinstance(response, str)
+        assert len(response) > 0
+        assert "date" in response.lower() or "today" in response.lower()
 
 
 @patch("messaging.tools.send_telegram", return_value=True)
@@ -479,28 +503,27 @@ def test_send_whatsapp_empty_message() -> None:
     assert "empty" in res.lower()
 
 
+@patch("messaging.whatsapp.find_contact", return_value="+10000000000")
 @patch("pywhatkit.sendwhatmsg_instantly")
-def test_send_whatsapp_success(mock_sendmsg: Any) -> None:
+def test_send_whatsapp_success(mock_sendmsg: Any, mock_find_contact: Any) -> None:
     """Valid contact should call pywhatkit with resolved number and 15s wait."""
     from messaging.whatsapp import send_whatsapp
-    from messaging.contacts import find_contact
-
-    phone = find_contact("Jayesh")
-    assert phone is not None
 
     res = send_whatsapp("Jayesh", "Hello Jayesh!")
     assert "successfully queued" in res
     mock_sendmsg.assert_called_once_with(
-        phone_no=phone,
+        phone_no="+10000000000",
         message="Hello Jayesh!",
         wait_time=15,
         tab_close=True,
         close_time=3,
     )
+    mock_find_contact.assert_called_once_with("Jayesh", include_examples=False)
 
 
+@patch("messaging.whatsapp.find_contact", return_value="+10000000000")
 @patch("pywhatkit.sendwhatmsg_instantly", side_effect=Exception("Browser automation failure"))
-def test_send_whatsapp_never_raises(mock_sendmsg: Any) -> None:
+def test_send_whatsapp_never_raises(mock_sendmsg: Any, mock_find_contact: Any) -> None:
     """send_whatsapp must never raise unhandled exceptions."""
     from messaging.whatsapp import send_whatsapp
 
@@ -596,6 +619,322 @@ def test_check_due_reminders_dispatch(mock_send: Any) -> None:
         # Clean up
         cleaned = [r for r in load_reminders() if r.get("text") not in (due_text, future_text)]
         save_reminders(cleaned)
+
+
+# ==============================================================================
+# 9. Day 8: Full Autonomous Messaging Tool Suite Tests
+# ==============================================================================
+
+def test_send_whatsapp_tool_schema() -> None:
+    """SendWhatsAppTool must declare valid function calling schema."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "send_whatsapp"
+    assert "parameters" in schema
+    assert "contact" in schema["parameters"]["properties"]
+    assert "message" in schema["parameters"]["properties"]
+    assert "contact" in schema["parameters"]["required"]
+    assert "message" in schema["parameters"]["required"]
+
+
+def test_send_whatsapp_tool_empty_inputs() -> None:
+    """SendWhatsAppTool should return structured failure on empty contact or message."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    res1 = tool.run(contact="", message="Hello")
+    assert res1.success is False
+    assert "contact" in res1.message.lower()
+
+    res2 = tool.run(contact="Jayesh", message="")
+    assert res2.success is False
+    assert "empty" in res2.message.lower()
+
+
+def test_send_whatsapp_tool_unknown_contact() -> None:
+    """SendWhatsAppTool should safely refuse unknown contact and return failure ToolResult."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    res = tool.run(contact="NonExistentContact999", message="Test alert")
+    assert res.success is False
+    assert "not in your saved contacts" in res.message
+
+
+@patch("messaging.tools.send_whatsapp", return_value="WhatsApp message successfully queued for Jayesh (+919876543210).")
+def test_send_whatsapp_tool_success(mock_send: Any) -> None:
+    """SendWhatsAppTool.run() should return success ToolResult on successful queuing."""
+    from messaging.tools import SendWhatsAppTool
+
+    tool = SendWhatsAppTool()
+    res = tool.run(contact="Jayesh", message="Meeting in 10 minutes")
+    assert res.success is True
+    assert "Jayesh" in res.data["contact"]
+    assert mock_send.called
+
+
+def test_set_reminder_tool_schema() -> None:
+    """SetReminderTool must export valid BaseTool schema."""
+    from messaging.tools import SetReminderTool
+
+    tool = SetReminderTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "set_reminder"
+    assert "when" in schema["parameters"]["properties"]
+    assert "text" in schema["parameters"]["properties"]
+    assert "when" in schema["parameters"]["required"]
+    assert "text" in schema["parameters"]["required"]
+
+
+def test_set_reminder_tool_empty_inputs() -> None:
+    """SetReminderTool should fail gracefully when when/text is omitted."""
+    from messaging.tools import SetReminderTool
+
+    tool = SetReminderTool()
+    res1 = tool.run(when="", text="meeting")
+    assert res1.success is False
+
+    res2 = tool.run(when="18:00", text="")
+    assert res2.success is False
+
+
+def test_set_reminder_tool_invalid_when() -> None:
+    """SetReminderTool should return structured failure on unparseable timing."""
+    from messaging.tools import SetReminderTool
+
+    tool = SetReminderTool()
+    res = tool.run(when="someday soon", text="fix bug")
+    assert res.success is False
+    assert "Could not set reminder" in res.message
+
+
+def test_set_reminder_tool_success() -> None:
+    """SetReminderTool should schedule and persist reminder properly."""
+    from messaging.tools import SetReminderTool
+    from messaging.reminders import load_reminders, save_reminders
+
+    tool = SetReminderTool()
+    task_name = f"Day8 Automated Test Reminder {int(time.time())}"
+    res = tool.run(when="in 10 minutes", text=task_name)
+    assert res.success is True
+    assert "Reminder set for" in res.message
+
+    # Clean up test entry
+    items = load_reminders()
+    save_reminders([r for r in items if r.get("text") != task_name])
+
+
+def test_list_reminders_tool() -> None:
+    """ListRemindersTool should execute and return list of reminders."""
+    from messaging.tools import ListRemindersTool
+
+    tool = ListRemindersTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "list_reminders"
+
+    res = tool.run()
+    assert res.success is True
+    assert isinstance(res.data, list)
+
+
+def test_tool_registry_autoload_all_day8_messaging_tools() -> None:
+    """tools.registry should automatically load all 4 messaging tools into TOOL_REGISTRY."""
+    from tools.registry import TOOL_REGISTRY, auto_load_module_tools
+
+    auto_load_module_tools()
+    for tool_name in ["send_telegram", "send_whatsapp", "set_reminder", "list_reminders"]:
+        assert tool_name in TOOL_REGISTRY, f"Missing tool '{tool_name}' in registry"
+
+
+def test_day8_acceptance_cli_autonomous_dispatch() -> None:
+    """Day 8 Acceptance Test: Full tool execution from central registry without direct import."""
+    from tools.registry import execute_tool, auto_load_module_tools
+    from messaging.reminders import load_reminders, save_reminders
+
+    auto_load_module_tools()
+
+    # 1. Execute list_reminders through registry
+    res_list = execute_tool("list_reminders", {})
+    assert res_list.success is True
+
+    # 2. Execute set_reminder through registry
+    unique_text = f"Day 8 Viva Prep {int(time.time())}"
+    res_set = execute_tool("set_reminder", {"when": "in 15 minutes", "text": unique_text})
+    assert res_set.success is True
+    assert "Reminder set for" in res_set.message
+
+    # Clean up
+    items = load_reminders()
+    save_reminders([r for r in items if r.get("text") != unique_text])
+
+
+# ==============================================================================
+# 10. Day 9: Voice Notes, Inline Confirmation Buttons & WhatsApp File Sharing
+# ==============================================================================
+
+def test_telegram_voice_note_handler() -> None:
+    """Owner voice notes must be downloaded, transcribed, and answered by handler."""
+    from messaging.telegram_bot import start_bot
+
+    mock_bot = MagicMock()
+    registered_handlers = {}
+
+    def mock_message_handler(*args: Any, **kwargs: Any) -> Any:
+        def decorator(fn: Any) -> Any:
+            if "content_types" in kwargs:
+                for ct in kwargs["content_types"]:
+                    registered_handlers[ct] = fn
+            return fn
+        return decorator
+
+    mock_bot.message_handler = mock_message_handler
+    mock_bot.infinity_polling = MagicMock()
+    mock_bot.get_file.return_value = MagicMock(file_path="voice/memo1.ogg")
+    mock_bot.download_file.return_value = b"OggS_fake_voice_data"
+
+    with patch("messaging.telegram_bot.get_owner_id", return_value=12345):
+        start_bot(handler=lambda txt: f"Echoing: {txt}", bot_instance=mock_bot)
+        voice_fn = registered_handlers.get("voice")
+        assert voice_fn is not None, "Missing voice message handler"
+
+        fake_msg = MagicMock()
+        fake_msg.chat.id = 12345
+        fake_voice = MagicMock()
+        fake_voice.file_id = "voice_file_abc_999"
+        fake_msg.voice = fake_voice
+        fake_msg.audio = None
+
+        with patch("messaging.telegram_bot.split_message", side_effect=lambda t: [t]):
+            voice_fn(fake_msg)
+
+        assert mock_bot.send_message.called
+        call_text = mock_bot.send_message.call_args[0][1]
+        assert "Heard:" in call_text or "Echoing:" in call_text
+
+
+def test_telegram_inline_confirmation_buttons() -> None:
+    """send_telegram_with_confirmation must deliver message with InlineKeyboardMarkup."""
+    from messaging.telegram_bot import send_telegram_with_confirmation
+
+    mock_bot = MagicMock()
+    with patch("messaging.telegram_bot.get_owner_id", return_value=12345):
+        ok = send_telegram_with_confirmation(
+            text="Confirm WhatsApp send to Jayesh?",
+            action_token="AUTH_TOKEN_777",
+            confirm_label="Approve",
+            cancel_label="Reject",
+            bot_instance=mock_bot,
+        )
+        assert ok is True
+        assert mock_bot.send_message.called
+        call_kwargs = mock_bot.send_message.call_args[1]
+        markup = call_kwargs.get("reply_markup")
+        assert markup is not None
+        # Check inline keyboard has confirm and cancel buttons
+        buttons = markup.keyboard[0]
+        assert len(buttons) == 2
+        assert buttons[0].callback_data == "confirm:AUTH_TOKEN_777"
+        assert buttons[1].callback_data == "cancel:AUTH_TOKEN_777"
+
+
+def test_telegram_callback_query_confirm_and_cancel() -> None:
+    """Callback queries from owner must confirm or cancel actions."""
+    from messaging.telegram_bot import start_bot
+
+    mock_bot = MagicMock()
+    registered_callbacks = []
+
+    def mock_callback_handler(*args: Any, **kwargs: Any) -> Any:
+        def decorator(fn: Any) -> Any:
+            registered_callbacks.append(fn)
+            return fn
+        return decorator
+
+    mock_bot.callback_query_handler = mock_callback_handler
+    mock_bot.infinity_polling = MagicMock()
+
+    with patch("messaging.telegram_bot.get_owner_id", return_value=12345):
+        start_bot(bot_instance=mock_bot)
+        assert len(registered_callbacks) > 0
+        cb_fn = registered_callbacks[0]
+
+        # 1. Test confirmation click
+        fake_call = MagicMock()
+        fake_call.from_user.id = 12345
+        fake_call.data = "confirm:TOKEN_XYZ"
+        fake_call.message.chat.id = 12345
+        fake_call.message.message_id = 99
+
+        cb_fn(fake_call)
+        assert mock_bot.edit_message_text.called
+        assert "Confirmed" in mock_bot.edit_message_text.call_args[1]["text"]
+
+        # 2. Test cancellation click
+        fake_call.data = "cancel:TOKEN_XYZ"
+        cb_fn(fake_call)
+        assert "cancelled" in mock_bot.edit_message_text.call_args[1]["text"].lower()
+
+
+def test_send_whatsapp_file_tool_schema() -> None:
+    """SendWhatsAppFileTool schema must define contact, file_path, and caption."""
+    from messaging.tools import SendWhatsAppFileTool
+
+    tool = SendWhatsAppFileTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "send_whatsapp_file"
+    assert "contact" in schema["parameters"]["properties"]
+    assert "file_path" in schema["parameters"]["properties"]
+    assert "contact" in schema["parameters"]["required"]
+    assert "file_path" in schema["parameters"]["required"]
+
+
+def test_send_whatsapp_file_tool_execution() -> None:
+    """SendWhatsAppFileTool must validate inputs and dispatch via share_whatsapp_file."""
+    from messaging.tools import SendWhatsAppFileTool
+
+    tool = SendWhatsAppFileTool()
+    # Missing contact
+    assert not tool.run(contact="", file_path="test.pdf").success
+    # Missing file_path
+    assert not tool.run(contact="Jayesh", file_path="").success
+
+    with patch("messaging.tools.share_whatsapp_file", return_value="Successfully shared file 'test.pdf' with Jayesh on WhatsApp."):
+        res = tool.run(contact="Jayesh", file_path="workspace/test.pdf", caption="Review this")
+        assert res.success is True
+        assert "Successfully shared file" in res.message
+
+
+def test_search_whatsapp_contacts_tool_query() -> None:
+    """SearchWhatsAppContactsTool should return matching contacts without exposing numbers."""
+    from messaging.tools import SearchWhatsAppContactsTool
+
+    tool = SearchWhatsAppContactsTool()
+    assert not tool.run(query="").success
+
+    with patch("messaging.tools.load_saved_contacts", return_value={"Jayesh": "+919876543210", "Aryan": "+919123456789"}):
+        res = tool.run(query="jay")
+        assert res.success is True
+        assert "Jayesh" in res.data["contacts"]
+        assert "+919876543210" not in res.message
+
+
+def test_day9_acceptance_all_tools_in_registry() -> None:
+    """Day 9 Acceptance Test: All 6 messaging tools are auto-discovered and registered in TOOL_REGISTRY."""
+    from tools.registry import TOOL_REGISTRY, auto_load_module_tools
+
+    auto_load_module_tools()
+    expected_tools = [
+        "send_telegram",
+        "search_whatsapp_contacts",
+        "send_whatsapp",
+        "send_whatsapp_file",
+        "set_reminder",
+        "list_reminders",
+    ]
+    for name in expected_tools:
+        assert name in TOOL_REGISTRY, f"Tool '{name}' was not found in TOOL_REGISTRY"
 
 
 if __name__ == "__main__":

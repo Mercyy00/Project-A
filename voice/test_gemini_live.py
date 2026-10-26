@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from google.genai import types
 from voice.gemini_live import (
@@ -39,6 +40,39 @@ class TestGeminiLiveEngine(unittest.TestCase):
         )
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live"})
+    def test_build_config_biases_transcription_for_indian_english_and_jarvis(self) -> None:
+        """Verify Live transcription favors the user's locale and assistant name."""
+        engine = GeminiLiveEngine(api_key="fake_test_key_live", enable_tools=False)
+
+        cfg = engine._build_config()
+
+        self.assertEqual(cfg.input_audio_transcription.language_codes, ["en-IN"])
+        self.assertIn("JARVIS", cfg.input_audio_transcription.custom_vocabulary)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live"})
+    def test_live_turn_detection_waits_through_natural_pauses(self) -> None:
+        """Live VAD should use high-sensitivity, responsive turn detection by default."""
+        engine = GeminiLiveEngine(api_key="fake_test_key_live", enable_tools=False)
+
+        cfg = engine._build_config()
+
+        activity = cfg.realtime_input_config.automatic_activity_detection
+        self.assertFalse(activity.disabled)
+        self.assertEqual(activity.silence_duration_ms, 350)
+        self.assertEqual(activity.end_of_speech_sensitivity, types.EndSensitivity.END_SENSITIVITY_HIGH)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live", "LIVE_END_OF_SPEECH_SENSITIVITY": "LOW", "LIVE_SILENCE_DURATION_MS": "500"})
+    def test_live_turn_detection_configurable_via_env(self) -> None:
+        """Live VAD parameters should be customizable via environment variables."""
+        engine = GeminiLiveEngine(api_key="fake_test_key_live", enable_tools=False)
+
+        with patch("voice.gemini_live.LIVE_END_OF_SPEECH_SENSITIVITY", "LOW"),              patch("voice.gemini_live.LIVE_SILENCE_DURATION_MS", 500):
+            cfg = engine._build_config()
+            activity = cfg.realtime_input_config.automatic_activity_detection
+            self.assertEqual(activity.silence_duration_ms, 500)
+            self.assertEqual(activity.end_of_speech_sensitivity, types.EndSensitivity.END_SENSITIVITY_LOW)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live"})
     def test_purge_output_buffer(self) -> None:
         """Verify _purge_output_buffer clears audio queue immediately on barge-in."""
         engine = GeminiLiveEngine(api_key="fake_test_key_live")
@@ -49,11 +83,86 @@ class TestGeminiLiveEngine(unittest.TestCase):
         engine._purge_output_buffer()
         self.assertTrue(engine._audio_out_queue.empty())
 
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_test_key_live"})
+    def test_mute_state_and_drain(self) -> None:
+        """Verify set_muted drains buffered mic audio and notifies listeners."""
+        events: list[dict[str, str]] = []
+        engine = GeminiLiveEngine(api_key="fake_test_key_live", event_callback=events.append)
+        self.assertFalse(engine.is_muted)
+
+        # Buffer some simulated mic bytes
+        engine._mic_queue.put_nowait(b"pcm_bytes_waiting")
+        self.assertFalse(engine._mic_queue.empty())
+
+        # Mute
+        engine.set_muted(True)
+        self.assertTrue(engine.is_muted)
+        self.assertTrue(engine._mic_queue.empty())  # Queue should be completely drained
+        self.assertEqual(events[-1]["status"], "muted")
+
+        # Unmute
+        engine.set_muted(False)
+        self.assertFalse(engine.is_muted)
+        self.assertEqual(events[-1]["status"], "connected")
+
     def test_missing_api_key_raises(self) -> None:
         """Verify initializing without an API key raises ValueError."""
         with patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
             with self.assertRaises(ValueError):
                 GeminiLiveEngine(api_key="")
+
+    def test_live_connect_setup_has_a_deadline(self) -> None:
+        """A stalled WebSocket handshake must not leave the HUD connecting forever."""
+        class HangingConnection:
+            closed = False
+
+            async def __aenter__(self):
+                await asyncio.Event().wait()
+
+            async def __aexit__(self, *_args):
+                self.closed = True
+                return False
+
+        async def attempt() -> None:
+            async with engine._open_live_session("test-model", types.LiveConnectConfig()):
+                self.fail("A never-ending connection must time out before yielding.")
+
+        engine = GeminiLiveEngine(api_key="fake_test_key_live", enable_tools=False)
+        connection = HangingConnection()
+        engine.client.aio.live.connect = MagicMock(return_value=connection)
+
+        with patch("voice.gemini_live.LIVE_CONNECT_TIMEOUT_SECONDS", 0.01):
+            with self.assertRaises(TimeoutError):
+                asyncio.run(attempt())
+
+        self.assertTrue(connection.closed)
+
+    def test_all_live_models_failing_emits_hud_error(self) -> None:
+        """The HUD gets a visible error after connection attempts time out."""
+        class HangingConnection:
+            async def __aenter__(self):
+                await asyncio.Event().wait()
+
+            async def __aexit__(self, *_args):
+                return False
+
+        events: list[dict[str, str]] = []
+        engine = GeminiLiveEngine(
+            api_key="fake_test_key_live",
+            enable_tools=False,
+            event_callback=events.append,
+        )
+        engine.client.aio.live.connect = MagicMock(return_value=HangingConnection())
+        engine._audio_input_worker = AsyncMock()
+        engine._audio_output_worker = AsyncMock()
+
+        with patch("voice.gemini_live.DEFAULT_LIVE_MODELS", ("test-model",)), \
+             patch("voice.gemini_live.LIVE_CONNECT_TIMEOUT_SECONDS", 0.01):
+            asyncio.run(engine.run())
+
+        error_events = [event for event in events if event.get("status") == "error"]
+        self.assertEqual(len(error_events), 1)
+        self.assertIn("Timed out connecting", error_events[0]["message"])
 
 
 if __name__ == "__main__":

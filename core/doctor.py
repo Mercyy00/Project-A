@@ -35,32 +35,20 @@ def check_environment() -> Dict[str, Any]:
         load_dotenv()
 
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
-    groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
-    gemini_model = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash"
+    gemini_model = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite"
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
     has_gemini = bool(gemini_key and gemini_key != "your_gemini_api_key_here")
-    has_groq = bool(groq_key and groq_key != "your_groq_api_key_here")
-
-    if has_gemini and has_groq:
+    if has_gemini:
         status = "PASS"
-        msg = f"Dual LLM active (Groq: {groq_model} + Gemini: {gemini_model})"
-    elif has_gemini:
-        status = "PASS"
-        msg = f"Gemini active ({gemini_model}), Groq key missing"
-    elif has_groq:
-        status = "PASS"
-        msg = f"Groq active ({groq_model}), Gemini key missing"
+        msg = f"Gemini active ({gemini_model})"
     else:
         status = "FAIL"
         msg = "No valid LLM API keys found in .env"
 
     details = {
         "gemini_configured": has_gemini,
-        "groq_configured": has_groq,
         "gemini_model": gemini_model,
-        "groq_model": groq_model,
         "telegram_configured": bool(telegram_token and telegram_token != "your_telegram_bot_token_here"),
     }
     return {"status": status, "message": msg, "details": details}
@@ -373,7 +361,6 @@ def check_dependencies(force: bool = False) -> bool:
         try:
             if stamp_file.read_text(encoding="utf-8").strip() == current_hash:
                 import fastapi
-                import groq
                 import psutil
                 import pyautogui
                 return True

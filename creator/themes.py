@@ -1,6 +1,6 @@
 """Themes configuration for JARVIS Document Creator (Claude-Quality Elevation).
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.themes
 
 Defines theme palettes, typography, bento-grid card styles, executive cover page

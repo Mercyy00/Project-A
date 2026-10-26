@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import re
 from typing import Final
-import langdetect
-from langdetect.detector_factory import DetectorFactory
-
-# Set seed for deterministic langdetect results
-DetectorFactory.seed = 0
+try:
+    import langdetect
+    from langdetect.detector_factory import DetectorFactory
+    DetectorFactory.seed = 0
+except ImportError:
+    langdetect = None
 
 SUPPORTED_LANGUAGES: Final[dict[str, str]] = {
     "en": "English",

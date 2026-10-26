@@ -1,6 +1,6 @@
 """Document generation tools for JARVIS ReAct Brain and Central Registry.
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.tools
 
 Exposes CreatePdfTool, CreateDocxTool, and CreatePptxTool conforming strictly
@@ -17,10 +17,25 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from tools.base import BaseTool, ToolResult
+from creator.chart_maker import generate_chart
 from creator.docx_maker import make_docx
 from creator.pdf_maker import make_pdf
 from creator.pptx_maker import make_pptx
+from creator.report_maker import generate_executive_report
 from creator.web_maker import make_website
+from creator.document_reader import (
+    read_document as reader_read_document,
+    inspect_document as reader_inspect_document,
+    extract_tables as reader_extract_tables,
+    summarize_document as reader_summarize_document,
+)
+from creator.document_rag import (
+    chunk_document as rag_chunk_document,
+    search_document as rag_search_document,
+    ask_document as rag_ask_document,
+    index_workspace_documents as rag_index_workspace_documents,
+    query_workspace_knowledge as rag_query_workspace_knowledge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,51 +181,50 @@ class CreatePdfTool(BaseTool):
     name: str = "create_pdf"
     description: str = (
         "Creates a professionally styled, publication-ready binary PDF document with an executive "
-        "cover page, bento-grid metric callouts, section headings, paragraphs, bullet lists, and tables. "
-        "Arguments: title (str), sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
-        "theme (optional: 'clean_light', 'dark_pro', 'colourful'), auto_open (optional bool, default True)."
+        "cover page, optional custom subtitle, bento-grid metric callouts, section headings, paragraphs, bullet lists, and tables. "
+        "Arguments: sections (list of dicts with 'heading', 'text', 'bullets', 'metrics', 'table'), "
+        "optional title (derived from the first section heading when omitted), "
+        "theme (optional: 'clean_light', 'dark_pro', 'colourful', 'tech_innovation'), auto_open (optional bool, default True)."
     )
 
     def run(
         self,
-        title: str,
-        sections: Any,
+        title: str = "",
+        sections: Any = None,
         theme: str = "clean_light",
         out_dir: str = "workspace",
         auto_open: bool = True,
+        subtitle: Optional[str] = None,
         **kwargs: Any,
     ) -> ToolResult:
         """Executes PDF creation.
 
         Args:
-            title: Title of the document.
+            title: Optional title; defaults to the first section heading.
             sections: List of section objects or JSON string.
-            theme: Theme name ('clean_light', 'dark_pro', 'colourful').
+            theme: Theme name such as 'clean_light', 'dark_pro', 'colourful', or 'tech_innovation'.
             out_dir: Output directory (defaults to 'workspace').
             auto_open: Whether to automatically launch the document in Adobe Acrobat / default viewer.
+            subtitle: Optional custom cover subtitle.
             **kwargs: Extra arguments.
 
         Returns:
             ToolResult containing the generated file path and execution summary.
         """
         try:
-            if not title or not str(title).strip():
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    message="Document title cannot be empty.",
-                )
-
-            effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
-            if "desktop" in str(title).lower() and effective_dir == "workspace":
-                effective_dir = str(Path.home() / "Desktop")
             norm_sections = _normalize_sections(sections)
+            clean_title = str(title or "").strip() or str(norm_sections[0].get("heading") or "JARVIS Field Report")
+            effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
+            if "desktop" in clean_title.lower() and effective_dir == "workspace":
+                effective_dir = str(Path.home() / "Desktop")
             pdf_path = make_pdf(
-                title=str(title).strip(),
+                title=clean_title,
                 sections=norm_sections,
                 theme=theme,
                 out_dir=effective_dir,
+                subtitle=subtitle,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
 
             file_size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
@@ -219,13 +233,13 @@ class CreatePdfTool(BaseTool):
                 success=True,
                 data={
                     "file_path": pdf_path,
-                    "title": title,
+                    "title": clean_title,
                     "theme": theme,
                     "format": "pdf",
                     "bytes": file_size,
                     "auto_opened": auto_open,
                 },
-                message=f"PDF document '{title}' generated successfully ({file_size} bytes) at: {pdf_path}",
+                message=f"PDF document '{clean_title}' generated successfully ({file_size} bytes) at: {pdf_path}",
             )
         except Exception as exc:
             logger.exception("CreatePdfTool execution failed: %s", exc)
@@ -246,6 +260,10 @@ class CreatePdfTool(BaseTool):
                     "title": {
                         "type": "string",
                         "description": "The title of the PDF document.",
+                    },
+                    "subtitle": {
+                        "type": "string",
+                        "description": "Optional original subtitle to print on the cover page.",
                     },
                     "sections": {
                         "type": "array",
@@ -292,8 +310,8 @@ class CreatePdfTool(BaseTool):
                     },
                     "theme": {
                         "type": "string",
-                        "description": "Theme style: 'clean_light' (default), 'dark_pro', or 'colourful'.",
-                        "enum": ["clean_light", "dark_pro", "colourful"],
+                        "description": "Visual style: 'clean_light', 'dark_pro', 'colourful', or 'tech_innovation'.",
+                        "enum": ["clean_light", "dark_pro", "colourful", "tech_innovation"],
                     },
                     "out_dir": {
                         "type": "string",
@@ -304,7 +322,7 @@ class CreatePdfTool(BaseTool):
                         "description": "Whether to automatically open the generated document in the desktop viewer (default: True).",
                     },
                 },
-                "required": ["title", "sections"],
+                "required": ["sections"],
             },
         }
 
@@ -360,6 +378,7 @@ class CreateDocxTool(BaseTool):
                 theme=theme,
                 out_dir=effective_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
 
             file_size = os.path.getsize(docx_path) if os.path.exists(docx_path) else 0
@@ -509,6 +528,7 @@ class CreatePptxTool(BaseTool):
                 theme=theme,
                 out_dir=effective_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
             )
 
             file_size = os.path.getsize(pptx_path) if os.path.exists(pptx_path) else 0
@@ -607,6 +627,242 @@ class CreatePptxTool(BaseTool):
         }
 
 
+class CreateChartTool(BaseTool):
+    """Tool for creating themed high-resolution charts (bar, line, pie, donut, horizontal_bar)."""
+
+    name = "create_chart"
+    description = (
+        "Generates a themed high-resolution chart (bar, line, pie, donut, horizontal_bar) "
+        "matching JARVIS themes ('clean_light', 'dark_pro', 'colourful'). Saves as PNG image."
+    )
+
+    def run(
+        self,
+        chart_type: str = "bar",
+        data: Optional[Any] = None,
+        title: str = "Analytics Chart",
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        filename: Optional[str] = None,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute chart creation tool."""
+        try:
+            if not title or not isinstance(title, str) or not title.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Chart generation requires a non-empty title string.",
+                )
+
+            chart_data = data or {"Metric A": 20, "Metric B": 35, "Metric C": 45}
+            if isinstance(chart_data, str):
+                try:
+                    chart_data = json.loads(chart_data)
+                except Exception:
+                    chart_data = {"Value": 10}
+
+            path = generate_chart(
+                chart_type=chart_type,
+                data=chart_data,
+                title=title,
+                theme=theme,
+                out_dir=out_dir,
+                filename=filename,
+            )
+
+            file_size = os.path.getsize(path) if os.path.exists(path) else 0
+
+            return ToolResult(
+                success=True,
+                data={
+                    "file_path": path,
+                    "chart_type": chart_type,
+                    "theme": theme,
+                    "bytes": file_size,
+                },
+                message=f"Chart '{title}' successfully generated at {path} ({file_size} bytes).",
+            )
+        except Exception as e:
+            logger.error("Failed to generate chart: %s", e, exc_info=True)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Chart generation failed: {str(e)}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chart_type": {
+                        "type": "string",
+                        "description": "Chart type: 'bar', 'line', 'pie', 'donut', or 'horizontal_bar'.",
+                        "enum": ["bar", "line", "pie", "donut", "horizontal_bar"],
+                    },
+                    "data": {
+                        "type": "object",
+                        "description": "Data mapping categories to values, e.g. {'Q1': 100, 'Q2': 250}.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Chart title.",
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light', 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Optional output PNG filename.",
+                    },
+                },
+                "required": ["title", "data"],
+            },
+        }
+
+
+class GenerateReportTool(BaseTool):
+    """Tool for generating autonomous multi-format executive intelligence reports (PDF, Word, PPTX)."""
+
+    name = "generate_report"
+    description = (
+        "Generates a synchronized executive intelligence report package across PDF, Word (DOCX), "
+        "and PowerPoint (PPTX) with embedded charts, Bento KPI cards, and modern tables."
+    )
+
+    def run(
+        self,
+        title: str,
+        summary: str = "",
+        sections: Optional[Any] = None,
+        key_metrics: Optional[Any] = None,
+        chart_configs: Optional[Any] = None,
+        theme: str = "clean_light",
+        formats: Optional[Any] = None,
+        out_dir: str = "workspace",
+        auto_open: bool = False,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute autonomous executive report generator."""
+        try:
+            if not title or not isinstance(title, str) or not title.strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Report generation requires a non-empty title string.",
+                )
+
+            norm_sections = _normalize_sections(sections) if sections else []
+
+            norm_metrics = key_metrics
+            if isinstance(norm_metrics, str):
+                try:
+                    norm_metrics = json.loads(norm_metrics)
+                except Exception:
+                    norm_metrics = []
+
+            norm_charts = chart_configs
+            if isinstance(norm_charts, str):
+                try:
+                    norm_charts = json.loads(norm_charts)
+                except Exception:
+                    norm_charts = []
+
+            norm_formats = formats
+            if isinstance(norm_formats, str):
+                try:
+                    norm_formats = json.loads(norm_formats)
+                except Exception:
+                    norm_formats = [f.strip() for f in norm_formats.split(",") if f.strip()]
+
+            output_map = generate_executive_report(
+                title=title,
+                summary=summary or "Autonomous executive report.",
+                sections=norm_sections,
+                key_metrics=norm_metrics,
+                chart_configs=norm_charts,
+                theme=theme,
+                formats=norm_formats,
+                out_dir=out_dir,
+                auto_open=auto_open,
+                author=kwargs.get("author"),
+            )
+
+            total_bytes = sum(os.path.getsize(p) for p in output_map.values() if os.path.exists(p))
+
+            return ToolResult(
+                success=True,
+                data={
+                    "files": output_map,
+                    "formats": list(output_map.keys()),
+                    "theme": theme,
+                    "total_bytes": total_bytes,
+                },
+                message=f"Executive report '{title}' generated successfully in {len(output_map)} formats: {list(output_map.keys())}.",
+            )
+        except Exception as e:
+            logger.error("Failed to generate report: %s", e, exc_info=True)
+            return ToolResult(
+                success=False,
+                data=None,
+                message=f"Report generation failed: {str(e)}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Executive report title.",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "High-level executive summary narrative.",
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "List of report sections with heading, text, bullets, and table data.",
+                        "items": {"type": "object"},
+                    },
+                    "key_metrics": {
+                        "type": "array",
+                        "description": "Key KPI metrics for Bento grid cards (label, value).",
+                        "items": {"type": "object"},
+                    },
+                    "chart_configs": {
+                        "type": "array",
+                        "description": "Chart configurations (type, title, data) to render and embed.",
+                        "items": {"type": "object"},
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Theme style: 'clean_light', 'dark_pro', or 'colourful'.",
+                        "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "formats": {
+                        "type": "array",
+                        "description": "Target formats list: ['pdf', 'docx', 'pptx'].",
+                        "items": {"type": "string"},
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to auto-open the generated report.",
+                    },
+                },
+                "required": ["title"],
+            },
+        }
+
+
 # Convenience function wrappers
 def create_pdf(title: str, sections: Any, theme: str = "clean_light", auto_open: bool = True, **kwargs: Any) -> ToolResult:
     """Convenience callable for CreatePdfTool."""
@@ -623,6 +879,139 @@ def create_pptx(title: str, sections: Any, theme: str = "clean_light", auto_open
     return CreatePptxTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
 
 
+def create_chart(chart_type: str = "bar", data: Any = None, title: str = "Analytics Chart", theme: str = "clean_light", **kwargs: Any) -> ToolResult:
+    """Convenience callable for CreateChartTool."""
+    return CreateChartTool().run(chart_type=chart_type, data=data, title=title, theme=theme, **kwargs)
+
+
+def generate_report(title: str, summary: str = "", sections: Any = None, key_metrics: Any = None, chart_configs: Any = None, theme: str = "clean_light", **kwargs: Any) -> ToolResult:
+    """Convenience callable for GenerateReportTool."""
+    return GenerateReportTool().run(title=title, summary=summary, sections=sections, key_metrics=key_metrics, chart_configs=chart_configs, theme=theme, **kwargs)
+
+
+class CreateDocumentTool(BaseTool):
+    """Tool that autonomously designs and generates a full document or slide deck from a topic prompt."""
+
+    name: str = "create_document"
+    description: str = (
+        "Generates a complete, professionally formatted PDF, Word document, PowerPoint slide deck, or HTML website "
+        "from a single topic prompt. Formats 4-6 sections with headings, summaries, and bullet points. "
+        "Supports English, Hindi, and Marathi in native Devanagari script. "
+        "Arguments: topic (str, required), kind (optional: 'pdf', 'docx', 'pptx', 'web'), "
+        "language (optional: 'en', 'hi', 'mr'), theme (optional: 'clean_light', 'dark_pro', 'colourful', 'tech_innovation'), "
+        "auto_open (optional bool, default True)."
+    )
+
+    def run(
+        self,
+        topic: str,
+        kind: str = "pdf",
+        language: str = "en",
+        theme: str = "clean_light",
+        out_dir: str = "workspace",
+        auto_open: bool = True,
+        reference_material: Any = None,
+        depth: str = "standard",
+        pages: Optional[int] = None,
+        allow_offline_template: bool = True,
+        multistage: bool = False,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Execute document outline generation and binary rendering."""
+        clean_topic = (topic or "").strip()
+        if not clean_topic:
+            return ToolResult(success=False, message="Document topic cannot be empty.")
+
+        try:
+            from creator.outline import create_document as make_full_document
+            file_path = make_full_document(
+                topic=clean_topic,
+                kind=kind,
+                theme=theme,
+                language=language,
+                out_dir=out_dir,
+                auto_open=auto_open,
+                author=kwargs.get("author"),
+                reference_material=reference_material,
+                depth=depth,
+                pages=pages,
+                allow_offline_template=allow_offline_template,
+                multistage=multistage,
+            )
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            fmt = Path(file_path).suffix.lstrip(".").lower()
+
+            return ToolResult(
+                success=True,
+                message=f"Document '{clean_topic}' successfully created at: {file_path} ({file_size} bytes)",
+                data={
+                    "file_path": file_path,
+                    "format": fmt,
+                    "bytes": file_size,
+                    "topic": clean_topic,
+                    "language": language,
+                    "theme": theme,
+                    "depth": depth,
+                    "pages": pages,
+                },
+            )
+        except Exception as exc:
+            logger.error("CreateDocumentTool execution failed: %s", exc, exc_info=True)
+            return ToolResult(success=False, message=f"Failed to create document: {exc}")
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Return OpenAPI / Gemini function calling schema for CreateDocumentTool."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Topic or theme of the document (e.g. 'Solar Energy', 'AI in Education', 'प्रकल्प नियोजन').",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Document format to generate: 'pdf' (default), 'docx' (Word), 'pptx' (PowerPoint), or 'web' (HTML website).",
+                        "enum": ["pdf", "docx", "pptx", "web"],
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Content language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi). Default is 'en'.",
+                        "enum": ["en", "hi", "mr"],
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "Visual style: 'clean_light', 'dark_pro', 'colourful', or 'tech_innovation'.",
+                        "enum": ["clean_light", "dark_pro", "colourful", "tech_innovation"],
+                    },
+                    "reference_material": {
+                        "type": "string",
+                        "description": "Optional JSON list of title/body/href web results used to ground current-topic content.",
+                    },
+                    "auto_open": {
+                        "type": "boolean",
+                        "description": "Whether to automatically open the document upon creation (default: True).",
+                    },
+                },
+                "required": ["topic"],
+            },
+        }
+
+
+def create_document_tool(
+    topic: str,
+    kind: str = "pdf",
+    language: str = "en",
+    theme: str = "clean_light",
+    auto_open: bool = True,
+    **kwargs: Any,
+) -> ToolResult:
+    """Convenience callable for CreateDocumentTool."""
+    return CreateDocumentTool().run(
+        topic=topic, kind=kind, language=language, theme=theme, auto_open=auto_open, **kwargs
+    )
 
 
 class CreateWebsiteTool(BaseTool):
@@ -664,6 +1053,7 @@ class CreateWebsiteTool(BaseTool):
                 theme=theme,
                 out_dir=out_dir,
                 auto_open=auto_open,
+                author=kwargs.get("author"),
                 filename=filename,
                 hero_tagline=hero_tagline,
                 language=language,
@@ -696,33 +1086,47 @@ class CreateWebsiteTool(BaseTool):
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "The title of the website or web dashboard artifact.",
+                        "description": "Website / Artifact title for hero section and navigation header.",
                     },
                     "sections": {
                         "type": "array",
-                        "description": "List of document sections with heading, text, bullets, metrics, or table.",
+                        "description": "List of structured sections containing headings, paragraphs, bullet points, metrics, and tables.",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "heading": {"type": "string", "description": "Section title."},
-                                "text": {"type": "string", "description": "Body paragraph narrative for this section."},
-                                "bullets": {"type": "array", "items": {"type": "string"}, "description": "Bullet points for this section."},
+                                "heading": {
+                                    "type": "string",
+                                    "description": "Section heading.",
+                                },
+                                "text": {
+                                    "type": "string",
+                                    "description": "Body paragraph or summary text.",
+                                },
+                                "bullets": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Bullet points for key highlights.",
+                                },
                                 "metrics": {
                                     "type": "array",
-                                    "description": "Key metric cards for Bento Grid (e.g. [{'label': 'Uptime', 'value': '99.9%'}]).",
+                                    "description": "Key metric cards for Bento grid layout.",
                                     "items": {
                                         "type": "object",
                                         "properties": {
                                             "label": {"type": "string"},
                                             "value": {"type": "string"},
+                                            "subtext": {"type": "string"},
                                         },
                                         "required": ["label", "value"],
                                     },
                                 },
                                 "table": {
                                     "type": "array",
-                                    "description": "2D array of rows for a data table (first row is header).",
-                                    "items": {"type": "array", "items": {"type": "string"}},
+                                    "description": "2D table array where the first inner array represents the column headers.",
+                                    "items": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
                                 },
                             },
                             "required": ["heading"],
@@ -730,19 +1134,7 @@ class CreateWebsiteTool(BaseTool):
                     },
                     "theme": {
                         "type": "string",
-                        "description": "Theme style: 'clean_light', 'dark_pro', 'colourful', 'tech_innovation', 'ocean_depths', 'forest_moss', 'midnight_executive', 'warm_terracotta', 'modern_minimalist', 'sunset_boulevard'.",
-                        "enum": [
-                            "clean_light",
-                            "dark_pro",
-                            "colourful",
-                            "tech_innovation",
-                            "ocean_depths",
-                            "forest_moss",
-                            "midnight_executive",
-                            "warm_terracotta",
-                            "modern_minimalist",
-                            "sunset_boulevard",
-                        ],
+                        "description": "Color theme: 'clean_light', 'dark_pro', 'colourful', 'tech_innovation', 'ocean_depths', 'forest_moss', 'midnight_executive', 'warm_terracotta', 'modern_minimalist', 'sunset_boulevard'.",
                     },
                     "out_dir": {
                         "type": "string",
@@ -762,93 +1154,137 @@ def create_website(title: str, sections: Any, theme: str = "clean_light", auto_o
     """Convenience callable for CreateWebsiteTool."""
     return CreateWebsiteTool().run(title=title, sections=sections, theme=theme, auto_open=auto_open, **kwargs)
 
-class CreateDocumentTool(BaseTool):
-    """Tool that autonomously designs and generates a full document or slide deck from a topic prompt."""
 
-    name: str = "create_document"
+class CreateTemplateTool(BaseTool):
+    """Tool that generates formatted documents from standard professional templates."""
+
+    name: str = "create_template_document"
     description: str = (
-        "Generates a complete, professionally formatted PDF, Word document, PowerPoint slide deck, or HTML website "
-        "from a single topic prompt. Formats 4-6 sections with headings, summaries, and bullet points. "
-        "Supports English, Hindi, and Marathi in native Devanagari script. "
-        "Arguments: topic (str, required), kind (optional: 'pdf', 'docx', 'pptx', 'web'), "
-        "language (optional: 'en', 'hi', 'mr'), theme (optional: 'clean_light', 'dark_pro', 'colourful'), "
-        "auto_open (optional bool, default True)."
+        "Generates a complete document from pre-configured professional templates. "
+        "Templates: 'project_report' (academic/technical report with chapters), "
+        "'assignment_cover' (student submission cover sheet with declaration), "
+        "'resume' (curriculum vitae with skills, experience, education), or "
+        "'application_letter' (formal cover/application letter). "
+        "Arguments: template_type (str, required: 'project_report', 'assignment_cover', 'resume', 'application_letter'), "
+        "data (dict, required), theme (optional: 'clean_light', 'dark_pro', 'colourful'), "
+        "kind (optional: 'pdf' or 'docx'), auto_open (optional bool, default False)."
     )
 
     def run(
         self,
-        topic: str = "",
-        kind: str = "pdf",
-        language: str = "en",
+        template_type: str,
+        data: Dict[str, Any],
         theme: str = "clean_light",
+        kind: str = "pdf",
         out_dir: str = "workspace",
-        auto_open: bool = True,
+        auto_open: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
-        """Execute document outline generation and binary rendering."""
-        clean_topic = (topic or kwargs.get("title") or kwargs.get("prompt") or kwargs.get("subject") or "").strip()
-        if not clean_topic:
-            return ToolResult(success=False, message="Document topic cannot be empty.")
+        """Execute template document generation."""
+        ttype = (template_type or "").strip().lower()
+        if not ttype:
+            return ToolResult(success=False, message="template_type cannot be empty.")
 
         effective_dir = _normalize_out_dir(out_dir or kwargs.get("output_dir"))
-        if "desktop" in clean_topic.lower() and effective_dir == "workspace":
+        title_hint = str(data.get("title", "")) if isinstance(data, dict) else ""
+        if "desktop" in title_hint.lower() and effective_dir == "workspace":
             effective_dir = str(Path.home() / "Desktop")
 
         try:
-            from creator.outline import create_document as make_full_document
-            file_path = make_full_document(
-                topic=clean_topic,
-                kind=kind,
-                theme=theme,
-                language=language,
-                out_dir=effective_dir,
-                auto_open=auto_open,
-            )
-            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-            fmt = Path(file_path).suffix.lstrip(".").lower()
+            import creator.templates as tpls
 
+            if ttype in ("project_report", "report"):
+                title = data.get("title", "Technical Project Report")
+                author = data.get("author", "Lead Engineer")
+                chapters = data.get("chapters", [])
+                file_path = tpls.project_report(
+                    title=title,
+                    author=author,
+                    chapters=chapters,
+                    theme=theme,
+                    out_dir=effective_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            elif ttype in ("assignment_cover", "assignment"):
+                subject = data.get("subject", "Engineering Course")
+                name = data.get("name", "Student")
+                roll_no = data.get("roll_no", "001")
+                title = data.get("title", "Assignment Submission")
+                file_path = tpls.assignment_cover(
+                    subject=subject,
+                    name=name,
+                    roll_no=roll_no,
+                    title=title,
+                    theme=theme,
+                    out_dir=effective_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            elif ttype in ("resume", "cv"):
+                file_path = tpls.resume(
+                    data=data,
+                    theme=theme,
+                    out_dir=effective_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            elif ttype in ("application_letter", "cover_letter", "letter"):
+                file_path = tpls.application_letter(
+                    data=data,
+                    theme=theme,
+                    out_dir=effective_dir,
+                    kind=kind,
+                    auto_open=auto_open,
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    message=f"Unknown template_type '{template_type}'. Supported: 'project_report', 'assignment_cover', 'resume', 'application_letter'.",
+                )
+
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
             return ToolResult(
                 success=True,
-                message=f"Document '{clean_topic}' successfully created at: {file_path} ({file_size} bytes)",
+                message=f"Template document '{ttype}' successfully created at: {file_path} ({file_size} bytes)",
                 data={
                     "file_path": file_path,
-                    "format": fmt,
+                    "template_type": ttype,
+                    "format": Path(file_path).suffix.lstrip(".").lower(),
                     "bytes": file_size,
-                    "topic": clean_topic,
-                    "language": language,
                     "theme": theme,
                 },
             )
         except Exception as exc:
-            logger.error("CreateDocumentTool execution failed: %s", exc, exc_info=True)
-            return ToolResult(success=False, message=f"Failed to create document: {exc}")
+            logger.error("CreateTemplateTool execution failed: %s", exc, exc_info=True)
+            return ToolResult(success=False, message=f"Failed to create template document: {exc}")
 
     def get_schema(self) -> Dict[str, Any]:
-        """Return OpenAPI / Gemini function calling schema for CreateDocumentTool."""
+        """Return OpenAPI / Gemini function calling schema for CreateTemplateTool."""
         return {
             "name": self.name,
             "description": self.description,
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "topic": {
+                    "template_type": {
                         "type": "string",
-                        "description": "Topic or theme of the document (e.g. 'Solar Energy', 'AI in Education', 'प्रकल्प नियोजन').",
+                        "description": "Template kind to build: 'project_report', 'assignment_cover', 'resume', or 'application_letter'.",
+                        "enum": ["project_report", "assignment_cover", "resume", "application_letter"],
                     },
-                    "kind": {
-                        "type": "string",
-                        "description": "Document format to generate: 'pdf' (default), 'docx' (Word), or 'pptx' (PowerPoint).",
-                        "enum": ["pdf", "docx", "pptx", "web"],
-                    },
-                    "language": {
-                        "type": "string",
-                        "description": "Content language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi). Default is 'en'.",
-                        "enum": ["en", "hi", "mr"],
+                    "data": {
+                        "type": "object",
+                        "description": "Content payload dictionary tailored for the chosen template.",
                     },
                     "theme": {
                         "type": "string",
-                        "description": "Styling theme: 'clean_light' (default), 'dark_pro', or 'colourful'.",
+                        "description": "Styling theme: 'clean_light', 'dark_pro', or 'colourful'.",
                         "enum": ["clean_light", "dark_pro", "colourful"],
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Output format: 'pdf' (default) or 'docx'.",
+                        "enum": ["pdf", "docx"],
                     },
                     "out_dir": {
                         "type": "string",
@@ -856,26 +1292,464 @@ class CreateDocumentTool(BaseTool):
                     },
                     "auto_open": {
                         "type": "boolean",
-                        "description": "Whether to automatically open the document upon creation (default: True).",
+                        "description": "Whether to launch the document upon creation (default: False).",
                     },
                 },
-                "required": ["topic"],
+                "required": ["template_type", "data"],
             },
         }
 
 
-def create_document_tool(
-    topic: str,
-    kind: str = "pdf",
-    language: str = "en",
+def create_template_document(
+    template_type: str,
+    data: Dict[str, Any],
     theme: str = "clean_light",
-    auto_open: bool = True,
+    kind: str = "pdf",
+    auto_open: bool = False,
     **kwargs: Any,
 ) -> ToolResult:
-    """Convenience callable for CreateDocumentTool."""
-    return CreateDocumentTool().run(
-        topic=topic, kind=kind, language=language, theme=theme, auto_open=auto_open, **kwargs
+    """Convenience callable for CreateTemplateTool."""
+    return CreateTemplateTool().run(
+        template_type=template_type, data=data, theme=theme, kind=kind, auto_open=auto_open, **kwargs
     )
+
+
+
+
+class ReadDocumentTool(BaseTool):
+    """Tool to read, parse, and extract text, headings, tables and metadata from any document."""
+
+    name: str = "read_document"
+    description: str = (
+        "Read, parse, and extract structured text, headings, tables, and metadata from any "
+        "PDF, Word (.docx), PowerPoint (.pptx), HTML web artifact, or Markdown document."
+    )
+
+    def run(
+        self,
+        file_path: str,
+        max_chars: int = 8000,
+        page_range: Optional[List[int]] = None,
+        **kwargs: Any,
+    ) -> ToolResult:
+        try:
+            pages_tuple = (page_range[0], page_range[1]) if page_range and len(page_range) >= 2 else None
+            data = reader_read_document(file_path=file_path, max_chars=max_chars, page_range=pages_tuple)
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Successfully extracted {data['word_count']} words from {data['filename']} ({data['format'].upper()}).",
+            )
+        except Exception as exc:
+            logger.error("Failed to read document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to read document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document file to read.",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum characters of text body to return (default: 8000).",
+                    },
+                    "page_range": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Optional [start_page, end_page] for PDFs (e.g. [1, 3]).",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        }
+
+
+class SummarizeDocumentTool(BaseTool):
+    """Tool to generate intelligent executive summaries and key takeaways from documents."""
+
+    name: str = "summarize_document"
+    description: str = (
+        "Generate an intelligent executive summary, key takeaways, and metric highlights "
+        "from an existing document (PDF, Word, PPTX, HTML)."
+    )
+
+    def run(
+        self,
+        file_path: str,
+        focus: str = "general",
+        max_bullets: int = 5,
+        language: str = "en",
+        **kwargs: Any,
+    ) -> ToolResult:
+        try:
+            data = reader_summarize_document(
+                file_path=file_path,
+                focus=focus,
+                max_bullets=max_bullets,
+                language=language,
+                cancel_event=kwargs.get("cancel_event"),
+            )
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Successfully generated executive summary for '{data['title']}' using {data['engine']} engine.",
+            )
+        except Exception as exc:
+            logger.error("Failed to summarize document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to summarize document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to summarize.",
+                    },
+                    "focus": {
+                        "type": "string",
+                        "description": "Summary focus: 'general', 'technical', 'executive', or 'metrics'.",
+                        "enum": ["general", "technical", "executive", "metrics"],
+                    },
+                    "max_bullets": {
+                        "type": "integer",
+                        "description": "Maximum key takeaways to extract (default: 5).",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Output language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi).",
+                        "enum": ["en", "hi", "mr"],
+                    },
+                },
+                "required": ["file_path"],
+            },
+        }
+
+
+class InspectDocumentTool(BaseTool):
+    """Tool to inspect the structure and metadata of any document."""
+
+    name: str = "inspect_document"
+    description: str = (
+        "Inspect the structure, page/slide count, headings tree, table count, and metadata "
+        "of a document without loading the full text body."
+    )
+
+    def run(self, file_path: str, **kwargs: Any) -> ToolResult:
+        try:
+            data = reader_inspect_document(file_path=file_path)
+            return ToolResult(
+                success=True,
+                data=data,
+                message=f"Document '{data['filename']}' ({data['format'].upper()}): {data['page_or_slide_count']} pages/slides, {data['table_count']} tables, {data['word_count']} words.",
+            )
+        except Exception as exc:
+            logger.error("Failed to inspect document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to inspect document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to inspect.",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        }
+
+
+class ChunkDocumentTool(BaseTool):
+    """Tool to break any document into semantic passages with metadata."""
+
+    name: str = "chunk_document"
+    description: str = (
+        "Break a document (PDF, DOCX, PPTX, HTML, Markdown) into structured semantic passages "
+        "preserving heading hierarchy, page/slide numbers, and table matrices."
+    )
+
+    def run(self, file_path: str, chunk_size: int = 800, overlap: int = 150, **kwargs: Any) -> ToolResult:
+        try:
+            chunks = rag_chunk_document(file_path=file_path, chunk_size=chunk_size, overlap=overlap)
+            return ToolResult(
+                success=True,
+                data={"chunks": chunks, "total_chunks": len(chunks), "file_path": file_path},
+                message=f"Successfully chunked '{Path(file_path).name}' into {len(chunks)} semantic passages.",
+            )
+        except Exception as exc:
+            logger.error("Failed to chunk document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to chunk document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to chunk.",
+                    },
+                    "chunk_size": {
+                        "type": "integer",
+                        "description": "Target character size per passage (default: 800).",
+                        "default": 800,
+                    },
+                    "overlap": {
+                        "type": "integer",
+                        "description": "Character overlap between adjacent passages (default: 150).",
+                        "default": 150,
+                    },
+                },
+                "required": ["file_path"],
+            },
+        }
+
+
+class SearchDocumentTool(BaseTool):
+    """Tool to search a document semantically for relevant passages with citations."""
+
+    name: str = "search_document"
+    description: str = (
+        "Semantically search a document (PDF, DOCX, PPTX, HTML, Markdown) for passages matching a concept or query, "
+        "returning ranked results with page/slide citations."
+    )
+
+    def run(self, file_path: str, query: str, top_k: int = 3, **kwargs: Any) -> ToolResult:
+        try:
+            results = rag_search_document(file_path=file_path, query=query, top_k=top_k)
+            return ToolResult(
+                success=True,
+                data={"results": results, "top_k": len(results), "query": query},
+                message=f"Found {len(results)} relevant passage(s) in '{Path(file_path).name}' for query '{query}'.",
+            )
+        except Exception as exc:
+            logger.error("Failed to search document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to search document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to search.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query or concept to locate in the document.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of matching passages to return (default: 3).",
+                        "default": 3,
+                    },
+                },
+                "required": ["file_path", "query"],
+            },
+        }
+
+
+class AskDocumentTool(BaseTool):
+    """Tool to ask questions about any document and receive grounded answers with citations."""
+
+    name: str = "ask_document"
+    description: str = (
+        "Ask questions about any document (PDF, Word, PowerPoint, HTML, Markdown) and get factual answers "
+        "strictly grounded in the text with exact page/slide and section citations."
+    )
+
+    def run(
+        self,
+        file_path: str,
+        question: str,
+        language: str = "en",
+        top_k: int = 3,
+        **kwargs: Any,
+    ) -> ToolResult:
+        try:
+            res = rag_ask_document(
+                file_path=file_path,
+                question=question,
+                language=language,
+                top_k=top_k,
+                cancel_event=kwargs.get("cancel_event"),
+            )
+            if not res.get("success", True):
+                return ToolResult(
+                    success=False,
+                    error=res.get("error", "Failed to answer question"),
+                    message=res.get("answer", "Document Q&A failed."),
+                )
+            return ToolResult(
+                success=True,
+                data=res,
+                message=res.get("answer", "Answer generated successfully."),
+            )
+        except Exception as exc:
+            logger.error("Failed to answer question on document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to answer question on document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to query.",
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "The question to ask about the document.",
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["en", "mr", "hi"],
+                        "description": "Language for the answer: 'en' (English), 'mr' (Marathi), 'hi' (Hindi).",
+                        "default": "en",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of semantic context passages to retrieve (default: 3).",
+                        "default": 3,
+                    },
+                },
+                "required": ["file_path", "question"],
+            },
+        }
+
+
+class IndexWorkspaceDocumentsTool(BaseTool):
+    """Tool to index all documents in the workspace or search across all workspace files."""
+
+    name: str = "index_workspace_documents"
+    description: str = (
+        "Scan and build a semantic knowledge catalog for all documents in the workspace directory "
+        "or search across all workspace files."
+    )
+
+    def run(self, folder_path: str = "workspace", query: Optional[str] = None, **kwargs: Any) -> ToolResult:
+        try:
+            if query and str(query).strip():
+                matches = rag_query_workspace_knowledge(query=query, folder_path=folder_path, top_k=5)
+                return ToolResult(
+                    success=True,
+                    data={"matches": matches, "query": query, "folder": folder_path},
+                    message=f"Found {len(matches)} matching passage(s) across workspace documents for query '{query}'.",
+                )
+            summary = rag_index_workspace_documents(folder_path=folder_path, save_catalog=True)
+            return ToolResult(
+                success=True,
+                data=summary,
+                message=f"Indexed {summary['indexed_files']} document(s) with {summary['total_chunks']} passages in '{folder_path}'.",
+            )
+        except Exception as exc:
+            logger.error("Failed to index workspace documents in '%s': %s", folder_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to index workspace documents: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_path": {
+                        "type": "string",
+                        "description": "Folder path containing documents to index (default: 'workspace').",
+                        "default": "workspace",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional search query to locate relevant passages across all workspace documents.",
+                    },
+                },
+            },
+        }
+
+
+def read_document_tool(file_path: str, max_chars: int = 8000, **kwargs: Any) -> ToolResult:
+    """Convenience callable for ReadDocumentTool."""
+    return ReadDocumentTool().run(file_path=file_path, max_chars=max_chars, **kwargs)
+
+
+def summarize_document_tool(file_path: str, focus: str = "general", max_bullets: int = 5, language: str = "en", **kwargs: Any) -> ToolResult:
+    """Convenience callable for SummarizeDocumentTool."""
+    return SummarizeDocumentTool().run(file_path=file_path, focus=focus, max_bullets=max_bullets, language=language, **kwargs)
+
+
+def inspect_document_tool(file_path: str, **kwargs: Any) -> ToolResult:
+    """Convenience callable for InspectDocumentTool."""
+    return InspectDocumentTool().run(file_path=file_path, **kwargs)
+
+
+def chunk_document_tool(file_path: str, chunk_size: int = 800, overlap: int = 150, **kwargs: Any) -> ToolResult:
+    """Convenience callable for ChunkDocumentTool."""
+    return ChunkDocumentTool().run(file_path=file_path, chunk_size=chunk_size, overlap=overlap, **kwargs)
+
+
+def search_document_tool(file_path: str, query: str, top_k: int = 3, **kwargs: Any) -> ToolResult:
+    """Convenience callable for SearchDocumentTool."""
+    return SearchDocumentTool().run(file_path=file_path, query=query, top_k=top_k, **kwargs)
+
+
+def ask_document_tool(file_path: str, question: str, language: str = "en", top_k: int = 3, **kwargs: Any) -> ToolResult:
+    """Convenience callable for AskDocumentTool."""
+    return AskDocumentTool().run(file_path=file_path, question=question, language=language, top_k=top_k, **kwargs)
+
+
+def index_workspace_documents_tool(folder_path: str = "workspace", query: Optional[str] = None, **kwargs: Any) -> ToolResult:
+    """Convenience callable for IndexWorkspaceDocumentsTool."""
+    return IndexWorkspaceDocumentsTool().run(folder_path=folder_path, query=query, **kwargs)
 
 
 # Canonical exported tools list for Abhijit's registry auto-loader (Catch-Up Plan Section 4 & 7)
@@ -883,8 +1757,18 @@ TOOLS: List[BaseTool] = [
     CreatePdfTool(),
     CreateDocxTool(),
     CreatePptxTool(),
-    CreateDocumentTool(),
     CreateWebsiteTool(),
+    CreateChartTool(),
+    CreateDocumentTool(),
+    GenerateReportTool(),
+    CreateTemplateTool(),
+    ReadDocumentTool(),
+    SummarizeDocumentTool(),
+    InspectDocumentTool(),
+    ChunkDocumentTool(),
+    SearchDocumentTool(),
+    AskDocumentTool(),
+    IndexWorkspaceDocumentsTool(),
 ]
 
 # Auto-register all tools immediately into central registry

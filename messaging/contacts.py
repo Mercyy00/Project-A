@@ -45,16 +45,32 @@ def load_contacts() -> Dict[str, str]:
         return {}
 
 
+def load_saved_contacts() -> Dict[str, str]:
+    """Load only contacts explicitly saved by the user, never the sample file."""
+    try:
+        if not CONTACTS_REAL_FILE.is_file():
+            return {}
+        with CONTACTS_REAL_FILE.open("r", encoding="utf-8") as contacts_file:
+            data = json.load(contacts_file)
+        if not isinstance(data, dict):
+            return {}
+        return {str(name).strip(): str(phone).strip() for name, phone in data.items()}
+    except Exception as exc:
+        logger.error("Failed to load user-saved contacts: %s", exc, exc_info=True)
+        return {}
+
+
 def _normalize_name(name: str) -> str:
     """Normalize contact name by removing whitespace and lowercasing."""
     return re.sub(r"\s+", "", str(name or "")).lower()
 
 
-def find_contact(name: str) -> Optional[str]:
+def find_contact(name: str, include_examples: bool = True) -> Optional[str]:
     """Find a phone number by contact name, case-insensitively and ignoring spaces.
 
     Args:
         name: Name or alias of the contact to find (e.g. 'jayesh', 'Jayesh ', 'JAYESH').
+        include_examples: Whether to include the sample contacts file (default: True for compatibility).
 
     Returns:
         Optional[str]: E.164 phone number string if found, otherwise None.
@@ -64,7 +80,7 @@ def find_contact(name: str) -> Optional[str]:
             return None
 
         clean_query = _normalize_name(name)
-        contacts = load_contacts()
+        contacts = load_contacts() if include_examples else load_saved_contacts()
 
         for contact_name, phone in contacts.items():
             if _normalize_name(contact_name) == clean_query:
