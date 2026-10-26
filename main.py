@@ -130,8 +130,20 @@ def launch_live() -> None:
 
 
 def launch_qt() -> None:
-    """Launch the native PyQt6 Desktop HUD Interface."""
-    from ui.pyqt_hud import launch_pyqt_hud
+    """Launch the native PyQt6 Desktop HUD Interface with auto-install resilience."""
+    try:
+        from ui.pyqt_hud import launch_pyqt_hud
+    except ModuleNotFoundError as err:
+        missing_mod = str(err).split("'")[1] if "'" in str(err) else str(err)
+        print(f"[*] Missing module '{missing_mod}'. Setting up dependencies from requirements.txt...")
+        import subprocess
+        res = subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--prefer-binary"])
+        if res.returncode == 0:
+            print("[OK] Dependencies installed successfully! Launching HUD...")
+            from ui.pyqt_hud import launch_pyqt_hud
+        else:
+            print(f"[ERROR] Failed to auto-install {missing_mod}. Please run: pip install -r requirements.txt")
+            sys.exit(1)
     print("=" * 60)
     print("     PROJECT JARVIS - NATIVE PYQT6 SCI-FI DESKTOP HUD")
     print("=" * 60)

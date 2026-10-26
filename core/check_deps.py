@@ -30,6 +30,7 @@ def check_and_install_dependencies(force: bool = False) -> bool:
                 import uvicorn
                 import fastapi
                 import psutil
+                import PyQt6
                 return True
         except Exception:
             pass

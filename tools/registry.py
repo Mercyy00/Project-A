@@ -79,7 +79,16 @@ from tools.desktop_tools import OrganizeDesktopTool, SetWallpaperTool, ComputerS
 from tools.dev_tools import DevAgentTool
 from tools.weather_tool import WeatherReportTool
 from tools.whatsapp_tool import WhatsAppTool
-from tools.antigravity_tools import AntigravityPromptTool
+from tools.youtube_tool import YouTubeControlTool
+from tools.youtube_music_tool import YouTubeMusicTool
+from tools.file_manager_tool import FileManagerTool
+from tools.skill_tool import SkillLearnerTool
+from tools.antigravity_tools import AntigravityPromptTool, AntigravityControlTool
+from tools.semantic_memory_tool import SemanticMemoryTool
+from tools.guardian_tool import HardwareWatchdogTool
+from vision.loop import GuiAgentTool
+from tools.web_tools import WebResearchReportTool, WebScrapeTool
+from tools.google_workspace_tool import GoogleCalendarTool, GmailTool
 from tools.code_tools import (
 
     RunCommandTool,
@@ -227,10 +236,33 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "set_wallpaper": SetWallpaperTool(),
     "computer_settings": ComputerSettingsTool(),
     "dev_agent": DevAgentTool(),
+    "coding_agent": DevAgentTool(),
     "weather_report": WeatherReportTool(),
+    "antigravity_control": AntigravityControlTool(),
+    "antigravity": AntigravityControlTool(),
     "antigravity_prompt": AntigravityPromptTool(),
     "whatsapp_control": WhatsAppTool(),
     "whatsapp": WhatsAppTool(),
+    "youtube_control": YouTubeControlTool(),
+    "youtube": YouTubeControlTool(),
+    "youtube_music_control": YouTubeMusicTool(),
+    "youtube_music": YouTubeMusicTool(),
+    "file_manager_control": FileManagerTool(),
+    "file_manager": FileManagerTool(),
+    "skill_learner": SkillLearnerTool(),
+    "learn_skill": SkillLearnerTool(),
+    "semantic_memory": SemanticMemoryTool(),
+    "hardware_watchdog": HardwareWatchdogTool(),
+    "guardian": HardwareWatchdogTool(),
+    "gui_agent": GuiAgentTool(),
+    "look_decide_act": GuiAgentTool(),
+    "web_research_report": WebResearchReportTool(),
+    "research_and_report": WebResearchReportTool(),
+    "scrape_webpage": WebScrapeTool(),
+    "google_calendar": GoogleCalendarTool(),
+    "calendar": GoogleCalendarTool(),
+    "gmail_tool": GmailTool(),
+    "gmail": GmailTool(),
 
 })
 

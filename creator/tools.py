@@ -904,6 +904,10 @@ class CreateDocumentTool(BaseTool):
         out_dir: str = "workspace",
         auto_open: bool = True,
         reference_material: Any = None,
+        depth: str = "standard",
+        pages: Optional[int] = None,
+        allow_offline_template: bool = True,
+        multistage: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
         """Execute document outline generation and binary rendering."""
@@ -922,6 +926,10 @@ class CreateDocumentTool(BaseTool):
                 auto_open=auto_open,
                 author=kwargs.get("author"),
                 reference_material=reference_material,
+                depth=depth,
+                pages=pages,
+                allow_offline_template=allow_offline_template,
+                multistage=multistage,
             )
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
             fmt = Path(file_path).suffix.lstrip(".").lower()
@@ -936,6 +944,8 @@ class CreateDocumentTool(BaseTool):
                     "topic": clean_topic,
                     "language": language,
                     "theme": theme,
+                    "depth": depth,
+                    "pages": pages,
                 },
             )
         except Exception as exc:

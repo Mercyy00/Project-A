@@ -39,6 +39,7 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 *.db
+memory/preferences.json
 vector_store/
 chroma_db/
 cache/
