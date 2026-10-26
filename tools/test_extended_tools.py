@@ -12,6 +12,7 @@ Tests:
 
 import os
 import sys
+import types
 import unittest
 import urllib.parse
 from unittest.mock import MagicMock, patch
@@ -201,6 +202,44 @@ class TestSearchWebTool(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tool = SearchWebTool()
+        ddgs_module = types.ModuleType("ddgs")
+        fake_ddgs = MagicMock()
+        fake_ddgs.__enter__.return_value = fake_ddgs
+        fake_ddgs.text.return_value = []
+        ddgs_module.DDGS = MagicMock(return_value=fake_ddgs)  # type: ignore[attr-defined]
+        patcher = patch.dict(sys.modules, {"ddgs": ddgs_module})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @patch("webbrowser.open", return_value=True)
+    def test_search_fetches_bounded_snippets_and_closes_ddgs(self, mock_browser: MagicMock) -> None:
+        """Search returns useful snippets without sending an unbounded prompt."""
+        captured: dict[str, int] = {}
+
+        class FakeDDGS:
+            def __enter__(self) -> "FakeDDGS":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                captured["closed"] = 1
+
+            def text(self, query: str, max_results: int) -> list[dict[str, str]]:
+                captured["max_results"] = max_results
+                return [
+                    {"title": "Result", "body": "Useful snippet", "href": "https://example.com"}
+                    for _ in range(max_results)
+                ]
+
+        with patch.dict(sys.modules, {"ddgs": types.ModuleType("ddgs")}):
+            sys.modules["ddgs"].DDGS = FakeDDGS  # type: ignore[attr-defined]
+            result = self.tool.run(query="test", max_results=100)
+
+        self.assertTrue(result.success)
+        self.assertEqual(captured["max_results"], 8)
+        self.assertEqual(captured["closed"], 1)
+        self.assertEqual(len(result.data["results"]), 8)
+        self.assertIn("Useful snippet", result.data["summary"])
+        mock_browser.assert_called_once()
 
     @patch("webbrowser.open", return_value=True)
     def test_default_google_search(self, mock_browser: MagicMock) -> None:

@@ -1,6 +1,6 @@
 """Day 1: Hello documents generator for Project JARVIS.
 
-Author: Vidhita (Document Engineer)
+Author: Document Engineer
 Module: creator.hello_docs
 
 Generates hello.pdf (ReportLab), hello.docx (python-docx), and hello.pptx (python-pptx)

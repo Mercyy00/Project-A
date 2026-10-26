@@ -101,14 +101,13 @@ def run_scaling_test(auto_mode: bool = False) -> int:
         print("\n[2/2] Testing mouse coordinates across quadrants...")
         for name, target_x, target_y in test_points:
             try:
-                pyautogui.moveTo(target_x, target_y, duration=0.2)
-                time.sleep(0.05)
+                pyautogui.moveTo(target_x, target_y, duration=0.4)
                 current_x, current_y = pyautogui.position()
 
-                # Verify pointer arrived within tolerance of target (accounting for Windows 1.5x fractional rounding)
+                # Verify pointer arrived within 2 pixels of target
                 delta_x = abs(current_x - target_x)
                 delta_y = abs(current_y - target_y)
-                accurate = (delta_x <= 5 and delta_y <= 5)
+                accurate = (delta_x <= 2 and delta_y <= 2)
 
                 if auto_mode:
                     status = "PASS" if accurate else "FAIL"

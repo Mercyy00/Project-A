@@ -204,6 +204,7 @@ def test_describe_screen_empty_question() -> None:
 def test_describe_screen_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify describe_screen raises clear error when GEMINI_API_KEY is not configured."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     with pytest.raises(ValueError, match="GEMINI_API_KEY is missing or invalid"):
         describe_screen(question="What is on my screen?")
 
@@ -243,6 +244,27 @@ def test_describe_screen_mock_gemini_success(
 
     assert answer == "The user has VS Code open displaying Python code."
     mock_client_inst.models.generate_content.assert_called_once()
+
+
+@patch("google.genai.Client")
+def test_describe_screen_does_not_retry_quota_on_another_provider(
+    mock_gemini_cls: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A Gemini failure is surfaced without sending the screenshot to another provider."""
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
+    monkeypatch.setenv("GROQ_API_KEY", "unused-secondary-key")
+
+    image_path = tmp_path / "fallback.jpg"
+    Image.new("RGB", (32, 24), color="green").save(image_path, format="JPEG")
+
+    mock_gemini = MagicMock()
+    mock_gemini.models.generate_content.side_effect = RuntimeError("rate limited")
+    mock_gemini_cls.return_value = mock_gemini
+    with pytest.raises(RuntimeError, match="Gemini screen analysis failed"):
+        describe_screen("What is shown?", screenshot_path=str(image_path))
+    mock_gemini.models.generate_content.assert_called_once()
 
 
 def test_describe_screen_tool_success() -> None:

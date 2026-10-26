@@ -1,17 +1,17 @@
 # JARVIS Messaging Module
 
 **Responsible Engineer:** Trupti  
-**Role:** Messaging (Telegram Bot, Remote Assistant Reach, Notifications)  
+**Role:** Messaging (Telegram Bot, Remote Assistant Reach, WhatsApp, Reminders, Voice Notes & Safety Confirmations)  
 **Branch:** `feature/trupti-messaging`  
-**Milestone:** Day 1 to Day 5 Deliverables Complete
+**Milestone:** Days 1 to 9 Deliverables Complete (55 Tests Passing - 100%)
 
 ---
 
 ## 1. Overview
 
-The `messaging` module powers remote reach for JARVIS through Telegram. It enables the user to communicate with JARVIS from their mobile phone, receive answers from `JarvisBrain`, trigger autonomous tools from CLI or Brain, capture laptop screenshots remotely, and exchange photos and documents securely.
+The `messaging` module powers remote access to JARVIS through Telegram and WhatsApp. It enables the user to communicate with JARVIS from their mobile phone, receive answers from `JarvisBrain`, trigger autonomous tools from CLI or Brain, capture laptop screenshots remotely, exchange photos and documents securely, send verified WhatsApp messages & files, schedule persistent reminders, transcribe incoming voice notes, and approve high-risk operations via interactive Telegram inline confirmation buttons.
 
-### Deliverables Covered (Days 1 – 5)
+### Deliverables Covered (Days 1 – 9)
 
 * **Day 1: Setup + Create Telegram Bot**
   * Private Python environment with dependencies (`pyTelegramBotAPI`, `python-dotenv`, `pytest`, `schedule`, `pywhatkit`, `pydantic`).
@@ -50,68 +50,85 @@ The `messaging` module powers remote reach for JARVIS through Telegram. It enabl
   * Added owner photo handler:
     * Automatically downloads photos sent by the owner into `workspace/` and replies `"Saved"`.
 
+* **Day 6: WhatsApp Messaging + Verified Contacts**
+  * `messaging/contacts.py`:
+    * `load_contacts() -> dict`: Loads `contacts.json` if available, falls back to `contacts.example.json`.
+    * `find_contact(name: str) -> str | None`: Case-insensitive, whitespace-agnostic contact phone lookup.
+  * `messaging/whatsapp.py`:
+    * `send_whatsapp(contact: str, message: str) -> str`: Automates WhatsApp Web delivery via `pywhatkit`.
+    * **Safety Guard:** Strict contact validation. Refuses unknown recipients politely; never sends to unverified numbers. Never raises.
+  * `messaging/test_whatsapp.py`: Provides `--dry-run` mode to preview outbound messages without opening browsers.
+
+* **Day 7: Persistent Telegram Reminders**
+  * `messaging/reminders.py`:
+    * `set_reminder(when: str, text: str) -> str`: Parses natural timings ('HH:MM' 24h format or 'in N minutes').
+    * Persists reminders in `messaging/reminders.json` to survive application restarts.
+    * Resilient background monitoring thread checking every 20 seconds and dispatching due alerts via `send_telegram()`.
+  * `messaging/test_reminders.py`: Interactive and `--verify` runner for scheduling and verifying reminders.
+
+* **Day 8: Full Autonomous Messaging Tools Suite**
+  * `messaging/tools.py`:
+    * `SendWhatsAppTool`: Autonomous WhatsApp dispatch with contacts lookup validation.
+    * `SetReminderTool`: Autonomous reminder scheduling callable by AI Brain or CLI.
+    * `ListRemindersTool`: Autonomous listing of pending active alerts.
+    * Canonical export auto-registered into `TOOL_REGISTRY`.
+
+* **Day 9: Voice Notes, Inline Confirmation Buttons & WhatsApp File Sharing**
+  * `messaging/telegram_bot.py`:
+    * **Telegram Voice Note Transcribe Handler (Catch-Up Plan Task 14):** Automatically receives `.ogg`/audio voice notes from the owner on Telegram, downloads to `workspace/`, transcribes speech via `voice.stt`, and feeds text to `JarvisBrain` for conversational response!
+    * **Telegram Inline Confirmation Buttons (Catch-Up Plan Task 22):** `send_telegram_with_confirmation()` renders interactive `[ Confirm ]` and `[ Cancel ]` buttons for user authorization of high-risk tasks. Handled via `telebot.callback_query_handler`.
+  * `messaging/tools.py`:
+    * `SendWhatsAppFileTool`: Autonomous document, PDF, and image sharing to verified WhatsApp contacts.
+    * `SearchWhatsAppContactsTool`: Query saved contacts without leaking phone numbers.
+    * Registered all 6 messaging tools into central registry:
+      `TOOLS = [SendTelegramTool(), SearchWhatsAppContactsTool(), SendWhatsAppTool(), SendWhatsAppFileTool(), SetReminderTool(), ListRemindersTool()]`
+  * Unit test suite expanded to **55 comprehensive tests** in `tests/test_messaging.py` with 100% pass rate.
+  * 1-click verification runner: `messaging/verify_day9.bat`.
+
 ---
 
 ## 2. Setup Guide
 
-### Step 1: Create your Telegram Bot with BotFather
-1. Open the Telegram app and search for `@BotFather`.
-2. Send the command: `/newbot`.
-3. Provide a friendly name for your bot (e.g., `MyJarvisAssistant`).
-4. Choose a unique username ending with `bot` (e.g., `jarvis_trupti_assistant_bot`).
-5. Copy the HTTP API token provided by BotFather.
-
-### Step 2: Configure `.env`
-1. Open `.env` and paste your bot token:
+### Step 1: Telegram Bot Token
+1. Create a bot with `@BotFather` on Telegram.
+2. Put your token in `.env`:
    ```env
-   TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
    TELEGRAM_OWNER_ID=
    ```
-2. Keep `TELEGRAM_OWNER_ID` empty for the first run.
 
-### Step 3: Discover Your Telegram Chat ID
-1. Run the test bot:
-   ```powershell
-   python messaging/test_bot.py
+### Step 2: Saved Contacts for WhatsApp
+1. Copy `messaging/contacts.example.json` to `messaging/contacts.json`:
+   ```json
+   {
+     "Jayesh": "+919876543210",
+     "MyPhone": "+919123456789"
+   }
    ```
-2. Open your Telegram app, search for your bot's username, and send `"hi"`.
-3. The terminal console will display:
-   ```
-   [JARVIS Bot] Incoming message from chat ID: 987654321
-   Please add TELEGRAM_OWNER_ID=987654321 to your .env file and restart.
-   ```
-4. Copy your numeric chat ID into `.env`:
-   ```env
-   TELEGRAM_OWNER_ID=987654321
-   ```
-5. Restart the bot (`Ctrl+C` then re-run). Your bot is now active and private to you!
+2. Real phone numbers in `contacts.json` are automatically ignored by Git.
 
 ---
 
 ## 3. Running & Testing
 
-### Running the Live Brain Bot (Commands + Chat + Screenshot)
+### Running All 55 Unit Tests
 ```powershell
-python messaging/test_bot_brain.py
-```
-* Supports `/start`, `/help`, `/status`, and `/screenshot`.
-* Any plain text routes through `JarvisBrain.chat`.
-* Any photo sent to the bot is saved in `workspace/`.
-
-### Running Verification Tests (Day 3, 4, 5)
-```powershell
-# Acceptance verification
-python messaging/test_bot_brain.py --verify
-python messaging/tools.py
-python messaging/telegram_bot.py --verify
-
-# Full PyTest Suite (25 Tests)
 python -m pytest tests/test_messaging.py -v
+```
+
+### Running 1-Click Verification Batch
+```powershell
+messaging\verify_day9.bat
+```
+
+### Quick Day 9 Acceptance Test
+```powershell
+messaging\run_day9_test.bat
 ```
 
 ---
 
-## 4. Git Commands for Day 4 – Day 5
+## 4. Git Commands for Day 9
 
 ```powershell
 # Verify status (only messaging/ and tests/ touched, .env excluded)
@@ -121,24 +138,8 @@ git status
 git add messaging/telegram_bot.py messaging/tools.py messaging/__init__.py messaging/README.md tests/test_messaging.py
 
 # Commit
-git commit -m "feat(messaging): Day 4-5 bot commands, SendTelegramTool, /screenshot, and photo handling"
+git commit -m "feat(messaging): complete Day 9 voice notes handler, inline confirmation buttons, WhatsApp file tool and 55 tests"
 
 # Push to your branch
 git push origin feature/trupti-messaging
 ```
-
----
-
-## 5. Viva & Interview Questions Reference
-
-**Q1: How does owner-only authorization work?**  
-*Answer:* Every incoming update inspects `message.chat.id`. If it does not match `TELEGRAM_OWNER_ID` from `.env`, the update is silently ignored. If `TELEGRAM_OWNER_ID` is not yet configured, the bot prints the ID to the server console and does not reply to the sender.
-
-**Q2: How does the bot handle network drops?**  
-*Answer:* We use `bot.infinity_polling(timeout=10, long_polling_timeout=5)` which catches connection resets and timeouts automatically and continues retrying without crashing.
-
-**Q3: How does SendTelegramTool integrate with Jarvis Brain?**  
-*Answer:* `SendTelegramTool` inherits `BaseTool` from `tools.base`. It provides a JSON schema describing its `text` parameter. When the user asks Jarvis "send me a telegram message", the brain generates a tool call to `send_telegram`, which dispatches to `send_telegram(text)`.
-
-**Q4: What security restrictions are placed on file delivery?**  
-*Answer:* `send_telegram()` enforces two security checks: files must reside strictly inside `workspace/` or `temp_*` directories (preventing path traversal or system file leakage), and file sizes cannot exceed 45 MB.

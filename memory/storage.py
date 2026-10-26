@@ -1,7 +1,7 @@
 """Persistent storage and memory manager for Project Jarvis.
 
 Implements note taking CRUD, conversation history logging, and memory search
-using SQLite and aiosqlite.
+using SQLite, aiosqlite, and ChromaDB vector store.
 """
 
 from __future__ import annotations
@@ -44,7 +44,17 @@ class MemoryManager:
                     (title.strip(), content.strip()),
                 )
                 await db.commit()
-                return cursor.lastrowid or 0
+                note_id = cursor.lastrowid or 0
+
+                # Auto-sync to ChromaDB semantic vector store
+                try:
+                    from memory.vector_store import VectorMemoryStore
+                    vstore = VectorMemoryStore.get_instance()
+                    vstore.add_note(note_id=note_id, title=title.strip(), content=content.strip())
+                except Exception:
+                    pass
+
+                return note_id
         except Exception as exc:
             raise RuntimeError(f"Failed to add note '{title}': {exc}") from exc
 
@@ -132,11 +142,20 @@ class MemoryManager:
         path = await get_db_path(self.db_path)
         try:
             async with aiosqlite.connect(str(path)) as db:
-                await db.execute(
+                cursor = await db.execute(
                     "INSERT INTO chat_history (role, content) VALUES (?, ?);",
                     (role.strip(), content.strip()),
                 )
                 await db.commit()
+                turn_id = cursor.lastrowid or 0
+
+                # Auto-sync to ChromaDB semantic vector store
+                try:
+                    from memory.vector_store import VectorMemoryStore
+                    vstore = VectorMemoryStore.get_instance()
+                    vstore.add_chat_turn(turn_id=str(turn_id), role=role.strip(), content=content.strip())
+                except Exception:
+                    pass
         except Exception as exc:
             raise RuntimeError(f"Failed to save interaction for role '{role}': {exc}") from exc
 
@@ -178,7 +197,30 @@ class MemoryManager:
             raise RuntimeError(f"Failed to get recent history: {exc}") from exc
 
     async def get_relevant_context(self, query: str, limit: int = 5) -> List[str]:
-        """Interface for Jay's Core Brain: retrieves relevant context snippets."""
-        notes = await self.search_notes(query)
-        context = [f"Note [{n['title']}]: {n['content']}" for n in notes[:limit]]
+        """Interface for Jay's Core Brain: retrieves relevant context snippets using semantic RAG and keyword search."""
+        context: List[str] = []
+
+        # 1. First retrieve via semantic ChromaDB vector search
+        try:
+            from memory.vector_store import VectorMemoryStore
+            vstore = VectorMemoryStore.get_instance()
+            semantic_matches = vstore.query_notes(query, n_results=limit)
+            for m in semantic_matches:
+                context.append(f"Semantic Note [{m['title']}]: {m['content']}")
+        except Exception:
+            pass
+
+        # 2. Complement with SQLite keyword search if needed
+        if len(context) < limit:
+            try:
+                notes = await self.search_notes(query)
+                for n in notes:
+                    item = f"Note [{n['title']}]: {n['content']}"
+                    if item not in context:
+                        context.append(item)
+                    if len(context) >= limit:
+                        break
+            except Exception:
+                pass
+
         return context
