@@ -426,20 +426,24 @@ def make_pdf(
             )
 
             # Executive Metadata Card
-            meta_table_data = [
-                [
-Paragraph("<b>AUTHOR:</b>", meta_label_style),
-                    Paragraph(doc_author, meta_value_style),
-                    Paragraph("<b>STATUS:</b>", meta_label_style),
-                    Paragraph("Production Verified", meta_value_style),
-                ],
-                [
-                    Paragraph("<b>THEME:</b>", meta_label_style),
-                    Paragraph(theme_cfg["name"].replace("_", " ").title(), meta_value_style),
-                    Paragraph("<b>ENGINE:</b>", meta_label_style),
-                    Paragraph("ReportLab Platypus", meta_value_style),
-                ],
-            ]
+            if author:
+                meta_table_data = [
+                    [
+                        Paragraph("<b>FORMAT:</b>", meta_label_style),
+                        Paragraph("Generated PDF", meta_value_style),
+                        Paragraph("<b>AUTHOR:</b>", meta_label_style),
+                        Paragraph(doc_author, meta_value_style),
+                    ],
+                ]
+            else:
+                meta_table_data = [
+                    [
+                        Paragraph("<b>FORMAT:</b>", meta_label_style),
+                        Paragraph("Generated PDF", meta_value_style),
+                        Paragraph("<b>STYLE:</b>", meta_label_style),
+                        Paragraph(theme_cfg["name"].replace("_", " ").title(), meta_value_style),
+                    ],
+                ]
             meta_table = Table(meta_table_data, colWidths=[85, 165, 65, 175])
             meta_table.setStyle(
                 TableStyle([
