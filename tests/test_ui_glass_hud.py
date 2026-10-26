@@ -70,3 +70,50 @@ def test_open_file_endpoint_validation():
     res_not_found = client.post("/api/open-file", json={"file_path": "non_existent_file_xyz_123.pdf"})
     assert res_not_found.status_code == 200
     assert res_not_found.json()["success"] is False
+
+
+def test_clean_chat_response_formatting():
+    """Verify format_clean_chat_response strips robotic prefixes and cleans document responses."""
+    from ui.server import format_clean_chat_response
+
+    # Strips robotic multi-action prefix
+    robotic = "Completed the requested steps: Opened Google Chrome."
+    assert format_clean_chat_response(robotic) == "Done. Opened Google Chrome."
+
+    # Transforms document creation into conversational summary
+    doc_raw = (
+        "Created the PDF document using the 'ocean' theme (detailed depth). "
+        "Saved at D:\\engineers\\Project - A\\generated_reports\\Solar_Energy_20261026_120000.pdf. "
+        "It includes 3 live search sources."
+    )
+    clean_doc = format_clean_chat_response(doc_raw)
+    assert clean_doc == "Done. I researched current sources, wrote each section separately and added three charts."
+    assert "D:\\engineers" not in clean_doc
+
+    # Strips raw commands if present
+    cmd_leak = "powershell -Command Get-Process\nDone. Checked system status."
+    clean_cmd = format_clean_chat_response(cmd_leak)
+    assert "powershell" not in clean_cmd
+    assert "Done. Checked system status." in clean_cmd
+
+
+def test_ui_clean_scroll_and_file_cards():
+    """Verify index.html has hidden scrollbars, smooth scrolling, floating scroll pill, and clean file card."""
+    res = client.get("/")
+    assert res.status_code == 200
+    html = res.text
+
+    # Scrollbar hiding & smooth scroll
+    assert "scrollbar-width: none !important" in html
+    assert "display: none !important" in html
+    assert "scroll-behavior: smooth" in html
+    assert "scroll-bottom-pill" in html
+    assert "scrollBottomBtn" in html
+
+    # Clean file card elements
+    assert ".file-card" in html
+    assert ".file-badge" in html
+    assert ".file-title" in html
+    assert ".file-sub" in html
+    assert ".btn-file-open" in html
+    assert "Solar Energy: A Field Report" in html

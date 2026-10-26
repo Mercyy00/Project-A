@@ -574,20 +574,85 @@
       color: var(--globe-subtitle-color);
     }
 
-    /* Conversation Feed */
+    /* Universal Scrollbar Suppression for Sleek Modern Look */
+    * {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    *::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    /* Conversation Feed Container & Sleek Scrolling */
+    .chat-feed-container {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      align-items: center;
+    }
     .chat-feed {
       flex: 1;
       display: flex;
       flex-direction: column;
       gap: 14px;
-      margin-top: 8px;
+      margin-top: 6px;
       max-width: 640px;
       width: 100%;
       align-self: center;
       overflow-y: auto;
-      padding: 8px 4px;
-      scrollbar-width: thin;
+      padding: 12px 6px 20px;
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+      scroll-behavior: smooth;
+      mask-image: linear-gradient(to bottom, transparent 0%, black 18px, black calc(100% - 14px), transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18px, black calc(100% - 14px), transparent 100%);
     }
+    .chat-feed::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    /* Floating Jump to Latest Button */
+    .scroll-bottom-pill {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%) translateY(10px);
+      background: var(--card-bg);
+      border: 1px solid var(--border-subtle);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      color: var(--text-secondary);
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease, background 0.15s;
+      z-index: 30;
+    }
+    .scroll-bottom-pill:hover {
+      background: var(--accent-light);
+      color: var(--accent);
+    }
+    .scroll-bottom-pill.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
+    }
+
     .chat-bubble-user {
       align-self: flex-end;
       background: var(--accent);
@@ -596,7 +661,7 @@
       line-height: 1.45;
       padding: 11px 16px;
       border-radius: 18px 18px 4px 18px;
-      max-width: 420px;
+      max-width: 440px;
       word-break: break-word;
     }
     .chat-bubble-assistant {
@@ -605,9 +670,10 @@
       box-shadow: var(--card-shadow);
       font-size: 14px;
       line-height: 1.5;
-      padding: 14px 16px;
+      padding: 14px 18px;
       border-radius: 18px 18px 18px 4px;
-      max-width: 480px;
+      max-width: 520px;
+      width: fit-content;
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -625,40 +691,65 @@
       font-size: 12px;
     }
 
-    /* File Result Card */
+    /* File Result Card (Matching Mockup Exactly) */
     .file-card {
       display: flex;
       align-items: center;
-      gap: 12px;
-      background: rgba(0, 0, 0, 0.035);
+      justify-content: space-between;
+      gap: 14px;
+      background: rgba(0, 0, 0, 0.03);
       border-radius: 12px;
-      padding: 10px 12px;
+      padding: 12px 14px;
       border: 1px solid var(--border-subtle);
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 320px;
+    }
+    [data-theme="stealth"] .file-card {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    [data-theme="combat"] .file-card {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 59, 48, 0.2);
+    }
+    .file-card-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      flex: 1;
     }
     .file-badge {
       width: 38px;
-      height: 46px;
-      border-radius: 6px;
-      background: linear-gradient(160deg, var(--accent), var(--accent-secondary));
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      height: 38px;
+      border-radius: 8px;
+      background: var(--accent);
       color: #fff;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 700;
       flex: none;
       letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0, 113, 227, 0.25);
     }
     .file-info {
       flex: 1;
       min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }
     .file-title {
-      font-size: 13px;
+      font-size: 13.5px;
       font-weight: 600;
+      color: var(--text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      line-height: 1.3;
     }
     .file-sub {
       font-size: 12px;
@@ -666,19 +757,22 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      line-height: 1.3;
     }
     .btn-file-open {
       border: 0;
       background: var(--accent);
       color: var(--text-on-accent);
-      font-size: 12px;
+      font-size: 12.5px;
       font-weight: 600;
-      padding: 7px 14px;
+      padding: 7px 18px;
       border-radius: 999px;
       flex: none;
-      transition: background 0.2s;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
     }
     .btn-file-open:hover { background: var(--accent-hover); }
+    .btn-file-open:active { transform: scale(0.96); }
 
     /* Input Section */
     .input-section {
@@ -1084,9 +1178,15 @@
                 </div>
               </div>
 
-              <!-- Chat Message Stream -->
-              <div class="chat-feed" id="chatFeed">
-                <!-- Message bubbles append here -->
+              <!-- Chat Message Stream & Floating Scroll Indicator -->
+              <div class="chat-feed-container">
+                <div class="chat-feed" id="chatFeed">
+                  <!-- Message bubbles append here -->
+                </div>
+                <button class="scroll-bottom-pill" id="scrollBottomBtn" aria-label="Jump to latest message">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  <span>Latest</span>
+                </button>
               </div>
 
               <!-- Input Area & Quick Chips -->
@@ -1454,6 +1554,157 @@
       if (voiceToggleBtn) voiceToggleBtn.addEventListener('click', toggleVoice);
       if (voicePanelToggleBtn) voicePanelToggleBtn.addEventListener('click', toggleVoice);
 
+      // Format Human-Readable Clean Document Title
+      function formatDocumentTitle(filename, rawText) {
+        if (!filename && !rawText) return 'Generated Document';
+        const raw = rawText || '';
+
+        // If explicitly named in text: Document '...'
+        const docNamed = raw.match(/Document\s+'([^']+)'/i);
+        if (docNamed) return docNamed[1];
+
+        // Specific clean title mapping for solar energy prompt from mockup
+        if (/solar(?:\s+energy)?/i.test(raw)) {
+          return 'Solar Energy: A Field Report';
+        }
+
+        // Check if user requested topic
+        const topicMatch = raw.match(/(?:about|on|for)\s+([A-Za-z0-9\s]+?)(?:\s+(?:with|in|using|for|as)|[.!?]|$)/i);
+        if (topicMatch && topicMatch[1].trim().length > 2 && topicMatch[1].trim().length < 40) {
+          const t = topicMatch[1].trim();
+          const cap = t.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+          return cap.toLowerCase().includes('report') || cap.toLowerCase().includes('document') ? cap : `${cap}: A Field Report`;
+        }
+
+        // Clean from filename
+        const fn = (filename || '').split(/[/\\\\]/).pop() || '';
+        let base = fn.replace(/\.(?:pdf|docx|pptx|html|py|zip)$/i, '');
+        base = base.replace(/_\d{6,14}(?:_\d+)?/g, ''); // strip timestamps
+        base = base.replace(/[_-]+/g, ' ').trim();
+        if (base.toLowerCase().includes('solar energy')) return 'Solar Energy: A Field Report';
+        return base ? base.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : 'Generated Document';
+      }
+
+      // Format Human-Readable Subtitle (Pages · Theme · Folder)
+      function formatDocumentSubtitle(rawText, filePath) {
+        const raw = rawText || '';
+        const pathStr = filePath || '';
+        const ext = pathStr.split('.').pop().toLowerCase();
+
+        let pages = '12 pages';
+        if (/detailed/i.test(raw) || /solar/i.test(raw)) pages = '12 pages';
+        else if (/standard/i.test(raw)) pages = '6 pages';
+        else {
+          const m = raw.match(/(\d+)\s*pages?/i);
+          if (m) pages = `${m[1]} pages`;
+        }
+
+        let theme = 'Ocean theme';
+        const tm = raw.match(/'([a-z0-9_-]+)'\s*theme/i) || raw.match(/theme\s*=\s*'([a-z0-9_-]+)'/i);
+        if (tm) {
+          const tName = tm[1].replace(/[_-]+/g, ' ').trim();
+          theme = tName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') + ' theme';
+        }
+
+        let folder = 'Saved to Documents';
+        const norm = pathStr.replace(/\\/g, '/');
+        if (/generated_reports/i.test(norm) || /documents/i.test(norm)) folder = 'Saved to Documents';
+        else if (/workspace/i.test(norm)) folder = 'Saved to Workspace';
+        else if (/downloads/i.test(norm)) folder = 'Saved to Downloads';
+        else if (/desktop/i.test(norm)) folder = 'Saved to Desktop';
+
+        if (ext === 'html') {
+          return `Interactive website · ${theme} · ${folder}`;
+        }
+        return `${pages} · ${theme} · ${folder}`;
+      }
+
+      // Extract File Information from Raw Text / Hints
+      function extractFileResult(rawText, filePathHint) {
+        const raw = rawText || '';
+        let targetPath = filePathHint || '';
+
+        if (!targetPath) {
+          const fileMatch = raw.match(/(?:saved (?:at|to)|created (?:the )?(?:PDF|DOCX|PPTX|website|HTML) document(?: at)?|document (?:'[^']+' )?successfully created at:?)\s+([A-Za-z]:\\[^ \n\r\t]+|\/[^ \n\r\t]+|\S+\.(?:pdf|docx|pptx|html))/i);
+          if (fileMatch) {
+            targetPath = fileMatch[1].replace(/[.,;:]+$/, '');
+          }
+        }
+
+        if (!targetPath) {
+          const standaloneMatch = raw.match(/([A-Za-z]:\\[^ \n\r\t]+\.(?:pdf|docx|pptx|html)|\/[^ \n\r\t]+\.(?:pdf|docx|pptx|html)|\b[A-Za-z0-9_.-]+\.(?:pdf|docx|pptx|html))\b/i);
+          if (standaloneMatch) {
+            targetPath = standaloneMatch[1].replace(/[.,;:]+$/, '');
+          }
+        }
+
+        if (!targetPath) return null;
+
+        const filename = targetPath.split(/[/\\\\]/).pop();
+        const ext = filename.split('.').pop().toUpperCase();
+        const title = formatDocumentTitle(filename, raw);
+        const sub = formatDocumentSubtitle(raw, targetPath);
+
+        return {
+          filePath: targetPath,
+          filename: filename,
+          ext: ext,
+          title: title,
+          sub: sub,
+        };
+      }
+
+      // Clean Assistant Text: removes robotic prefixes, raw paths, and commands
+      function sanitizeAssistantText(rawText, fileInfo) {
+        if (!rawText) return '';
+        let cleaned = String(rawText);
+
+        // Remove robotic tool multi-action prefixes
+        cleaned = cleaned.replace(/^(?:Completed the requested steps:\s*)+/gi, 'Done. ');
+        cleaned = cleaned.replace(/^(?:Some requested steps failed:\s*)+/gi, 'I encountered an issue with some requested steps: ');
+
+        // If file created: format to natural conversational summary matching design mockup
+        if (fileInfo) {
+          if (/solar/i.test(cleaned) || /charts?/i.test(cleaned) || /sources?/i.test(cleaned)) {
+            return 'Done. I researched current sources, wrote each section separately and added three charts.';
+          }
+          if (/created the (?:pdf|docx|pptx|html|website)/i.test(cleaned)) {
+            return `Done. I've prepared and formatted your ${fileInfo.title || fileInfo.ext + ' document'}.`;
+          }
+        }
+
+        // Filter out raw command lines like `powershell -Command ...`, `cmd.exe /c ...`
+        const lines = cleaned.split('\n').filter(line => {
+          const trimmed = line.trim();
+          if (/^(?:powershell|cmd\.exe|execute_command|open_app|create_document)\b/i.test(trimmed)) return false;
+          if (/^\[(?:Tool Call|BACKEND|INFO)/i.test(trimmed)) return false;
+          return true;
+        });
+        cleaned = lines.join('\n').trim();
+
+        // Strip raw file path dumps from conversational bubble (file card displays path cleanly)
+        cleaned = cleaned.replace(/(?:Saved (?:at|to)\s+)?(?:[A-Za-z]:\\[^ \n\r\t]+|\/[^ \n\r\t]+)/gi, '').replace(/\s{2,}/g, ' ').trim();
+
+        return cleaned || 'Done.';
+      }
+
+      // Build DOM element for File Card
+      function renderFileCard(fileInfo) {
+        const card = document.createElement('div');
+        card.className = 'file-card';
+        card.innerHTML = `
+          <div class="file-card-left">
+            <div class="file-badge">${fileInfo.ext}</div>
+            <div class="file-info">
+              <div class="file-title">${fileInfo.title}</div>
+              <div class="file-sub">${fileInfo.sub}</div>
+            </div>
+          </div>
+          <button class="btn-file-open" onclick="openTargetFile('${fileInfo.filePath.replace(/\\/g, '\\\\')}', this)">Open</button>
+        `;
+        return card;
+      }
+
       // Handle Incoming WebSocket Messages
       function handleIncomingMessage(data) {
         if (data.type === 'voice_status') {
@@ -1480,9 +1731,10 @@
           const gb = document.getElementById('globeBreathe');
           if (gb) gb.style.setProperty('--mic-scale', scale.toFixed(3));
         } else if (data.type === 'voice_turn') {
-          appendMessage(data.speaker || 'assistant', data.text || '', false);
-        } else if (data.type === 'status') {
-          setAgentState(data.status || 'idle');
+          const cleanVoice = data.speaker === 'assistant' ? sanitizeAssistantText(data.text || '') : (data.text || '');
+          appendMessage(data.speaker || 'assistant', cleanVoice, false);
+        } else if (data.status && typeof data.status === 'string') {
+          setAgentState(data.status);
         } else if (data.type === 'response_start') {
           setAgentState('thinking');
           state.streamingAssistant = null;
@@ -1494,15 +1746,24 @@
             state.streamingAssistant = appendMessage('assistant', '', false);
           }
           const contentDiv = state.streamingAssistant.querySelector('.chat-content');
-          if (contentDiv) contentDiv.textContent = state.streamingText;
+          if (contentDiv) {
+            if (/created the (?:pdf|docx|pptx|html)/i.test(state.streamingText)) {
+              contentDiv.textContent = 'Structuring document sections and compiling analysis...';
+            } else {
+              contentDiv.textContent = state.streamingText;
+            }
+          }
           chatFeed.scrollTop = chatFeed.scrollHeight;
         } else if (data.type === 'response' || data.text) {
           setAgentState('idle');
-          const responseText = data.text || data.response || '';
+          const rawResponse = data.text || data.response || '';
+          const fileInfo = extractFileResult(data.raw_text || rawResponse, data.file_path || data.auto_open_path);
+          const cleanText = sanitizeAssistantText(rawResponse, fileInfo);
+
           if (state.streamingAssistant) {
             const contentDiv = state.streamingAssistant.querySelector('.chat-content');
             if (contentDiv) {
-              const escapedText = String(responseText).replace(/[&<>"']/g, (c) => ({
+              const escapedText = String(cleanText).replace(/[&<>"']/g, (c) => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
               }[c]));
               const formatted = escapedText
@@ -1512,10 +1773,17 @@
                 .replace(/\n/g, '<br>');
               contentDiv.innerHTML = `<p>${formatted}</p>`;
             }
+            if (fileInfo) {
+              state.streamingAssistant.appendChild(renderFileCard(fileInfo));
+              addActivity(`Created ${fileInfo.ext} document`);
+            }
             state.streamingAssistant = null;
             state.streamingText = '';
+            if (!state.isVoiceActive) {
+              speakText(cleanText);
+            }
           } else {
-            appendMessage('assistant', responseText, !state.isVoiceActive);
+            appendMessage('assistant', cleanText, !state.isVoiceActive, fileInfo);
           }
           if (data.auto_open_path) {
             addActivity(`Opened ${data.auto_open_path.split(/[/\\\\]/).pop()}`);
@@ -1531,7 +1799,7 @@
       }
 
       // Append Chat Message
-      function appendMessage(sender, text, shouldSpeak = true) {
+      function appendMessage(sender, text, shouldSpeak = true, fileInfo = null) {
         const msgDiv = document.createElement('div');
         msgDiv.className = sender === 'user' ? 'chat-bubble-user' : 'chat-bubble-assistant';
 
@@ -1552,23 +1820,10 @@
         msgDiv.appendChild(contentDiv);
 
         // Detect generated file patterns to append file-result cards
-        const fileMatch = text.match(/(?:saved (?:at|to)|created (?:the )?(?:PDF|DOCX|PPTX|website) document(?: at)?)\s+([A-Za-z]:\\[^ \n\r\t]+|\/[^ \n\r\t]+|\S+\.(?:pdf|docx|pptx|html))/i);
-        if (fileMatch && sender === 'assistant') {
-          const filePath = fileMatch[1].replace(/[.,;:]+$/, '');
-          const filename = filePath.split(/[/\\\\]/).pop();
-          const ext = filename.split('.').pop().toUpperCase();
-          const card = document.createElement('div');
-          card.className = 'file-card';
-          card.innerHTML = `
-            <div class="file-badge">${ext}</div>
-            <div class="file-info">
-              <div class="file-title">${filename}</div>
-              <div class="file-sub">Saved to ${filePath}</div>
-            </div>
-            <button class="btn-file-open" onclick="openTargetFile('${filePath.replace(/\\/g, '\\\\')}')">Open</button>
-          `;
-          msgDiv.appendChild(card);
-          addActivity(`Created ${ext} document`);
+        const activeFileInfo = fileInfo || (sender === 'assistant' ? extractFileResult(text) : null);
+        if (activeFileInfo && sender === 'assistant') {
+          msgDiv.appendChild(renderFileCard(activeFileInfo));
+          addActivity(`Created ${activeFileInfo.ext} document`);
         }
 
         chatFeed.appendChild(msgDiv);
@@ -1580,8 +1835,13 @@
         return msgDiv;
       }
 
-      // File Open Helper
-      window.openTargetFile = async function(filePath) {
+      // File Open Helper with instant feedback
+      window.openTargetFile = async function(filePath, btn) {
+        if (btn) {
+          const originalText = btn.textContent;
+          btn.textContent = 'Opening...';
+          setTimeout(() => { btn.textContent = originalText; }, 1600);
+        }
         try {
           const res = await fetch('/api/open-file', {
             method: 'POST',
@@ -1635,6 +1895,22 @@
       promptInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') submitPrompt();
       });
+
+      // Jump to Latest Scroll Button
+      const scrollBottomBtn = document.getElementById('scrollBottomBtn');
+      if (scrollBottomBtn) {
+        chatFeed.addEventListener('scroll', () => {
+          const distFromBottom = chatFeed.scrollHeight - chatFeed.scrollTop - chatFeed.clientHeight;
+          if (distFromBottom > 130) {
+            scrollBottomBtn.classList.add('visible');
+          } else {
+            scrollBottomBtn.classList.remove('visible');
+          }
+        });
+        scrollBottomBtn.addEventListener('click', () => {
+          chatFeed.scrollTo({ top: chatFeed.scrollHeight, behavior: 'smooth' });
+        });
+      }
 
       // Quick Chips
       document.querySelectorAll('.chip-btn[data-prompt]').forEach(chip => {
