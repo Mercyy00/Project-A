@@ -2,6 +2,7 @@
 
 Sends WhatsApp messages to pre-saved verified contacts via pywhatkit.
 Enforces contact book validation: never sends to unverified or unknown contacts.
+Supports file and document sharing to verified contacts.
 """
 
 from __future__ import annotations
@@ -50,7 +51,8 @@ def send_whatsapp(contact: str, message: str) -> str:
         message_clean = str(message).strip()
 
         # Contact validation check
-        phone_number: Optional[str] = find_contact(contact_clean)
+        # Sample/example numbers are useful for tests but must never be deliverable.
+        phone_number: Optional[str] = find_contact(contact_clean, include_examples=False)
         if not phone_number:
             logger.warning("WhatsApp send refused: Contact '%s' is not in saved contacts.", contact_clean)
             return (
@@ -79,6 +81,51 @@ def send_whatsapp(contact: str, message: str) -> str:
     except Exception as exc:
         logger.error("Unexpected error in send_whatsapp: %s", exc, exc_info=True)
         return f"An error occurred while attempting to send WhatsApp message: {exc}"
+
+
+def share_whatsapp_file(contact: str, file_path: str, caption: Optional[str] = None) -> str:
+    """Send a document, image, or file to a saved contact via WhatsApp automation.
+
+    Args:
+        contact: Name of the contact to find in saved contacts.
+        file_path: Path of the file to share.
+        caption: Optional caption accompanying the file.
+
+    Returns:
+        str: Status of execution.
+    """
+    try:
+        if not contact or not str(contact).strip():
+            return "Please provide a valid contact name."
+
+        if not file_path or not str(file_path).strip():
+            return "Please provide a valid file path to share."
+
+        contact_clean = str(contact).strip()
+        phone_number = find_contact(contact_clean, include_examples=False)
+        if not phone_number:
+            logger.warning("WhatsApp share refused: Contact '%s' is not in saved contacts.", contact_clean)
+            return (
+                f"Contact '{contact_clean}' is not in your saved contacts list. "
+                "File was not sent for safety."
+            )
+
+        resolved = Path(file_path).resolve()
+        if not resolved.exists():
+            ws_path = Path("workspace") / file_path
+            if ws_path.exists():
+                resolved = ws_path.resolve()
+            else:
+                return f"File '{file_path}' was not found."
+
+        from tools.whatsapp_tool import WhatsAppTool
+        tool = WhatsAppTool()
+        res = tool.send_file(file_path=str(resolved), contact=contact_clean, caption=caption)
+        return res.message
+
+    except Exception as exc:
+        logger.error("Unexpected error in share_whatsapp_file: %s", exc, exc_info=True)
+        return f"Failed to share WhatsApp file: {exc}"
 
 
 def verify_whatsapp() -> bool:

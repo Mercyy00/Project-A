@@ -18,7 +18,11 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args: Any, **kwargs: Any) -> bool:
+        return False
 
 
 def check_environment() -> Dict[str, Any]:
@@ -31,32 +35,20 @@ def check_environment() -> Dict[str, Any]:
         load_dotenv()
 
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
-    groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
-    gemini_model = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash"
+    gemini_model = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite"
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
     has_gemini = bool(gemini_key and gemini_key != "your_gemini_api_key_here")
-    has_groq = bool(groq_key and groq_key != "your_groq_api_key_here")
-
-    if has_gemini and has_groq:
+    if has_gemini:
         status = "PASS"
-        msg = f"Dual LLM active (Groq: {groq_model} + Gemini: {gemini_model})"
-    elif has_gemini:
-        status = "PASS"
-        msg = f"Gemini active ({gemini_model}), Groq key missing"
-    elif has_groq:
-        status = "PASS"
-        msg = f"Groq active ({groq_model}), Gemini key missing"
+        msg = f"Gemini active ({gemini_model})"
     else:
         status = "FAIL"
         msg = "No valid LLM API keys found in .env"
 
     details = {
         "gemini_configured": has_gemini,
-        "groq_configured": has_groq,
         "gemini_model": gemini_model,
-        "groq_model": groq_model,
         "telegram_configured": bool(telegram_token and telegram_token != "your_telegram_bot_token_here"),
     }
     return {"status": status, "message": msg, "details": details}
@@ -348,6 +340,49 @@ def format_doctor_report(report: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def check_dependencies(force: bool = False) -> bool:
+    """Fast check whether requirements.txt packages are satisfied in venv.
+
+    Returns True instantly (~0.05s) if dependencies are already installed and cached.
+    If missing or force=True, runs pip install --prefer-binary and saves the stamp.
+    """
+    import hashlib
+    import subprocess
+
+    project_root = Path(__file__).resolve().parent.parent
+    req_file = project_root / "requirements.txt"
+    if not req_file.exists():
+        return True
+
+    current_hash = hashlib.md5(req_file.read_bytes()).hexdigest()
+    stamp_file = project_root / "venv" / ".requirements_hash"
+
+    if not force and stamp_file.exists():
+        try:
+            if stamp_file.read_text(encoding="utf-8").strip() == current_hash:
+                import fastapi
+                import psutil
+                import pyautogui
+                return True
+        except Exception:
+            pass
+
+    # Needs install
+    print("[*] Installing / verifying dependencies from requirements.txt...")
+    print("[*] (Using --prefer-binary for fast pre-compiled Windows wheels)...")
+    res = subprocess.run([
+        sys.executable, "-m", "pip", "install", "-r", str(req_file), "--prefer-binary"
+    ])
+    if res.returncode == 0:
+        try:
+            stamp_file.parent.mkdir(parents=True, exist_ok=True)
+            stamp_file.write_text(current_hash, encoding="utf-8")
+        except Exception:
+            pass
+        return True
+    return False
+
+
 def run_doctor(verbose: bool = True, run_live_llm_ping: bool = False) -> bool:
     """Run system diagnostic and print status table to stdout.
 
@@ -365,5 +400,9 @@ def run_doctor(verbose: bool = True, run_live_llm_ping: bool = False) -> bool:
 
 
 if __name__ == "__main__":
+    if "--check-deps" in sys.argv:
+        force = "--install" in sys.argv or "--update" in sys.argv
+        success = check_dependencies(force=force)
+        sys.exit(0 if success else 1)
     success = run_doctor(verbose=True, run_live_llm_ping=True)
     sys.exit(0 if success else 1)

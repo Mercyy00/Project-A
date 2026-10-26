@@ -374,7 +374,7 @@ def test_send_telegram_tool_execution_success(mock_send: Any) -> None:
     result = tool.run(text="Meeting alert at 4 PM")
     assert result.success is True
     assert "Meeting alert" in result.message
-    mock_send.assert_called_once_with("Meeting alert at 4 PM")
+    mock_send.assert_called_once_with("Meeting alert at 4 PM", file_path=None)
 
 
 @patch("messaging.tools.send_telegram", return_value=False)
@@ -401,6 +401,29 @@ def test_tool_registry_autoload_messaging_tools() -> None:
     auto_load_module_tools()
     assert "send_telegram" in TOOL_REGISTRY
     assert isinstance(TOOL_REGISTRY["send_telegram"], SendTelegramTool)
+    assert "search_whatsapp_contacts" in TOOL_REGISTRY
+    assert "send_whatsapp" in TOOL_REGISTRY
+
+
+@patch("messaging.tools.load_saved_contacts", return_value={"Alex Morgan": "+10000000000"})
+def test_whatsapp_contact_search_does_not_expose_phone_numbers(mock_load: Any) -> None:
+    """Contact search returns matching saved names while keeping numbers private."""
+    from messaging.tools import SearchWhatsAppContactsTool
+
+    result = SearchWhatsAppContactsTool().run(query="alex")
+    assert result.success is True
+    assert result.data == {"contacts": ["Alex Morgan"]}
+    assert "+10000000000" not in result.message
+
+
+@patch("messaging.tools.send_whatsapp", return_value="WhatsApp message successfully queued for Alex.")
+def test_whatsapp_tool_dispatches_exact_contact_and_message(mock_send: Any) -> None:
+    """Tool dispatch accepts an exact contact and message from the core confirmation gate."""
+    from messaging.tools import SendWhatsAppTool
+
+    result = SendWhatsAppTool().run(contact="Alex", message="I am on my way")
+    assert result.success is True
+    mock_send.assert_called_once_with("Alex", "I am on my way")
 
 
 # ==============================================================================
@@ -479,28 +502,27 @@ def test_send_whatsapp_empty_message() -> None:
     assert "empty" in res.lower()
 
 
+@patch("messaging.whatsapp.find_contact", return_value="+10000000000")
 @patch("pywhatkit.sendwhatmsg_instantly")
-def test_send_whatsapp_success(mock_sendmsg: Any) -> None:
+def test_send_whatsapp_success(mock_sendmsg: Any, mock_find_contact: Any) -> None:
     """Valid contact should call pywhatkit with resolved number and 15s wait."""
     from messaging.whatsapp import send_whatsapp
-    from messaging.contacts import find_contact
-
-    phone = find_contact("Jayesh")
-    assert phone is not None
 
     res = send_whatsapp("Jayesh", "Hello Jayesh!")
     assert "successfully queued" in res
     mock_sendmsg.assert_called_once_with(
-        phone_no=phone,
+        phone_no="+10000000000",
         message="Hello Jayesh!",
         wait_time=15,
         tab_close=True,
         close_time=3,
     )
+    mock_find_contact.assert_called_once_with("Jayesh", include_examples=False)
 
 
+@patch("messaging.whatsapp.find_contact", return_value="+10000000000")
 @patch("pywhatkit.sendwhatmsg_instantly", side_effect=Exception("Browser automation failure"))
-def test_send_whatsapp_never_raises(mock_sendmsg: Any) -> None:
+def test_send_whatsapp_never_raises(mock_sendmsg: Any, mock_find_contact: Any) -> None:
     """send_whatsapp must never raise unhandled exceptions."""
     from messaging.whatsapp import send_whatsapp
 

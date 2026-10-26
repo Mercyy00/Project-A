@@ -1,12 +1,13 @@
 """Project JARVIS - Central Unified Application Entrypoint.
 
 Allows launching any of Jarvis's operational interfaces:
-  - Web HUD Interface:       python main.py --ui      (default)
-  - Spoken Voice Loop:       python main.py --voice
-  - Terminal Chat REPL:      python main.py --cli
-  - Telegram Remote Bot:     python main.py --telegram
-  - Full Concurrent Stack:   python main.py --all
-  - System Health Doctor:    python main.py --check
+  - Desktop Application Window: python main.py --app      (default)
+  - Web HUD Browser Tab:        python main.py --browser
+  - Spoken Voice Loop:          python main.py --voice
+  - Terminal Chat REPL:         python main.py --cli
+  - Telegram Remote Bot:        python main.py --telegram
+  - Full Concurrent Stack:      python main.py --all
+  - System Health Doctor:       python main.py --check
 """
 
 from __future__ import annotations
@@ -19,38 +20,134 @@ import time
 import webbrowser
 from pathlib import Path
 
+# Ensure console stdout and stderr never crash on Windows charmap / cp1252
+for _stream in ("stdout", "stderr"):
+    try:
+        _s = getattr(sys, _stream, None)
+        if _s is not None and hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Ensure project root is in sys.path
 _project_root = Path(__file__).resolve().parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 
-def launch_ui(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True) -> None:
-    """Launch the FastAPI Web HUD backend and open the browser interface."""
-    import uvicorn
+def open_desktop_window(url: str, app_mode: bool = True) -> None:
+    """Launch the Web HUD inside a standalone native desktop application window.
 
-    url = f"http://{host}:{port}"
-    print("=" * 60)
-    print("     PROJECT JARVIS - SCI-FI WEB HUD DASHBOARD")
-    print("=" * 60)
-    print(f"[*] Starting server at: {url}")
-    print("[*] Press Ctrl+C to stop.\n")
+    When app_mode is True, attempts to launch Microsoft Edge or Google Chrome with
+    the --app flag. This strips all browser chrome (tabs, URL address bar, bookmark bar)
+    so JARVIS runs as an authentic, dedicated desktop application window.
+    Falls back to the system default browser if standalone app mode is unavailable.
+    """
+    if app_mode:
+        candidates = [
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        ]
+        for exe in candidates:
+            if os.path.isfile(exe):
+                try:
+                    import subprocess
+                    subprocess.Popen([
+                        exe,
+                        f"--app={url}",
+                        "--window-size=1366,850",
+                        "--app-id=jarvis-desktop-assistant",
+                    ])
+                    return
+                except Exception:
+                    pass
 
-    if open_browser:
+        # Generic shell start fallback
         try:
-            webbrowser.open(url)
+            import subprocess
+            subprocess.Popen(f'start msedge --app="{url}" --window-size=1366,850', shell=True)
+            return
         except Exception:
             pass
 
-    uvicorn.run("ui.server:app", host=host, port=port, reload=False)
+    # Standard browser fallback
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
 
 
-def launch_voice(auto_mode: bool = False) -> None:
-    """Launch the interactive spoken multilingual voice loop."""
-    from main_voice import main as run_voice
-    if auto_mode:
-        sys.argv.append("--auto")
-    run_voice()
+def launch_ui(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    open_browser: bool = True,
+    app_mode: bool = True,
+    reload: bool = False,
+) -> None:
+    """Launch the FastAPI Web HUD backend and open the desktop application window."""
+    try:
+        import uvicorn
+    except ImportError:
+        print("\n" + "=" * 65)
+        print(" [ERROR] Required module 'uvicorn' is not installed in this Python environment!")
+        print("=" * 65)
+        print("[*] Please run START_JARVIS.bat to set up all dependencies automatically,")
+        print("[*] or activate the virtual environment: call .\\venv\\Scripts\\activate.bat\n")
+        sys.exit(1)
+
+    url = f"http://{host}:{port}"
+    mode_desc = "Standalone Desktop Application Window" if app_mode else "Standard Web Browser Tab"
+    print("=" * 60)
+    print("     PROJECT JARVIS - SCI-FI DESKTOP APPLICATION")
+    print("=" * 60)
+    print(f"[*] Starting server at: {url}")
+    print(f"[*] Window Mode: {mode_desc}")
+    if reload:
+        print("[*] Dev Mode: Live auto-reload active")
+    print("[*] Press Ctrl+C to stop.\n")
+
+    if open_browser:
+        timer = threading.Timer(0.8, open_desktop_window, args=(url, app_mode))
+        timer.daemon = True
+        timer.start()
+
+    uvicorn.run("ui.server:app", host=host, port=port, reload=reload)
+
+
+def launch_voice() -> None:
+    """Launch Mark-LVI's Gemini Live voice with the Charon prebuilt voice."""
+    launch_live()
+
+
+def launch_live() -> None:
+    """Launch the real-time bidirectional Gemini Live streaming voice loop."""
+    from voice.gemini_live import main as run_live
+    run_live()
+
+
+def launch_qt() -> None:
+    """Launch the native PyQt6 Desktop HUD Interface with auto-install resilience."""
+    try:
+        from ui.pyqt_hud import launch_pyqt_hud
+    except ModuleNotFoundError as err:
+        missing_mod = str(err).split("'")[1] if "'" in str(err) else str(err)
+        print(f"[*] Missing module '{missing_mod}'. Setting up dependencies from requirements.txt...")
+        import subprocess
+        res = subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--prefer-binary"])
+        if res.returncode == 0:
+            print("[OK] Dependencies installed successfully! Launching HUD...")
+            from ui.pyqt_hud import launch_pyqt_hud
+        else:
+            print(f"[ERROR] Failed to auto-install {missing_mod}. Please run: pip install -r requirements.txt")
+            sys.exit(1)
+    print("=" * 60)
+    print("     PROJECT JARVIS - NATIVE PYQT6 SCI-FI DESKTOP HUD")
+    print("=" * 60)
+    launch_pyqt_hud()
 
 
 def launch_cli() -> None:
@@ -77,9 +174,22 @@ def launch_doctor(run_live_ping: bool = False) -> None:
     sys.exit(0 if success else 1)
 
 
-def launch_all(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True) -> None:
+def launch_all(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    open_browser: bool = True,
+    app_mode: bool = True,
+) -> None:
     """Launch FastAPI Web HUD server and background services concurrently."""
-    import uvicorn
+    try:
+        import uvicorn
+    except ImportError:
+        print("\n" + "=" * 65)
+        print(" [ERROR] Required module 'uvicorn' is not installed in this Python environment!")
+        print("=" * 65)
+        print("[*] Please run START_JARVIS.bat to set up all dependencies automatically,")
+        print("[*] or activate the virtual environment: call .\\venv\\Scripts\\activate.bat\n")
+        sys.exit(1)
 
     print("=" * 65)
     print("      PROJECT JARVIS - FULL STACK CONCURRENT LAUNCH")
@@ -91,13 +201,11 @@ def launch_all(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = T
         daemon=True,
     )
     server_thread.start()
-    time.sleep(1.0)
 
     if open_browser:
-        try:
-            webbrowser.open(f"http://{host}:{port}")
-        except Exception:
-            pass
+        timer = threading.Timer(0.8, open_desktop_window, args=(f"http://{host}:{port}", app_mode))
+        timer.daemon = True
+        timer.start()
 
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
     if telegram_token and telegram_token != "your_telegram_bot_token_here":
@@ -130,12 +238,17 @@ def main() -> None:
     group.add_argument(
         "--ui",
         action="store_true",
-        help="Launch the FastAPI Web HUD browser interface (default)",
+        help="Launch the Web HUD desktop application interface (default)",
+    )
+    group.add_argument(
+        "--live",
+        action="store_true",
+        help="Launch real-time Gemini Live bidirectional voice streaming (Mark-grade human voice with sub-800ms latency)",
     )
     group.add_argument(
         "--voice",
         action="store_true",
-        help="Launch the interactive multilingual spoken voice loop",
+        help="Launch Gemini Live voice using the Mark-LVI Charon voice",
     )
     group.add_argument(
         "--cli",
@@ -158,6 +271,28 @@ def main() -> None:
         "--all",
         action="store_true",
         help="Concurrently launch FastAPI Web HUD and background services",
+    )
+    group.add_argument(
+        "--qt",
+        "--native",
+        "--gui",
+        dest="qt_mode",
+        action="store_true",
+        help="Launch the native PyQt6 Sci-Fi Desktop HUD Window (Mark-LVI widget)",
+    )
+    parser.add_argument(
+        "--desktop",
+        "--app",
+        dest="app_mode",
+        action="store_true",
+        default=True,
+        help="Launch in standalone desktop application window (default: True)",
+    )
+    parser.add_argument(
+        "--browser",
+        dest="app_mode",
+        action="store_false",
+        help="Launch in a standard browser tab instead of a standalone desktop window",
     )
     parser.add_argument(
         "--live-ping",
@@ -182,26 +317,37 @@ def main() -> None:
         help="Do not automatically open browser when starting Web HUD",
     )
     parser.add_argument(
-        "--auto",
+        "--reload",
+        "--dev",
+        dest="reload",
         action="store_true",
-        help="Continuous listening mode for voice interface",
+        help="Run in development mode with live auto-reloading",
     )
-
     args = parser.parse_args()
 
     if args.check:
         launch_doctor(run_live_ping=args.live_ping)
+    elif args.qt_mode:
+        launch_qt()
+    elif args.live:
+        launch_live()
     elif args.voice:
-        launch_voice(auto_mode=args.auto)
+        launch_voice()
     elif args.cli:
         launch_cli()
     elif args.telegram:
         launch_telegram()
     elif args.all:
-        launch_all(host=args.host, port=args.port, open_browser=not args.no_browser)
+        launch_all(host=args.host, port=args.port, open_browser=not args.no_browser, app_mode=args.app_mode)
     else:
-        # Default mode is Web HUD
-        launch_ui(host=args.host, port=args.port, open_browser=not args.no_browser)
+        # Default mode is Desktop Application Window
+        launch_ui(
+            host=args.host,
+            port=args.port,
+            open_browser=not args.no_browser,
+            app_mode=args.app_mode,
+            reload=args.reload,
+        )
 
 
 if __name__ == "__main__":

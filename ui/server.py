@@ -1,7 +1,8 @@
 """FastAPI Backend Server for Project Jarvis (Rohit).
 
 Exposes REST and WebSocket endpoints for UI telemetry, status,
-persistent SQLite notes CRUD, and live bi-directional chat communication.
+persistent SQLite notes CRUD, universal application/file launching,
+dynamic multi-user isolation, and live bi-directional chat communication.
 """
 
 from __future__ import annotations
@@ -14,8 +15,12 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import socket
+import subprocess
+import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+import webbrowser
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
@@ -33,24 +38,10 @@ load_dotenv()
 # Singleton memory manager instance
 memory_manager = MemoryManager()
 
-# Persistent GenAI singleton & fast response cache
-_genai_client: Optional[Any] = None
 _response_cache: Dict[str, str] = {}
-
-
-def get_genai_client() -> Optional[Any]:
-    """Retrieve or initialize persistent Google GenAI SDK client for instant calls."""
-    global _genai_client
-    if _genai_client is None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key and api_key.strip() and api_key.strip() != "your_gemini_api_key_here":
-            try:
-                from google import genai
-
-                _genai_client = genai.Client(api_key=api_key.strip())
-            except Exception as exc:
-                print(f"[WARN] Failed to initialize persistent GenAI client: {exc}")
-    return _genai_client
+_live_voice_engine: Optional[Any] = None
+_live_voice_task: Optional[asyncio.Task[None]] = None
+_live_voice_owner: Optional[WebSocket] = None
 
 
 def normalize_command(text: str) -> str:
@@ -58,6 +49,36 @@ def normalize_command(text: str) -> str:
     cleaned = text.lower().strip()
     norm = re.sub(r"[^\w\s]", " ", cleaned)
     return " ".join(norm.split())
+
+
+def strip_unnecessary_filler(text: str) -> str:
+    """Strip unnecessary AI conversational filler and polite fluff.
+    Ensures user gets ONLY the exact answer requested and nothing extra.
+    """
+    if not text:
+        return text
+
+    boilerplate_patterns = [
+        r"(?i)\s*(?:please\s+)?let me know (?:if|what|how)[\s\S]*$",
+        r"(?i)\s*feel free to (?:ask|reach out|let me know)[\s\S]*$",
+        r"(?i)\s*how (?:else )?(?:can|may) i (?:assist|help) you[\s\S]*$",
+        r"(?i)\s*is there anything (?:else )?(?:i can help|you need)[\s\S]*$",
+        r"(?i)\s*if you (?:need|require) (?:anything|any) (?:else|further)[\s\S]*$",
+        r"(?i)\s*i(?:'m| am) here to help[\s\S]*$",
+        r"(?i)\s*standing by for your (?:next directive|command)[\s\S]*$",
+        r"(?i)\s*do you (?:need|require) (?:any|anything) (?:further|else)[\s\S]*$",
+        r"(?i)\s*happy to help[\s\S]*$",
+        r"(?i)\s*hope that helps[\s\S]*$",
+        r"(?i)\s*hope this helps[\s\S]*$",
+        r"(?i)\s*what else can i (?:do|help with)[\s\S]*$",
+        r"(?i)\s*ready for your (?:next directive|command)[\s\S]*$",
+        r"(?i)\s*let me know if you (?:need|have|require)[\s\S]*$",
+    ]
+    cleaned = text.strip()
+    for pattern in boilerplate_patterns:
+        cleaned = re.sub(pattern, "", cleaned).strip()
+
+    return cleaned if cleaned else text
 
 
 class NoteCreate(BaseModel):
@@ -76,28 +97,59 @@ class NoteResponse(BaseModel):
     created_at: str
 
 
+_active_hud_websockets: set[WebSocket] = set()
+
+
+async def _broadcast_hud_proactive_alert(alert_data: Dict[str, Any]) -> None:
+    """Broadcasts proactive alerts from scheduler/watchdog to connected HUD WebSockets."""
+    dead_sockets = []
+    for ws in list(_active_hud_websockets):
+        try:
+            await ws.send_json({
+                "type": "proactive_alert",
+                "title": alert_data.get("title", "Proactive Alert"),
+                "message": alert_data.get("message", ""),
+                "level": alert_data.get("level", "warning"),
+                "category": alert_data.get("category", "hardware"),
+                "time": alert_data.get("formatted_time", ""),
+            })
+        except Exception:
+            dead_sockets.append(ws)
+    for ws in dead_sockets:
+        _active_hud_websockets.discard(ws)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Lifespan context manager handling database setup on boot."""
+    """Lifespan context manager handling database setup and proactive background scheduler on boot."""
     try:
         await init_db()
-        client = get_genai_client()
-        if client:
-            # Pre-warm GenAI TLS connection in background task so first user question is instant (<1.2s)
-            async def _prewarm() -> None:
-                try:
-                    await client.aio.models.generate_content(
-                        model="gemini-3.5-flash-lite",
-                        contents="ping",
-                    )
-                except Exception:
-                    pass
-
-            asyncio.create_task(_prewarm())
     except Exception as exc:
         print(f"[ERROR] Failed to initialize SQLite database during startup: {exc}")
         raise exc
+
+    # Start Proactive Scheduler and Hardware Watchdog
+    try:
+        from core.scheduler import JarvisScheduler
+        from core.hardware_watchdog import HardwareWatchdog
+        scheduler = JarvisScheduler.get_instance()
+        scheduler.start()
+        scheduler.register_alert_listener(lambda a: asyncio.create_task(_broadcast_hud_proactive_alert(a)))
+        watchdog = HardwareWatchdog.get_instance()
+        watchdog.start_background_monitoring(poll_interval_seconds=30.0)
+    except Exception as sched_err:
+        logger.debug("Failed to start background scheduler/watchdog: %s", sched_err)
+
     yield
+
+    # Clean shutdown
+    try:
+        from core.hardware_watchdog import HardwareWatchdog
+        from core.scheduler import JarvisScheduler
+        HardwareWatchdog.get_instance().stop_background_monitoring()
+        JarvisScheduler.get_instance().stop()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -120,6 +172,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure Day 7 workspace documents & temp_vision screenshot directories are served statically
+workspace_dir = Path("workspace")
+workspace_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/workspace", StaticFiles(directory="workspace"), name="workspace")
+
+temp_vision_dir = Path("temp_vision")
+temp_vision_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/temp_vision", StaticFiles(directory="temp_vision"), name="temp_vision")
 
 
 @app.get("/health", status_code=status.HTTP_200_OK)
@@ -201,16 +262,27 @@ async def get_telemetry() -> Dict[str, Any]:
 
         tool = GetSystemStatsTool()
         result = tool.run()
+        stats = result.data or {}
+        cpu = stats.get("cpu_percent") or stats.get("cpu_usage_percent") or 0.0
+        memory = stats.get("ram_usage_percent") or stats.get("ram_used_pct") or 0.0
+        battery = stats.get("battery_pct") if stats.get("battery_pct") is not None else 100
         return {
             "success": result.success,
             "data": result.data,
+            "cpu": cpu,
+            "memory": memory,
+            "battery": battery,
+            "cpu_percent": cpu,
+            "ram_percent": memory,
             "message": result.message,
         }
     except Exception as exc:
-        # Fallback if tools module is temporarily unreachable
         return {
             "success": False,
             "data": None,
+            "cpu": 0.0,
+            "memory": 0.0,
+            "battery": 100,
             "message": f"Telemetry unavailable: {str(exc)}",
         }
 
@@ -265,24 +337,52 @@ async def get_neural_tts(
 ) -> FileResponse:
     """Generate and stream high-fidelity Microsoft Edge Neural TTS audio (.mp3).
 
-    Provides crystal-clear, loud, natural neural speech in English (GuyNeural),
+    Provides crystal-clear, loud, natural neural speech in English (GuyNeural/PrabhatNeural),
     Hindi (MadhurNeural), or Marathi (ManoharNeural) directly to the Web HUD.
     """
     try:
-        from voice.tts import get_speaker
-
-        # Clean markdown formatting, code fences, URLs, and symbols
         clean_text = re.sub(r"```[\s\S]*?```", "Code block output attached.", text)
         clean_text = re.sub(r"https?://\S+", "link", clean_text)
         clean_text = re.sub(r"[*_#`~>\[\]]", "", clean_text).strip()
         if not clean_text:
             raise HTTPException(status_code=400, detail="Empty text after sanitization")
 
-        speaker = get_speaker()
-        audio_path = await speaker.speak_to_file_async(clean_text, lang=lang)
-        if audio_path and os.path.isfile(audio_path):
+        # Attempt high-fidelity generation via voice.tts speaker
+        try:
+            from voice.tts import get_speaker
+            speaker = get_speaker()
+            audio_path = await speaker.speak_to_file_async(clean_text, lang=lang)
+            if audio_path and os.path.isfile(audio_path):
+                return FileResponse(
+                    audio_path,
+                    media_type="audio/mpeg",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Content-Disposition": "inline; filename=speech.mp3",
+                    },
+                )
+        except Exception as speaker_err:
+            print(f"[INFO] voice.tts speaker fallback: {speaker_err}")
+
+        # Direct edge-tts fallback
+        import edge_tts
+        temp_dir = Path("temp_audio")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        file_name = f"speech_{int(time.time() * 1000)}.mp3"
+        out_path = temp_dir / file_name
+
+        voice = "en-IN-PrabhatNeural"
+        if lang == "hi" or any("\u0900" <= c <= "\u097F" for c in clean_text):
+            voice = "hi-IN-MadhurNeural"
+        elif lang == "mr":
+            voice = "mr-IN-ManoharNeural"
+
+        communicate = edge_tts.Communicate(clean_text, voice)
+        await communicate.save(str(out_path))
+
+        if out_path.is_file():
             return FileResponse(
-                audio_path,
+                str(out_path.resolve()),
                 media_type="audio/mpeg",
                 headers={
                     "Cache-Control": "no-cache",
@@ -301,12 +401,8 @@ async def get_neural_tts(
 
 
 @app.post("/api/stt")
-async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
-    """Transcribe raw audio stream (WebM/WAV) using local faster-whisper STT.
-
-    Provides a 100% offline, local speech recognition alternative when browser
-    cloud STT encounters network errors or firewall blocks.
-    """
+async def transcribe_audio_stream(request: Request, language: Optional[str] = Query(None)) -> Dict[str, Any]:
+    """Transcribe raw audio stream (WebM/WAV) using local faster-whisper STT."""
     try:
         from voice.stt import get_transcriber
         import tempfile
@@ -316,7 +412,14 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
             raise HTTPException(status_code=400, detail="Audio buffer is empty")
 
         content_type = request.headers.get("content-type", "audio/webm").lower()
-        suffix = ".wav" if "wav" in content_type else (".mp3" if "mp3" in content_type else ".webm")
+        if "wav" in content_type:
+            suffix = ".wav"
+        elif "mp3" in content_type:
+            suffix = ".mp3"
+        elif "mp4" in content_type or "m4a" in content_type:
+            suffix = ".mp4"
+        else:
+            suffix = ".webm"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(audio_bytes)
@@ -324,7 +427,8 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
 
         try:
             transcriber = get_transcriber()
-            result = transcriber.transcribe_file(tmp_path)
+            language_hint = language if language in {"en", "hi", "mr"} else None
+            result = transcriber.transcribe_file(tmp_path, language=language_hint)
             return {
                 "success": True,
                 "text": result.get("text", "").strip(),
@@ -345,31 +449,114 @@ async def transcribe_audio_stream(request: Request) -> Dict[str, Any]:
         ) from exc
 
 
+class ChatPayload(BaseModel):
+    """Payload for HTTP chat directive fallback."""
+    text: Optional[str] = Field(None, description="Directive text")
+    prompt: Optional[str] = Field(None, description="Directive prompt alias")
+    message: Optional[str] = Field(None, description="Directive message alias")
+    mode: str = Field("normal", description="Operating mode")
 
-# ---------------------------------------------------------------------------
-# Day 3: WebSocket Live Channel & Sci-Fi HUD
-# ---------------------------------------------------------------------------
 
+@app.post("/api/chat")
+async def http_chat(payload: ChatPayload) -> Dict[str, Any]:
+    """Execute chat directive via HTTP fallback when WebSocket is offline."""
+    try:
+        from core.service import handle_text
+        result = await handle_text(
+            payload.text or payload.prompt or payload.message or "",
+            source="ui_http",
+            mode=payload.mode,
+        )
+        if result.get("text", "").startswith("Subsystem execution error:"):
+            raise HTTPException(
+                status_code=503,
+                detail="JARVIS core could not complete this request.",
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="JARVIS core is unavailable; this request was not completed.",
+        ) from exc
 
-
-
-# ---------------------------------------------------------------------------
-# Dynamic Neural Core API Key Configuration Endpoints
-# ---------------------------------------------------------------------------
 
 class KeyConfigRequest(BaseModel):
     """Payload schema for setting or updating API keys from the Web HUD."""
-    gemini_api_key: str = Field(..., min_length=8, description="Google Gemini API Key")
-    groq_api_key: Optional[str] = Field(None, description="Optional Groq Cloud API Key")
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API Key")
+    api_key: Optional[str] = Field(None, description="Alternative alias for Google Gemini API Key")
+
+
+class ProviderConfigRequest(BaseModel):
+    tts_provider: Optional[str] = Field("edge", description="Selected TTS engine")
+    elevenlabs_api_key: Optional[str] = Field(None, description="Optional ElevenLabs API Key")
+    elevenlabs_voice_id: Optional[str] = Field(None, description="Optional ElevenLabs Voice ID")
+
+
+@app.get("/api/config/providers")
+async def get_providers_config() -> Dict[str, Any]:
+    eleven_key = (os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY") or "").strip()
+    return {
+        "llm_provider": "gemini",
+        "gemini_model": os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite",
+        "tts_provider": os.getenv("TTS_PROVIDER", "edge"),
+        "elevenlabs_voice_id": os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB"),
+        "has_elevenlabs": bool(eleven_key and eleven_key != "your_elevenlabs_key_here"),
+    }
+
+
+@app.post("/api/config/providers")
+async def set_providers_config(payload: ProviderConfigRequest) -> Dict[str, Any]:
+    if payload.tts_provider:
+        tts_provider = payload.tts_provider.lower().strip()
+        if tts_provider not in {"edge", "elevenlabs"}:
+            raise HTTPException(status_code=400, detail="TTS provider must be 'edge' or 'elevenlabs'.")
+        os.environ["TTS_PROVIDER"] = tts_provider
+    if payload.elevenlabs_voice_id and payload.elevenlabs_voice_id.strip():
+        os.environ["ELEVENLABS_VOICE_ID"] = payload.elevenlabs_voice_id.strip()
+    if payload.elevenlabs_api_key and payload.elevenlabs_api_key.strip():
+        os.environ["ELEVENLABS_API_KEY"] = payload.elevenlabs_api_key.strip()
+
+    try:
+        project_root = Path(__file__).resolve().parent.parent
+        env_file = project_root / ".env"
+        env_lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+        updates = {
+            "TTS_PROVIDER": os.environ.get("TTS_PROVIDER", "edge"),
+        }
+        if payload.elevenlabs_api_key and payload.elevenlabs_api_key.strip():
+            updates["ELEVENLABS_API_KEY"] = payload.elevenlabs_api_key.strip()
+        if payload.elevenlabs_voice_id and payload.elevenlabs_voice_id.strip():
+            updates["ELEVENLABS_VOICE_ID"] = payload.elevenlabs_voice_id.strip()
+
+        new_lines: List[str] = []
+        handled = set()
+        for line in env_lines:
+            matched = False
+            for k, v in updates.items():
+                if line.startswith(f"{k}="):
+                    new_lines.append(f"{k}={v}")
+                    handled.add(k)
+                    matched = True
+                    break
+            if not matched:
+                new_lines.append(line)
+        for k, v in updates.items():
+            if k not in handled:
+                new_lines.append(f"{k}={v}")
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    except Exception as exc:
+        print(f"[WARN] Failed to write provider settings to .env file: {exc}")
+
+    return {"success": True, "message": "Provider configuration saved and active."}
 
 
 @app.get("/api/config/key-status")
 async def get_key_status() -> Dict[str, Any]:
     """Retrieve current neural core configuration status without revealing secret keys."""
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
     is_valid_gemini = bool(gemini_key and gemini_key != "your_gemini_api_key_here")
-    is_valid_groq = bool(groq_key and groq_key != "your_groq_api_key_here")
 
     masked = ""
     if is_valid_gemini:
@@ -381,15 +568,16 @@ async def get_key_status() -> Dict[str, Any]:
     return {
         "configured": is_valid_gemini,
         "masked_key": masked,
-        "has_groq": is_valid_groq,
-        "gemini_model": os.getenv("MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash",
+        "gemini_model": os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite",
     }
 
 
 @app.post("/api/config/set-key")
 async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
     """Validate, persist, and engage Google Gemini API Key from the Web HUD."""
-    key = payload.gemini_api_key.strip()
+    key = (payload.gemini_api_key or payload.api_key or "").strip()
+    if len(key) < 8:
+        raise HTTPException(status_code=400, detail="A valid Gemini API key is required.")
     if not key or key == "your_gemini_api_key_here":
         raise HTTPException(status_code=400, detail="A valid Gemini API key is required.")
 
@@ -397,13 +585,8 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
     try:
         from google import genai
         test_client = genai.Client(api_key=key)
-        model_name = os.getenv("MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash"
-        test_resp = test_client.models.generate_content(
-            model=model_name,
-            contents="Say 'OK'",
-        )
-        if not test_resp:
-            raise ValueError("Empty response from Gemini API.")
+        model_name = os.getenv("GEMINI_MODEL") or os.getenv("MODEL_NAME") or "gemini-3.5-flash-lite"
+        test_client.models.get(model=model_name)
     except Exception as exc:
         err_msg = str(exc)
         if "403" in err_msg or "API_KEY_INVALID" in err_msg or "permission" in err_msg.lower():
@@ -416,8 +599,6 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
 
     # 2. Update active process environment
     os.environ["GEMINI_API_KEY"] = key
-    if payload.groq_api_key and payload.groq_api_key.strip():
-        os.environ["GROQ_API_KEY"] = payload.groq_api_key.strip()
 
     # 3. Persist to .env file safely
     try:
@@ -428,22 +609,16 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
             env_lines = env_file.read_text(encoding="utf-8").splitlines()
 
         gemini_found = False
-        groq_found = False
         new_lines: List[str] = []
         for line in env_lines:
             if line.startswith("GEMINI_API_KEY="):
                 new_lines.append(f"GEMINI_API_KEY={key}")
                 gemini_found = True
-            elif payload.groq_api_key and line.startswith("GROQ_API_KEY="):
-                new_lines.append(f"GROQ_API_KEY={payload.groq_api_key.strip()}")
-                groq_found = True
             else:
                 new_lines.append(line)
 
         if not gemini_found:
             new_lines.append(f"GEMINI_API_KEY={key}")
-        if payload.groq_api_key and not groq_found:
-            new_lines.append(f"GROQ_API_KEY={payload.groq_api_key.strip()}")
 
         env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     except Exception as exc:
@@ -469,95 +644,565 @@ async def set_api_key(payload: KeyConfigRequest) -> Dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Universal Application, File, Task Launcher & Device Intelligence Engine
+# ---------------------------------------------------------------------------
 
-def try_launch_system_app(user_text: str) -> Optional[str]:
-    """Helper in ui/server.py to reliably launch requested desktop applications on Windows.
-    
-    Ensures that when a user requests to open Chrome, WhatsApp, Command Prompt, etc.,
-    the actual Windows application process is launched to the foreground.
+class AppLaunchResult(tuple):
+    """A tuple subclass (label, detail) whose str() representation is label.
+    Guarantees 100% compatibility with string formatting and tuple unpacking.
     """
-    import subprocess
+    def __new__(cls, label: str, detail: Optional[str] = None):
+        return super().__new__(cls, (label, detail))
 
-    norm = normalize_command(user_text)
-    trigger_words = ("open", "launch", "start", "run", "execute", "ugad", "chalu", "khol")
-    app_keywords = ("whatsapp", "chrome", "cmd", "command prompt", "terminal", "notepad", "calc", "calculator", "edge", "youtube", "vscode", "spotify", "snippingtool", "screenshot")
-    
-    is_launch_request = (
-        any(w in norm.split() for w in trigger_words)
-        or any(norm == k for k in app_keywords)
-        or (any(w in norm for w in trigger_words) and any(k in norm for k in app_keywords))
-    )
+    @property
+    def label(self) -> str:
+        return self[0]
 
-    if not is_launch_request:
+    @property
+    def detail(self) -> Optional[str]:
+        return self[1]
+
+    def __str__(self) -> str:
+        return self[0]
+
+
+def find_dynamic_app_in_system(app_name: str) -> Optional[Tuple[str, str]]:
+    """Scan Windows Start Menu shortcuts and Program Files to dynamically locate installed software."""
+    if platform.system().lower() != "windows":
         return None
 
+    app_clean = app_name.lower().strip()
+    search_dirs = [
+        os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+        os.path.expandvars(r"%ProgramData%\Microsoft\Windows\Start Menu\Programs"),
+    ]
+
+    for s_dir in search_dirs:
+        p = Path(s_dir)
+        if not p.exists():
+            continue
+        try:
+            for item in p.rglob("*.lnk"):
+                stem_lower = item.stem.lower()
+                if app_clean in stem_lower or stem_lower.startswith(app_clean):
+                    return (str(item.resolve()), item.stem)
+        except Exception:
+            pass
+
+    return None
+
+
+def find_user_file_or_folder(query: str) -> Optional[Tuple[Path, str]]:
+    """Locate a requested file or folder on user's system (workspace, desktop, downloads, documents).
+    Returns (Path, display_label) if found.
+    """
+    cleaned = query.strip().strip("'\"")
+    if not cleaned:
+        return None
+
+    direct_path = Path(cleaned)
+    if direct_path.exists():
+        kind = "Folder" if direct_path.is_dir() else "File"
+        return (direct_path.resolve(), f"{kind}: {direct_path.name}")
+
+    search_roots = [
+        Path(__file__).resolve().parent.parent,
+        Path(os.path.expandvars(r"%USERPROFILE%\Desktop")),
+        Path(os.path.expandvars(r"%USERPROFILE%\Downloads")),
+        Path(os.path.expandvars(r"%USERPROFILE%\Documents")),
+    ]
+
+    query_lower = cleaned.lower()
+    query_tokens = [t for t in query_lower.split() if len(t) > 2]
+
+    for root in search_roots:
+        if not root.exists():
+            continue
+        try:
+            for item in root.iterdir():
+                item_name_lower = item.name.lower()
+                norm_name = item_name_lower.replace("_", " ").replace("-", " ")
+                # 1. Exact name or stem match
+                if query_lower == item_name_lower or query_lower == item.stem.lower():
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+                # 2. Substring match
+                if len(query_lower) >= 4 and (query_lower in item_name_lower or query_lower in norm_name):
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+                # 3. Token match
+                if query_tokens and all(t in norm_name for t in query_tokens):
+                    kind = "Folder" if item.is_dir() else "File"
+                    return (item.resolve(), f"{kind}: {item.name}")
+        except Exception:
+            continue
+
+    return None
+
+
+def deep_search_user_files(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Deep search for files across user's primary folders."""
+    clean_q = query.lower().strip()
+    if not clean_q:
+        return []
+
+    results: List[Dict[str, str]] = []
+    roots = [
+        ("Workspace", str(Path(__file__).resolve().parent.parent)),
+        ("Desktop", os.path.expandvars(r"%USERPROFILE%\Desktop")),
+        ("Downloads", os.path.expandvars(r"%USERPROFILE%\Downloads")),
+        ("Documents", os.path.expandvars(r"%USERPROFILE%\Documents")),
+    ]
+
+    for loc_name, path_str in roots:
+        p = Path(path_str)
+        if not p.exists():
+            continue
+        try:
+            for item in p.rglob("*"):
+                if item.is_file():
+                    item_name_lower = item.name.lower()
+                    norm_name = item_name_lower.replace("_", " ").replace("-", " ")
+                    if clean_q in item_name_lower or clean_q in norm_name or all(w in norm_name for w in clean_q.split()):
+                        results.append({
+                            "name": item.name,
+                            "path": str(item.resolve()),
+                            "location": loc_name,
+                            "size_kb": f"{round(item.stat().st_size / 1024, 1)} KB",
+                        })
+                        if len(results) >= max_results:
+                            return results
+        except Exception:
+            pass
+
+    return results
+
+
+def get_running_user_processes(limit: int = 8) -> List[Dict[str, Any]]:
+    """Inspect active host applications currently running with window handles or significant RAM."""
+    procs: List[Dict[str, Any]] = []
     try:
-        if "whatsapp" in norm:
+        for p in psutil.process_iter(['pid', 'name', 'memory_info', 'cpu_percent']):
             try:
-                subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
-                return "WhatsApp"
-            except Exception:
-                subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
-                return "WhatsApp Web"
+                name = p.info['name'] or ""
+                if name.lower().endswith((".exe")):
+                    clean_name = name[:-4]
+                else:
+                    clean_name = name
 
-        elif "chrome" in norm or "google chrome" in norm:
-            subprocess.Popen("cmd.exe /c start chrome", shell=True)
-            return "Google Chrome"
+                ignored = (
+                    "svchost", "system", "registry", "smss", "csrss", "wininit",
+                    "services", "lsass", "winlogon", "fontdrvhost", "dwm",
+                    "conhost", "sihost", "taskhostw", "explorer", "shellexperiencehost",
+                    "searchhost", "startmenuexperiencehost", "textinputhost"
+                )
+                if clean_name.lower() in ignored:
+                    continue
 
-        elif "edge" in norm:
-            subprocess.Popen("cmd.exe /c start msedge", shell=True)
-            return "Microsoft Edge"
+                mem_mb = round(p.info['memory_info'].rss / (1024 * 1024), 1) if p.info.get('memory_info') else 0
+                if mem_mb > 40:
+                    procs.append({
+                        "pid": p.info['pid'],
+                        "name": clean_name,
+                        "ram_mb": mem_mb,
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
 
-        elif "youtube" in norm:
-            subprocess.Popen("cmd.exe /c start https://www.youtube.com", shell=True)
-            return "YouTube"
+    procs.sort(key=lambda x: x['ram_mb'], reverse=True)
+    return procs[:limit]
 
-        elif "cmd" in norm or "command prompt" in norm or "terminal" in norm:
-            subprocess.Popen("cmd.exe /c start cmd.exe", shell=True)
-            return "Command Prompt"
 
-        elif "snip" in norm or "screenshot" in norm:
-            subprocess.Popen("cmd.exe /c start snippingtool", shell=True)
-            return "Snipping Tool"
+def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
+    """Universal desktop application, folder, file, and compound task launcher.
+    Returns AppLaunchResult(label, detail) or None if text is not a launch intent.
+    """
+    norm = normalize_command(user_text)
+    if not norm:
+        return None
 
-        elif "notepad" in norm:
-            subprocess.Popen("cmd.exe /c start notepad", shell=True)
-            return "Notepad"
+    # Treat common possessive wording as the same local folder request. Without
+    # this normalization, "open my Downloads folder" falls through to the LLM
+    # and may open a web search instead of Windows Explorer.
+    norm = re.sub(
+        r"\bmy\s+(?=(?:downloads?|documents?|desktop|pictures?|photos?|videos?|music)\b)",
+        "",
+        norm,
+    )
 
-        elif "calc" in norm or "calculator" in norm:
-            subprocess.Popen("cmd.exe /c start calc", shell=True)
-            return "Calculator"
+    # Guard: Never treat conversational queries as launch requests
+    non_app_triggers = (
+        "who are you", "what are you", "who r u", "tell me about yourself",
+        "introduce yourself", "tu kon ahes", "what can you do", "what are your capabilities",
+        "who am i", "what is my name", "do you know my name", "whats my name", "what s my name",
+        "current time", "what time", "what is the time", "tell me the time", "clock",
+        "what date", "todays date", "system info", "check system specs",
+        "system stats", "laptop specs", "my specs", "how much ram", "storage space",
+        "what are my notes", "show my notes", "list notes", "my notes",
+        "what are my reminders", "show reminders", "check reminders", "my reminders",
+        "what are my tasks", "show my tasks", "list tasks", "my tasks",
+        "show active tasks", "running apps", "what processes", "active tasks",
+        "search file", "search files", "find file", "find files", "search pc",
+        "weather", "havaman"
+    )
+    if any(norm == g or norm.startswith(g) for g in non_app_triggers):
+        return None
 
-        elif "code" in norm or "vscode" in norm:
-            subprocess.Popen("cmd.exe /c start code", shell=True)
-            return "VS Code"
+    if detect_user_intro(user_text):
+        return None
 
-        elif "spotify" in norm or "music" in norm:
-            subprocess.Popen("cmd.exe /c start spotify:", shell=True)
-            return "Spotify"
-    except Exception as exc:
-        print(f"[WARN] Failed to launch application from UI server: {exc}")
+    # Leave ordered multi-tab searches to the core compound-action planner.
+    # The single-search Chrome shortcut below would otherwise absorb the whole
+    # sentence and search for every requested action as one query.
+    if "search" in norm and re.search(r"\b(?:another|new) tab\b", norm):
+        return None
+
+    kind_check, _ = parse_note_or_reminder(user_text)
+    if kind_check:
+        return None
+
+    greetings = (
+        "heyy jarvis", "hey jarvis", "hi jarvis", "hello jarvis", "hi", "hello",
+        "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon",
+        "namaste", "namaskar"
+    )
+    if norm in greetings:
+        return None
+
+    # 1. System Folders & Drives Mapping
+    system_folders = {
+        "file manager": ("explorer.exe", "File Manager / Explorer"),
+        "file explorer": ("explorer.exe", "File Manager / Explorer"),
+        "files": ("explorer.exe", "File Manager / Explorer"),
+        "my files": ("explorer.exe", "File Manager / Explorer"),
+        "this pc": ("explorer.exe", "This PC / Explorer"),
+        "my computer": ("explorer.exe", "My Computer / Explorer"),
+        "downloads folder": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "downloads": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "download": (os.path.expandvars(r"%USERPROFILE%\Downloads"), "Downloads Folder"),
+        "documents folder": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "documents": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "my documents": (os.path.expandvars(r"%USERPROFILE%\Documents"), "Documents Folder"),
+        "desktop folder": (os.path.expandvars(r"%USERPROFILE%\Desktop"), "Desktop Folder"),
+        "desktop": (os.path.expandvars(r"%USERPROFILE%\Desktop"), "Desktop Folder"),
+        "pictures folder": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "pictures": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "photos": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "my pictures": (os.path.expandvars(r"%USERPROFILE%\Pictures"), "Pictures Folder"),
+        "videos folder": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "videos": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "my videos": (os.path.expandvars(r"%USERPROFILE%\Videos"), "Videos Folder"),
+        "music folder": (os.path.expandvars(r"%USERPROFILE%\Music"), "Music Folder"),
+        "music": (os.path.expandvars(r"%USERPROFILE%\Music"), "Music Folder"),
+        "c drive": ("C:\\", "Local Disk (C:)"),
+        "d drive": ("D:\\", "Local Disk (D:)"),
+        "e drive": ("E:\\", "Local Disk (E:)"),
+    }
+
+    for folder_key, (target_path, label) in system_folders.items():
+        if (
+            norm == folder_key
+            or norm == f"open {folder_key}"
+            or norm == f"launch {folder_key}"
+            or norm == f"start {folder_key}"
+            or norm == f"show {folder_key}"
+            or norm == f"khol {folder_key}"
+            or norm == f"ugad {folder_key}"
+            or norm.endswith(f"open {folder_key}")
+            or norm.endswith(f"open {folder_key}.")
+        ):
+            try:
+                if target_path == "explorer.exe":
+                    subprocess.Popen(["explorer.exe", os.path.expandvars(r"%USERPROFILE%")])
+                else:
+                    if os.path.exists(target_path):
+                        subprocess.Popen(["explorer.exe", target_path])
+                    else:
+                        subprocess.Popen(["explorer.exe", os.path.expandvars(r"%USERPROFILE%")])
+                return AppLaunchResult(label, None)
+            except Exception as exc:
+                print(f"[WARN] Failed to open folder {label}: {exc}")
+
+    # 2. Compound Task Handling
+    if "whatsapp" in norm and ("send" in norm or "message" in norm):
+        recipient = "contact"
+        msg_text = ""
+        m = re.search(r"(?:to|for)\s+([a-zA-Z0-9_]+)\s*(?:saying|message|that|say)?\s*(.*)$", user_text, re.IGNORECASE)
+        if m:
+            recipient = m.group(1).strip()
+            msg_text = m.group(2).strip()
+        if not msg_text:
+            m_hi = re.search(r"send\s+([a-zA-Z0-9_\s]+?)\s+to\s+([a-zA-Z0-9_]+)", user_text, re.IGNORECASE)
+            if m_hi:
+                msg_text = m_hi.group(1).strip()
+                recipient = m_hi.group(2).strip()
+
+        try:
+            from tools.whatsapp_tool import WhatsAppTool
+            tool = WhatsAppTool()
+            if msg_text:
+                res = tool.send_message(msg_text, contact=recipient)
+            else:
+                res = tool.search_contact(recipient)
+            if res.success:
+                detail_msg = res.message
+            else:
+                detail_msg = f"{res.message} Target: {recipient}, Message: '{msg_text}'."
+        except Exception as exc:
+            detail_msg = f"Failed to automate WhatsApp: {exc}"
+        return AppLaunchResult("WhatsApp", detail_msg)
+
+    if ("chrome" in norm or "google" in norm or "browser" in norm) and ("search" in norm or "find" in norm or "look for" in norm):
+        query = ""
+        m_q = re.search(r"(?:search|find|for)\s+(?:about\s+)?(.*)$", user_text, re.IGNORECASE)
+        if m_q:
+            query = m_q.group(1).strip()
+        detail_msg = f"Executing web search: '{query}'" if query else "Opening web browser for search"
+        import urllib.parse
+        search_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}" if query else "https://www.google.com"
+        try:
+            subprocess.Popen(["cmd.exe", "/c", f"start {search_url}"], shell=True)
+        except Exception:
+            webbrowser.open(search_url)
+        return AppLaunchResult("Google Chrome", detail_msg)
+
+    if "youtube" in norm and ("play" in norm or "song" in norm or "search" in norm or "video" in norm):
+        query = ""
+        m_yt = re.search(r"(?:play|search|for)\s+(.*)$", user_text, re.IGNORECASE)
+        if m_yt:
+            query = m_yt.group(1).strip()
+            query = re.sub(r"\b(?:on\s+youtube|in\s+youtube|from\s+youtube)\b", "", query, flags=re.I).strip()
+        from tools.youtube_tool import YouTubeControlTool
+        yt_tool = YouTubeControlTool()
+        if "search" in norm and not ("play" in norm or "song" in norm):
+            res = yt_tool.run(action="search", query=query)
+        else:
+            res = yt_tool.run(action="play", query=query)
+        detail_msg = res.message
+        return AppLaunchResult("YouTube", detail_msg)
+
+    if "notepad" in norm and ("write" in norm or "note" in norm or "meeting" in norm):
+        m_np = re.search(r"(?:write|note|about)\s+(.*)$", user_text, re.IGNORECASE)
+        note_content = m_np.group(1).strip() if m_np else ""
+        subprocess.Popen(["notepad.exe"])
+        detail_msg = f"Drafting note: '{note_content}'" if note_content else "Opening fresh document"
+        return AppLaunchResult("Notepad", detail_msg)
+
+    # 3. Direct Application Launching (with absolute paths & --new-window flag)
+    direct_apps = [
+        ("google chrome", [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ], "Google Chrome", "chrome"),
+        ("chrome", [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ], "Google Chrome", "chrome"),
+        ("brave", [
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        ], "Brave Browser", "brave"),
+        ("brave browser", [
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        ], "Brave Browser", "brave"),
+        ("whatsapp", [], "WhatsApp", "whatsapp:"),
+        ("telegram", [
+            os.path.expandvars(r"%APPDATA%\Telegram Desktop\Telegram.exe"),
+        ], "Telegram Desktop", "telegram"),
+        ("notepad", ["notepad.exe"], "Notepad", "notepad"),
+        ("calc", ["calc.exe"], "Calculator", "calc"),
+        ("calculator", ["calc.exe"], "Calculator", "calc"),
+        ("command prompt", ["cmd.exe"], "Command Prompt", "cmd"),
+        ("cmd", ["cmd.exe"], "Command Prompt", "cmd"),
+        ("terminal", ["wt.exe", "powershell.exe", "cmd.exe"], "Terminal", "powershell"),
+        ("powershell", ["powershell.exe"], "Windows PowerShell", "powershell"),
+        ("task manager", ["taskmgr.exe"], "Task Manager", "taskmgr"),
+        ("taskmgr", ["taskmgr.exe"], "Task Manager", "taskmgr"),
+        ("vs code", ["code"], "Visual Studio Code", "code"),
+        ("vscode", ["code"], "Visual Studio Code", "code"),
+        ("code", ["code"], "Visual Studio Code", "code"),
+        ("edge", ["msedge.exe"], "Microsoft Edge", "msedge"),
+        ("microsoft edge", ["msedge.exe"], "Microsoft Edge", "msedge"),
+        ("spotify", ["spotify.exe"], "Spotify", "spotify:"),
+        ("snipping tool", ["snippingtool.exe"], "Snipping Tool", "snippingtool"),
+        ("screenshot", ["snippingtool.exe"], "Snipping Tool", "snippingtool"),
+        ("paint", ["mspaint.exe"], "MS Paint", "mspaint"),
+    ]
+
+    for key, paths, label, cmd_fallback in direct_apps:
+        is_match = (
+            norm == key
+            or norm == f"open {key}"
+            or norm == f"launch {key}"
+            or norm == f"start {key}"
+            or norm == f"run {key}"
+            or norm == f"khol {key}"
+            or norm == f"ugad {key}"
+            or norm.endswith(f"open {key}")
+            or norm.endswith(f"open {key}.")
+        )
+        if is_match:
+            if key == "whatsapp":
+                from tools.whatsapp_tool import WhatsAppTool
+                res = WhatsAppTool().open_whatsapp()
+                return AppLaunchResult("WhatsApp", res.message)
+            launched = False
+            for p in paths:
+                if os.path.isfile(p):
+                    try:
+                        if "chrome.exe" in p.lower() or "brave.exe" in p.lower() or "msedge.exe" in p.lower():
+                            subprocess.Popen([p, "--new-window"])
+                        else:
+                            subprocess.Popen([p])
+                        launched = True
+                        break
+                    except Exception:
+                        pass
+            if not launched:
+                try:
+                    if ":" in cmd_fallback:
+                        subprocess.Popen(f"cmd.exe /c start {cmd_fallback}", shell=True)
+                    else:
+                        subprocess.Popen(f"cmd.exe /c start {cmd_fallback}", shell=True)
+                except Exception as exc:
+                    print(f"[WARN] Failed to launch {label}: {exc}")
+            return AppLaunchResult(label, None)
+
+    # 4. Check for existing file or folder by name
+    file_match = find_user_file_or_folder(norm.replace("open", "").strip())
+    if file_match:
+        f_path, f_label = file_match
+        try:
+            os.startfile(str(f_path))
+            return AppLaunchResult(f_label, None)
+        except Exception:
+            return AppLaunchResult(f_label, None)
+
+    # 5. Dynamic Start Menu discovery
+    words = norm.split()
+    target_candidate = ""
+    if len(words) >= 2 and words[0] in ("open", "launch", "start", "run", "khol", "ugad"):
+        target_candidate = " ".join(words[1:])
+    elif len(words) == 1:
+        target_candidate = words[0]
+
+    if target_candidate:
+        dyn = find_dynamic_app_in_system(target_candidate)
+        if dyn:
+            lnk_path, friendly_name = dyn
+            try:
+                os.startfile(lnk_path)
+                return AppLaunchResult(friendly_name, None)
+            except Exception as exc:
+                print(f"[WARN] Dynamic launch failed for {friendly_name}: {exc}")
 
     return None
 
 
 # ---------------------------------------------------------------------------
-# Dynamic User State & Deep Hardware Intelligence Engine
+# Dynamic User State & Hardware Intelligence Engine
 # ---------------------------------------------------------------------------
 
+from memory.manager import preference_manager
+
+_init_user_name = preference_manager.get_preference("user_name", "Sir")
 current_user_state: Dict[str, Any] = {
-    "name": "User",
-    "is_known": False,
+    "name": _init_user_name if _init_user_name != "Sir" else "User",
+    "is_known": _init_user_name != "Sir",
 }
 
 
+async def _start_live_voice(websocket: WebSocket) -> None:
+    """Start the same persistent Gemini Live Charon voice used by Mark-LVI."""
+    global _live_voice_engine, _live_voice_task, _live_voice_owner
+    if _live_voice_task is not None and not _live_voice_task.done():
+        await websocket.send_json({
+            "type": "voice_status",
+            "status": "connected" if getattr(_live_voice_engine, "connected", False) else "connecting",
+            "voice": getattr(_live_voice_engine, "voice_name", "Charon"),
+            "message": "The Live voice session is already active.",
+        })
+        return
+
+    try:
+        from voice.gemini_live import GeminiLiveEngine
+
+        loop = asyncio.get_running_loop()
+
+        def emit_voice_event(event: Dict[str, str]) -> None:
+            async def send_event() -> None:
+                try:
+                    await websocket.send_json(event)
+                except Exception:
+                    pass
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(send_event()))
+
+        engine = GeminiLiveEngine(event_callback=emit_voice_event)
+        _live_voice_engine = engine
+        _live_voice_owner = websocket
+
+        async def run_voice_session() -> None:
+            global _live_voice_engine, _live_voice_task, _live_voice_owner
+            try:
+                await engine.run()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                emit_voice_event({
+                    "type": "voice_status", "status": "error",
+                    "message": str(exc)[:300],
+                })
+            finally:
+                if _live_voice_engine is engine:
+                    _live_voice_engine = None
+                    _live_voice_task = None
+                    _live_voice_owner = None
+
+        _live_voice_task = asyncio.create_task(run_voice_session(), name="jarvis-gemini-live-voice")
+        await websocket.send_json({
+            "type": "voice_status", "status": "connecting", "voice": engine.voice_name,
+            "message": "Connecting to Gemini Live voice…",
+        })
+    except Exception as exc:
+        _live_voice_engine = None
+        _live_voice_task = None
+        _live_voice_owner = None
+        await websocket.send_json({
+            "type": "voice_status", "status": "error", "message": str(exc)[:300],
+        })
+
+
+async def _stop_live_voice(websocket: Optional[WebSocket] = None) -> None:
+    """Stop the shared Live session and release its microphone and speaker streams."""
+    global _live_voice_engine, _live_voice_task, _live_voice_owner
+    engine, task = _live_voice_engine, _live_voice_task
+    if engine is None and task is None:
+        return
+    if websocket is not None and _live_voice_owner not in (None, websocket):
+        return
+    if engine is not None:
+        engine.stop()
+    if task is not None and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    _live_voice_engine = None
+    _live_voice_task = None
+    _live_voice_owner = None
+
+
 def detect_user_intro(text: str) -> Optional[str]:
-    """Detect if the user is introducing their name dynamically (e.g. 'I am Shiv', 'My name is Ram')."""
+    """Detect if user is introducing their name (e.g. 'I am Shiv', 'Maza naav Amit')."""
     cleaned = text.strip()
     patterns = [
         r"(?:hey\s+jarvis[,\s]+)?(?:i\s+am|im|i'm)\s+([a-zA-Z\u0900-\u097F]+)",
         r"(?:my\s+name\s+is|call\s+me|this\s+is)\s+([a-zA-Z\u0900-\u097F]+)",
-        r"(?:maza\s+naav|maze\s+naav)\s+([a-zA-Z\u0900-\u097F]+)",
+        r"(?:maza\s+naav|maze\s+naav|mera\s+naam)\s+([a-zA-Z\u0900-\u097F]+)",
     ]
     for pat in patterns:
         m = re.search(pat, cleaned, re.IGNORECASE)
@@ -573,7 +1218,7 @@ def detect_user_intro(text: str) -> Optional[str]:
 
 
 def get_deep_system_specs() -> str:
-    """Inspect the real host machine in real-time and return accurate hardware and OS diagnostics."""
+    """Inspect the real host machine in real-time and return accurate diagnostics."""
     try:
         os_info = f"{platform.system()} {platform.release()} ({platform.machine()})"
         cpu_count = psutil.cpu_count(logical=True)
@@ -619,7 +1264,6 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
     """Parse notes or reminders dictated by the user via text or voice."""
     cleaned = user_text.lower().strip()
 
-    # Reminders
     reminder_prefixes = (
         "remind me to", "remind me", "set a reminder for",
         "set reminder for", "add a reminder", "set reminder"
@@ -630,7 +1274,6 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
             if content:
                 return ("reminder", content)
 
-    # Notes
     note_prefixes = (
         "save note", "save a note", "take a note", "note that",
         "remember that", "add note", "add a note", "create a note",
@@ -645,45 +1288,1077 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
     return (None, None)
 
 
-async def _generate_response(user_text: str) -> str:
+def parse_whatsapp_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse WhatsApp commands: open/launch, search contacts, send messages, or compound messaging."""
+    cleaned = user_text.strip()
+    norm = re.sub(r"[^\w\s]", " ", cleaned.lower())
+    norm = " ".join(norm.split())
+
+    # 0. Open WhatsApp directly
+    if norm in (
+        "whatsapp", "open whatsapp", "launch whatsapp", "start whatsapp",
+        "focus whatsapp", "whatsapp open", "whatsapp launch",
+        "whatsapp khol", "whatsapp kholo", "open the whatsapp"
+    ) or re.search(r"^(?:open|launch|start|focus)\s+(?:the\s+)?whatsapp$", norm):
+        return {"action": "open"}
+
+    # 1. Search contact: 'search contact Aryan in whatsapp', 'search Aryan in whatsapp', 'find contact Jay'
+    if "whatsapp" in norm or "contact" in norm:
+        m_search = re.search(r"^(?:search|find|look up|lookup|look for)\s+(?:for\s+)?(?:contact\s+)?(.+?)(?:\s+(?:in|on)\s+whatsapp|\s+whatsapp)?$", norm)
+        if m_search:
+            contact_candidate = m_search.group(1).strip()
+            contact_candidate = re.sub(r"^(?:contact|for)\s+", "", contact_candidate).strip()
+            contact_candidate = re.sub(r"\s+(?:in|on)\s+whatsapp$", "", contact_candidate).strip()
+            if contact_candidate and contact_candidate not in ("contact", "whatsapp"):
+                return {"action": "search", "contact": contact_candidate}
+
+    # 2. Message to specific contact with message content: 'send message to Aryan: hello', 'message Aryan saying hello'
+    m_to = re.search(r"^(?:send\s+(?:a\s+)?message\s+to|message|text|tell)\s+([a-zA-Z0-9_]+)\s*(?:on\s+whatsapp)?\s*(?:saying|that|says|:)?\s*(.+)$", user_text, re.IGNORECASE)
+    if m_to:
+        target = m_to.group(1).strip()
+        msg = m_to.group(2).lstrip(": -").strip()
+        if target.lower() in ("them", "him", "her", "this", "chat"):
+            return {"action": "send", "contact": None, "message": msg}
+        elif msg:
+            return {"action": "send", "contact": target, "message": msg}
+
+    # 3. Message them / send message / text them (to active or previously searched contact)
+    # e.g., 'message them: hello how are you', 'message them hello', 'send message: hello brother', 'send message hello', 'tell them I am coming'
+    m_send = re.search(r"^(?:send\s+(?:a\s+)?message|message|text|tell\s+them)\s*(?:to\s+them|to\s+him|to\s+her|them|him|her)?\s*(?:saying|that|says|:)?\s*(.+)$", user_text, re.IGNORECASE)
+    if m_send:
+        msg = m_send.group(1).lstrip(": -").strip()
+        if msg:
+            return {"action": "send", "contact": None, "message": msg}
+
+    # 4. File / document / image sharing:
+    # 'share file report.pdf with Aryan on whatsapp', 'send image photo.png to Jay on whatsapp', 'share document workspace/report.pdf with Abhijit'
+    m_file = re.search(
+        r"(?:share|send)\s+(?:the\s+)?(?:file|document|image|doc|pdf|photo|pic)?\s*([^\s]+\.[a-zA-Z0-9]+)\s+(?:with|to)\s+([a-zA-Z0-9_]+)(?:\s*(?:on|in|via)\s+whatsapp)?(?:\s+(?:with\s+caption|saying)\s+(.+))?",
+        user_text,
+        re.IGNORECASE
+    )
+    if m_file:
+        file_target = m_file.group(1).strip()
+        contact_target = m_file.group(2).strip()
+        caption_target = m_file.group(3).strip() if m_file.group(3) else None
+        return {
+            "action": "send_file",
+            "file_path": file_target,
+            "contact": contact_target,
+            "caption": caption_target,
+        }
+
+    m_file2 = re.search(
+        r"(?:share|send)\s+(?:with|to\s+)?([a-zA-Z0-9_]+)\s+(?:the\s+)?(?:file|document|image|doc|pdf)?\s*([^\s]+\.[a-zA-Z0-9]+)(?:\s*(?:on|in|via)\s+whatsapp)?",
+        user_text,
+        re.IGNORECASE
+    )
+    if m_file2:
+        contact_target = m_file2.group(1).strip()
+        file_target = m_file2.group(2).strip()
+        if contact_target.lower() not in ("file", "document", "image", "doc", "pdf", "the", "whatsapp"):
+            return {
+                "action": "send_file",
+                "file_path": file_target,
+                "contact": contact_target,
+                "caption": None,
+            }
+
+    return None
+
+
+def parse_semantic_memory_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse semantic memory and RAG queries: 'where did I write about X?', 'index folder Y', 'semantic search Z'."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+
+    # 1. 'where did I write about X?' / 'where did I write X?'
+    m_where = re.search(r"\bwhere\s+did\s+i\s+write\s+(?:about\s+)?(.+?)\s*[.?!]*$", raw, re.IGNORECASE)
+    if m_where:
+        query = m_where.group(1).strip()
+        return {"action": "where_did_i_write", "query": query}
+
+    # 2. 'index folder <path>' / 'index directory <path>'
+    m_index = re.search(r"^(?:index\s+(?:folder|directory|codebase|workspace)?\s*)(.+?)\s*[.?!]*$", raw, re.IGNORECASE)
+    if m_index and not re.search(r"\b(?:file|tab|youtube|google|browser)\b", raw, re.I):
+        folder = m_index.group(1).strip()
+        return {"action": "index_folder", "folder_path": folder}
+
+    # 3. 'semantic search <query>'
+    m_search = re.search(r"^(?:semantic\s+search\s+(?:for\s+)?)(.+?)\s*[.?!]*$", raw, re.IGNORECASE)
+    if m_search:
+        return {"action": "search_memory", "query": m_search.group(1).strip()}
+
+    return None
+
+
+def parse_watchdog_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse hardware watchdog commands: 'battery 15%', 'disk almost full', 'hardware status', 'check battery'."""
+    raw = (user_text or "").strip().lower()
+    if not raw:
+        return None
+
+    if any(phrase in raw for phrase in (
+        "hardware status", "hardware health", "hardware watchdog", "check hardware",
+        "how is my battery", "how is battery", "how is my disk", "check disk space",
+        "battery status", "system health check", "system watchdog", "check system health"
+    )):
+        return {"action": "check_status"}
+
+    if "upcoming meetings" in raw or "check meetings" in raw or "meeting alerts" in raw:
+        return {"action": "check_meetings"}
+
+    return None
+
+
+def parse_research_report_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse 'Research X and make me a PDF with sources' or 'Research X and compile a report'."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+
+    m = re.search(
+        r"\bresearch\s+(.+?)(?:\s+and\s+(?:make|generate|build|create)\s+(?:me\s+)?(?:a\s+)?(?:pdf|report|docx|word)?(?:\s+report)?(?:\s+with\s+sources)?)?\s*[.?!]*$",
+        raw,
+        re.IGNORECASE
+    )
+    if m:
+        topic = m.group(1).strip()
+        topic = re.sub(r"\s+and\s+(?:make|generate|build|create).*$", "", topic, flags=re.I).strip()
+        topic = re.sub(r"\s+with\s+sources\s*$", "", topic, flags=re.I).strip()
+        if topic and len(topic) > 2 and not any(w in topic.lower() for w in ("paper on google", "web page")):
+            return {"topic": topic, "format": "pdf", "max_sources": 5, "auto_open": True}
+
+    return None
+
+
+def parse_google_workspace_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse Google Calendar & Gmail commands: 'what's on tomorrow?', 'draft a reply to this', 'check my emails'."""
+    raw = (user_text or "").strip().lower()
+    if not raw:
+        return None
+
+    # Calendar: "what's on tomorrow?", "what is on tomorrow", "schedule for tomorrow", "calendar tomorrow"
+    if any(phrase in raw for phrase in (
+        "what's on tomorrow", "whats on tomorrow", "what is on tomorrow",
+        "schedule tomorrow", "schedule for tomorrow", "calendar tomorrow",
+        "what's on my calendar tomorrow", "whats on my calendar tomorrow",
+        "what do i have tomorrow", "agenda tomorrow"
+    )):
+        return {"tool": "calendar", "action": "whats_on_tomorrow"}
+
+    if any(phrase in raw for phrase in ("what's on today", "whats on today", "schedule today", "calendar today")):
+        return {"tool": "calendar", "action": "get_events", "days": 0}
+
+    # Calendar: schedule / create event
+    m_create = re.search(r"\b(?:schedule\s+meeting|create\s+(?:calendar\s+)?event|add\s+event)(?:\s+(?:for|with|called)?\s+(.+))?$", user_text, re.IGNORECASE)
+    if m_create:
+        summary_text = m_create.group(1).strip() if m_create.group(1) else "New Meeting"
+        return {"tool": "calendar", "action": "create_event", "summary": summary_text}
+
+    # Gmail: "check my emails", "list unread emails", "unread emails", "inbox"
+    if any(phrase in raw for phrase in (
+        "check my emails", "check emails", "unread emails", "list unread emails",
+        "check inbox", "my emails", "what are my unread emails"
+    )):
+        return {"tool": "gmail", "action": "list_unread"}
+
+    # Gmail: "draft a reply to this: ...", "draft a reply to this", "draft a reply"
+    m_reply = re.search(r"\bdraft\s+a\s+reply(?:\s+to\s+this)?(?:\s*[:\-]\s*(.+))?$", user_text, re.IGNORECASE)
+    if m_reply:
+        body_text = m_reply.group(1).strip() if m_reply.group(1) else "Thank you for the update. Everything looks good on our end."
+        return {"tool": "gmail", "action": "draft_reply", "reply_body": body_text}
+
+    return None
+
+
+def parse_youtube_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse YouTube-specific control commands: play, pause, resume, fullscreen, exit fullscreen, scroll, click video, mute, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Check for meta capability questions regarding YouTube control
+    if any(phrase in norm for phrase in (
+        "must be able to", "can you control youtube", "are you able to play youtube",
+        "how do you control youtube", "control whole youtube", "control whole youtbe",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have full YouTube control online, sir. I can stream videos directly, scroll pages, click and open videos, pause, resume, toggle fullscreen, exit fullscreen, and adjust volume, speed, and captions on your command.",
+        }
+
+    # 1. Fullscreen / Exit Fullscreen
+    if re.search(r"\b(?:out\s+full\s*screen|exit\s+full\s*screen|leave\s+full\s*screen|close\s+full\s*screen|unfull\s*screen)\b", norm):
+        return {"action": "exit_fullscreen"}
+    if re.search(r"\b(?:go\s+full\s*screen|make\s+(?:it\s+)?full\s*screen|enter\s+full\s*screen|^full\s*screen$|\bfull\s*screen\b)", norm):
+        if not any(w in norm for w in ("out", "exit", "leave", "close", "off", "un")):
+            return {"action": "fullscreen"}
+
+    # 2. Pause / Stop video
+    if re.search(r"\b(?:pause\s+(?:the\s+)?video|pause\s+youtube|pause\s+playback|^pause$|\bpause\s+it\b)", norm):
+        return {"action": "pause"}
+
+    # 3. Resume / Unpause / Play (when no specific search song is given)
+    if re.search(r"\b(?:resume\s+(?:the\s+)?video|resume\s+youtube|resume\s+playback|^resume$|unpause|\bplay\s+(?:the\s+)?video\b)", norm):
+        if not re.search(r"\bplay\s+(?:the\s+video\s+)?(?:about|of|song|track)?\s*[a-zA-Z0-9_]{3,}\b", norm):
+            return {"action": "resume"}
+
+    # 4. Scroll YouTube
+    m_scroll = re.search(r"\bscroll\s*(?:down|up)?\s*(?:on\s+)?youtube\b|\bscroll\s+youtube\s*(?:for\s+me\s*)?(?:down|up)?\b|\bscroll\s+(?:down|up)\b", norm)
+    if m_scroll:
+        if "up" in norm:
+            return {"action": "scroll_up", "scroll_amount": 6}
+        return {"action": "scroll_down", "scroll_amount": 6}
+
+    # 5. Click and open video
+    m_click = re.search(r"\b(?:click\s+(?:and\s+)?(?:open\s+)?(?:the\s+)?video|open\s+(?:the\s+)?first\s+video|click\s+(?:the\s+)?video|open\s+video\s*(\d+)|click\s+video\s*(\d+))\b", norm)
+    if m_click:
+        idx = 1
+        if m_click.group(1):
+            idx = int(m_click.group(1))
+        elif m_click.group(2):
+            idx = int(m_click.group(2))
+        return {"action": "click_video", "index": idx}
+
+    # 6. Audio / Volume / Mute
+    if re.search(r"\b(?:mute\s+(?:the\s+)?video|mute\s+youtube|^mute$|unmute)\b", norm):
+        return {"action": "mute"}
+    if re.search(r"\b(?:volume\s+up|increase\s+volume|turn\s+up\s+(?:the\s+)?volume)\b", norm) and ("youtube" in norm or "video" in norm):
+        return {"action": "volume_up"}
+    if re.search(r"\b(?:volume\s+down|decrease\s+volume|turn\s+down\s+(?:the\s+)?volume)\b", norm) and ("youtube" in norm or "video" in norm):
+        return {"action": "volume_down"}
+
+    # 7. Seek / Skip / Next / Prev
+    if re.search(r"\b(?:next\s+video|skip\s+(?:this\s+)?video|play\s+next)\b", norm):
+        return {"action": "next"}
+    if re.search(r"\b(?:previous\s+video|prev\s+video|play\s+previous)\b", norm):
+        return {"action": "prev"}
+    if re.search(r"\b(?:fast\s+forward|skip\s+forward|forward\s+10\s+seconds?)\b", norm):
+        return {"action": "skip_forward"}
+    if re.search(r"\b(?:rewind|skip\s+backward|skip\s+back|back\s+10\s+seconds?)\b", norm):
+        return {"action": "skip_backward"}
+
+    # 8. Captions / Subtitles
+    if re.search(r"\b(?:subtitles?|captions?|cc)\b", norm) and ("turn" in norm or "toggle" in norm or "on" in norm or "off" in norm or "video" in norm or "youtube" in norm):
+        return {"action": "captions"}
+
+    # 9. Speed
+    if re.search(r"\b(?:speed\s+up\s+video|faster\s+video|increase\s+playback\s+speed)\b", norm):
+        return {"action": "speed_up"}
+    if re.search(r"\b(?:slow\s+down\s+video|slower\s+video|decrease\s+playback\s+speed)\b", norm):
+        return {"action": "slow_down"}
+
+    # 10. Restart / Replay
+    if re.search(r"\b(?:restart\s+(?:the\s+)?video|replay\s+(?:the\s+)?video|play\s+from\s+(?:the\s+)?beginning)\b", norm):
+        return {"action": "restart"}
+
+    # 11. Play specific video/song on YouTube
+    m_play = re.search(r"^(?:play|stream|listen to)\s+(?:the\s+)?(?:video\s+)?(.+?)(?:\s+(?:on|in|from)\s+youtube|\s+youtube)?$", norm)
+    if m_play and ("youtube" in norm or "song" in norm or "video" in norm or "track" in norm):
+        q = m_play.group(1).strip()
+        q = re.sub(r"^(?:youtube\s+video|youtube\s+song|video|song|track)\s+", "", q).strip()
+        q = re.sub(r"\s+(?:on|in|from)\s+youtube$", "", q).strip()
+        if q and q not in ("video", "youtube", "videos", "music"):
+            return {"action": "play", "query": q}
+        elif q in ("video", "youtube", "videos", "music"):
+            return {"action": "play", "query": ""}
+
+    m_play_yt = re.search(r"^(?:open\s+and\s+play|play\s+youtube\s+video|play\s+on\s+youtube)\s+(.+)$", norm)
+    if m_play_yt:
+        q = m_play_yt.group(1).strip()
+        q = re.sub(r"^(?:youtube\s+video|youtube\s+song|video|song|track)\s+", "", q).strip()
+        return {"action": "play", "query": q}
+
+    return None
+
+
+def parse_youtube_music_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse YouTube Music control commands: songs, lyrics, next/prev, reload, search, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "automate full youtube music", "control youtube music", "handle youtube music",
+        "automate youtube music", "can you control youtube music",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete YouTube Music automation active, sir. I can search songs, stream specific tracks, play next or previous songs, toggle the lyrics section, reload the music tab, adjust volume, seek, and toggle shuffle or repeat on your command.",
+        }
+
+    # Next / Previous song
+    if re.search(r"\b(?:next\s+song|skip\s+song|play\s+next\s+song|next\s+track|play\s+next\s+track|skip\s+track)\b", norm):
+        return {"action": "next_song"}
+    if re.search(r"\b(?:previous\s+song|prev\s+song|play\s+previous\s+song|last\s+song|previous\s+track|prev\s+track)\b", norm):
+        return {"action": "prev_song"}
+
+    # Lyrics
+    if re.search(r"\b(?:open\s+lyrics|show\s+lyrics|lyrics\s+section|open\s+lyrics\s+section|display\s+lyrics|view\s+lyrics|^lyrics$)\b", norm):
+        return {"action": "lyrics"}
+
+    # Reload music tab
+    if re.search(r"\b(?:reload\s+(?:the\s+)?music(?:\s+tab)?|refresh\s+(?:the\s+)?music(?:\s+tab)?|reload\s+youtube\s+music|refresh\s+youtube\s+music)\b", norm):
+        return {"action": "reload"}
+
+    # Pause / Resume / Stop
+    if re.search(r"\b(?:pause\s+music|pause\s+song|stop\s+music|pause\s+youtube\s+music)\b", norm):
+        return {"action": "pause"}
+    if re.search(r"\b(?:resume\s+music|resume\s+song|unpause\s+music|resume\s+youtube\s+music)\b", norm):
+        return {"action": "resume"}
+
+    # Shuffle / Repeat
+    if re.search(r"\b(?:shuffle\s+music|toggle\s+shuffle|shuffle\s+songs?|^shuffle$)\b", norm):
+        return {"action": "shuffle"}
+    if re.search(r"\b(?:repeat\s+song|repeat\s+music|cycle\s+repeat|^repeat$)\b", norm):
+        return {"action": "repeat"}
+
+    # Like / Dislike
+    if re.search(r"\b(?:like\s+(?:this\s+)?song|like\s+music)\b", norm):
+        return {"action": "like"}
+    if re.search(r"\b(?:dislike\s+(?:this\s+)?song|dislike\s+music)\b", norm):
+        return {"action": "dislike"}
+
+    # Search songs on YouTube Music
+    m_search_ytm1 = re.search(r"\bsearch\s+(?:for\s+)?(?:songs?\s+)?(.+?)\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)\b", norm)
+    if m_search_ytm1:
+        q = m_search_ytm1.group(1).strip()
+        q = re.sub(r"^(?:for|song|tracks?)\s+", "", q).strip()
+        return {"action": "search", "query": q}
+
+    m_search_ytm2 = re.search(r"\bsearch\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)\s*(?:for\s+)?(.+)?\b", norm)
+    if m_search_ytm2:
+        q = (m_search_ytm2.group(1) or "").strip()
+        q = re.sub(r"^(?:for|song|tracks?)\s+", "", q).strip()
+        return {"action": "search", "query": q}
+
+    m_search_ytm3 = re.search(r"\b(?:search\s+songs?|search\s+youtube\s+music|search\s+yt\s+music)\s*(?:for\s+)?(.+)?\b", norm)
+    if m_search_ytm3:
+        q = (m_search_ytm3.group(1) or "").strip()
+        q = re.sub(r"^(?:for|song|tracks?)\s+", "", q).strip()
+        return {"action": "search", "query": q}
+
+    # Open and play/search
+    m_open_ytm = re.search(r"\bopen\s+(?:youtube\s+music|yt\s+music)\s+(?:and\s+)?(?:play|search)\s+(.+)\b", norm)
+    if m_open_ytm:
+        q = m_open_ytm.group(1).strip()
+        return {"action": "play", "query": q}
+
+    # Play song on YouTube Music
+    m_play_target = re.search(r"\b(?:play|stream|listen\s+to)\s+(?:the\s+)?(?:song\s+|music\s+)?(.+?)\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)\b", norm)
+    if m_play_target:
+        q = m_play_target.group(1).strip()
+        if q.lower() in ("song", "songs", "some songs", "music", "some music", "a song", "tracks", "track"):
+            q = "top hit songs"
+        return {"action": "play", "query": q}
+
+    m_play_ytm = re.search(r"\b(?:play\s+song|listen\s+to\s+song|stream\s+song|play\s+music|play\s+on\s+youtube\s+music|play\s+in\s+youtube\s+music|play\s+on\s+yt\s+music)\s*(.+)?\b", norm)
+    if m_play_ytm:
+        q = (m_play_ytm.group(1) or "").strip()
+        q = re.sub(r"\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)$", "", q).strip()
+        q = re.sub(r"^(?:song|track|music)\s+", "", q).strip()
+        if q and q not in ("song", "music", "youtube music", "yt music"):
+            return {"action": "play", "query": q}
+        return {"action": "play", "query": "top hit songs"}
+
+    # Direct query like "play bohemian rhapsody on youtube music"
+    m_direct_ytm = re.search(r"^play\s+(.+?)\s+on\s+(?:youtube\s+music|yt\s+music)$", norm)
+    if m_direct_ytm:
+        q = m_direct_ytm.group(1).strip()
+        return {"action": "play", "query": q}
+
+    return None
+
+
+def parse_file_manager_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse File Manager / Explorer control commands: drives, folders, search, look at, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "handle my whole file manager", "handle whole file manager", "control whole file manager",
+        "can you handle my file manager", "manage whole file manager", "manage my whole file manager",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete Windows File Explorer automation at your service, sir. I can list all disk drives, open physical drives like C or D, search folders across your drives, open any directory, and look into folders to report their contents, files, and sizes.",
+        }
+
+    # List Drives
+    if re.search(r"\b(?:list\s+drives|show\s+drives|show\s+my\s+drives|check\s+drives|what\s+drives|all\s+drives|disk\s+drives|get\s+drives)\b", norm):
+        return {"action": "list_drives"}
+
+    # Open Drive: 'open c drive', 'open drive c', 'open d drive', 'open drive d'
+    m_drive = re.search(r"\b(?:open\s+(?:the\s+)?([a-zA-Z])\s+drive|open\s+drive\s+([a-zA-Z])|open\s+([a-zA-Z]):\\?)\b", norm)
+    if m_drive:
+        letter = m_drive.group(1) or m_drive.group(2) or m_drive.group(3)
+        return {"action": "open_drive", "drive": f"{letter.upper()}:\\"}
+
+    # Look at / inspect folders: 'look at folder Project - A', 'look at folders', 'inspect folder downloads'
+    m_look = re.search(r"\b(?:look\s+at\s+folders?|look\s+into\s+folders?|inspect\s+folders?|view\s+folders?|show\s+folder\s+contents?|what\s+is\s+in\s+folder)\s*(.+)?$", raw, re.IGNORECASE)
+    if m_look:
+        target = (m_look.group(1) or "").strip()
+        target = re.sub(r"^(?:the\s+)?folder\s+", "", target, flags=re.IGNORECASE).strip()
+        return {"action": "look_at_folder", "folder_path": target or "."}
+
+    # Search folders: 'search folders project', 'search folder python', 'find folder docs'
+    m_search_f = re.search(r"\b(?:search\s+folders?|find\s+folders?|search\s+for\s+folders?|find\s+directory|search\s+directory)\s*(?:named\s+|for\s+)?(.+)?$", raw, re.IGNORECASE)
+    if m_search_f and m_search_f.group(1):
+        q = m_search_f.group(1).strip()
+        q = re.sub(r"^(?:for|named)\s+", "", q, flags=re.IGNORECASE).strip()
+        if q:
+            return {"action": "search_folders", "query": q}
+
+    # Open specific standard folder aliases
+    m_alias = re.search(r"\bopen\s+(downloads|desktop|documents|docs|pictures|photos|videos|music)\b", norm)
+    if m_alias:
+        return {"action": "open_folder", "folder_path": m_alias.group(1)}
+
+    # Open folder: 'open folder <name>'
+    m_open_f = re.search(r"\b(?:open\s+folder|open\s+directory)\s+(.+)$", raw, re.IGNORECASE)
+    if m_open_f:
+        target = m_open_f.group(1).strip()
+        return {"action": "open_folder", "folder_path": target}
+
+    # Create folder: 'create folder <name>', 'make folder <name>'
+    m_create_f = re.search(r"\b(?:create\s+folder|make\s+folder|new\s+folder)\s+(.+)$", raw, re.IGNORECASE)
+    if m_create_f:
+        target = m_create_f.group(1).strip()
+        return {"action": "create_folder", "folder_path": target}
+
+    return None
+
+
+def parse_browser_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse complete browser control commands: tabs, navigation, scroll, zoom, click, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "control my complete browser", "automate full browser", "control whole browser",
+        "automate browser", "can you control my browser", "control the whole browser",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete browser automation active, sir. I can navigate forward and back, switch to the tab ahead or tab behind, switch numbered tabs, reopen closed tabs, scroll pages, zoom, reload, click links, and manage browser windows on your command.",
+        }
+
+    # Tab ahead / next tab: 'open tab ahead of current active tab', 'tab ahead', 'next tab'
+    if re.search(r"\b(?:tab\s+ahead|next\s+tab|open\s+tab\s+ahead(?:\s+of\s+curent\s+active\s+tab|\s+of\s+current\s+active\s+tab)?|switch\s+to\s+next\s+tab|go\s+to\s+next\s+tab|forward\s+tab)\b", norm):
+        return {"action": "next_tab"}
+
+    # Tab behind / previous tab: 'tab behind active tab', 'tab behind', 'previous tab', 'prev tab'
+    if re.search(r"\b(?:tab\s+behind(?:\s+active\s+tab)?|previous\s+tab|prev\s+tab|open\s+tab\s+behind|switch\s+to\s+previous\s+tab|go\s+to\s+previous\s+tab|back\s+tab)\b", norm):
+        return {"action": "prev_tab"}
+
+    # Switch to tab number: 'switch to tab 2', 'go to tab 3', 'select tab 1'
+    m_switch = re.search(r"\b(?:switch\s+(?:between\s+tabs\s+to|to\s+)?tab\s+(\d+)|go\s+to\s+tab\s+(\d+)|select\s+tab\s+(\d+))\b", norm)
+    if m_switch:
+        idx = int(m_switch.group(1) or m_switch.group(2) or m_switch.group(3))
+        return {"action": "switch_tab", "tab_index": idx}
+
+    # Reopen closed tab: 'reopen closed tab', 'reopen tab', 'restore tab'
+    if re.search(r"\b(?:reopen\s+(?:closed\s+)?tab|restore\s+(?:closed\s+)?tab|bring\s+back\s+tab)\b", norm):
+        return {"action": "reopen_tab"}
+
+    # Close tab: 'close tab', 'close active tab'
+    if re.search(r"\b(?:close\s+(?:the\s+)?(?:active\s+)?tab|shut\s+(?:the\s+)?tab)\b", norm):
+        return {"action": "close_tab"}
+
+    # New tab: 'new tab', 'open a new tab', 'open another tab'
+    if re.search(r"\b(?:new\s+tab|open\s+(?:a\s+)?new\s+tab|open\s+another\s+tab)\b", norm):
+        return {"action": "new_tab"}
+
+    # Reload / refresh
+    if re.search(r"\b(?:hard\s+reload|hard\s+refresh|force\s+reload)\b", norm):
+        return {"action": "hard_reload"}
+    if re.search(r"\b(?:reload\s+(?:the\s+)?(?:tab|page|browser)|refresh\s+(?:the\s+)?(?:tab|page|browser)|reloading\s+tab)\b", norm):
+        return {"action": "reload"}
+
+    # Scrolling
+    if re.search(r"\b(?:scroll\s+(?:to\s+)?top|top\s+of\s+page)\b", norm):
+        return {"action": "scroll_top"}
+    if re.search(r"\b(?:scroll\s+(?:to\s+)?bottom|bottom\s+of\s+page)\b", norm):
+        return {"action": "scroll_bottom"}
+    if re.search(r"\b(?:scroll\s+(?:the\s+)?(?:page|browser)\s+down|scroll\s+down\s+(?:the\s+)?(?:page|browser)|scroll\s+browser)\b", norm):
+        return {"action": "scroll_down"}
+    if re.search(r"\b(?:scroll\s+(?:the\s+)?(?:page|browser)\s+up|scroll\s+up\s+(?:the\s+)?(?:page|browser))\b", norm):
+        return {"action": "scroll_up"}
+
+    # Zoom
+    if re.search(r"\b(?:zoom\s+in(?:\s+(?:browser|page))?)\b", norm):
+        return {"action": "zoom_in"}
+    if re.search(r"\b(?:zoom\s+out(?:\s+(?:browser|page))?)\b", norm):
+        return {"action": "zoom_out"}
+    if re.search(r"\b(?:reset\s+zoom|zoom\s+reset|zoom\s+100%?)\b", norm):
+        return {"action": "zoom_reset"}
+
+    # Fullscreen browser
+    if re.search(r"\b(?:fullscreen\s+browser|browser\s+fullscreen)\b", norm):
+        return {"action": "fullscreen"}
+
+    # Navigation: back / forward
+    if re.search(r"\b(?:browser\s+back|go\s+back\s+in\s+browser|page\s+back)\b", norm):
+        return {"action": "back"}
+    if re.search(r"\b(?:browser\s+forward|go\s+forward\s+in\s+browser|page\s+forward)\b", norm):
+        return {"action": "forward"}
+
+    # Click links: 'click link login', 'click link about'
+    m_link = re.search(r"\bclick\s+(?:on\s+)?(?:the\s+)?link\s+(?:named\s+|saying\s+|called\s+)?(.+)\b", norm)
+    if m_link:
+        link_text = m_link.group(1).strip()
+        return {"action": "click_link", "text": link_text}
+
+    # Bookmark / History / Downloads
+    if re.search(r"\b(?:bookmark\s+page|bookmark\s+this\s+page|add\s+bookmark)\b", norm):
+        return {"action": "bookmark"}
+    if re.search(r"\b(?:browser\s+history|open\s+browser\s+history)\b", norm):
+        return {"action": "history"}
+    if re.search(r"\b(?:browser\s+downloads|open\s+browser\s+downloads)\b", norm):
+        return {"action": "downloads"}
+
+    # Incognito / New window / Close browser
+    if re.search(r"\b(?:incognito\s+window|private\s+window|open\s+incognito)\b", norm):
+        return {"action": "incognito"}
+    if re.search(r"\b(?:new\s+browser\s+window|open\s+new\s+window)\b", norm):
+        return {"action": "new_window"}
+    if re.search(r"\b(?:close\s+browser|exit\s+browser|quit\s+browser)\b", norm):
+        return {"action": "close_browser"}
+
+    return None
+
+
+def parse_skill_learner_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse skill learning, custom procedure execution, and skill management commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "learn new skills", "skill learner", "learn new things", "learn things",
+        "can you learn new skills", "how do you learn", "can you learn",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I am an active skill learner, sir. You can teach me new skills or workflows by saying 'learn a new skill <name>: <steps>' or 'when I say <trigger>, <actions>'. I will memorize the procedure, execute it on your command, and adapt my behavior to your preferences.",
+        }
+
+    # 1. Learn new skill: 'learn a new skill morning routine: open Brave, open YouTube Music, and set volume to 50'
+    m_learn = re.search(
+        r"^(?:learn|teach)(?:\s+(?:me|a))?\s+(?:new\s+)?skill\s+(?:called\s+|named\s+)?([^:]+?)\s*:\s*(?:steps\s*[:\s]*)?(.+)$",
+        raw,
+        re.IGNORECASE,
+    )
+    if not m_learn:
+        m_learn = re.search(
+            r"^(?:learn|teach)(?:\s+(?:me|a))?\s+(?:new\s+)?skill\s+(?:called\s+|named\s+)?([a-zA-Z0-9_-]+)\s+(?:to\s+|that\s+)?(.+)$",
+            raw,
+            re.IGNORECASE,
+        )
+    if m_learn:
+        name = m_learn.group(1).strip()
+        instructions = m_learn.group(2).strip()
+        return {
+            "action": "learn_skill",
+            "skill_name": name,
+            "trigger": name,
+            "instructions": instructions,
+        }
+
+    # 2. 'when I say <trigger>, <instructions>'
+    m_when = re.search(
+        r"^when\s+i\s+say\s+([^,:]+?)[,:]\s+(.+)$",
+        raw,
+        re.IGNORECASE,
+    )
+    if m_when:
+        trigger = m_when.group(1).strip()
+        instructions = m_when.group(2).strip()
+        return {
+            "action": "learn_skill",
+            "skill_name": trigger.replace(" ", "_"),
+            "trigger": trigger,
+            "instructions": instructions,
+        }
+
+    # 3. 'learn how to <name>: <instructions>'
+    m_how = re.search(
+        r"^learn\s+how\s+to\s+([^:]+?)\s*:\s*(.+)$",
+        raw,
+        re.IGNORECASE,
+    )
+    if m_how:
+        name = m_how.group(1).strip()
+        instructions = m_how.group(2).strip()
+        return {
+            "action": "learn_skill",
+            "skill_name": name,
+            "trigger": name,
+            "instructions": instructions,
+        }
+
+    # 4. List skills
+    if re.search(r"\b(?:list\s+(?:all\s+)?(?:learned\s+)?skills|show\s+(?:my\s+|learned\s+)?skills|what\s+skills\s+(?:have\s+you\s+learned|can\s+you\s+do|do\s+you\s+know|are\s+learned))\b", norm):
+        return {"action": "list_skills"}
+
+    # 5. Forget skill
+    m_forget = re.search(r"\b(?:forget|delete|remove)\s+(?:the\s+)?skill\s+([a-zA-Z0-9_\s-]+)\b", raw, re.IGNORECASE)
+    if m_forget:
+        name = m_forget.group(1).strip()
+        return {"action": "forget_skill", "skill_name": name}
+
+    # 6. Execute / Run skill: 'run skill morning routine', 'execute skill work_mode', 'trigger skill code_prep'
+    m_run = re.search(r"^(?:run|execute|trigger|start)\s+(?:learned\s+)?skill\s+([a-zA-Z0-9_\s-]+)$", raw, re.IGNORECASE)
+    if m_run:
+        name = m_run.group(1).strip()
+        return {"action": "execute_skill", "skill_name": name}
+
+    # 7. Check if user input directly matches a learned skill trigger!
+    from memory.manager import preference_manager
+    matched = preference_manager.find_matching_skill(raw)
+    if matched:
+        trig = (matched.get("trigger") or "").strip().lower()
+        if len(trig.split()) >= 2 or trig == raw.lower().strip():
+            return {"action": "execute_skill", "skill_name": matched.get("name")}
+
+    return None
+
+
+def parse_memory_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse personal facts, memory retention, custom naming, and speaking style commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # 1. Custom Address / Name: 'call me Boss', 'remember to call me Captain', 'address me as Shiv'
+    m_name = re.search(r"^(?:remember\s+(?:to\s+)?)?(?:call\s+me|address\s+me\s+as)\s+([a-zA-Z0-9_]+)$", raw, re.IGNORECASE)
+    if m_name:
+        name = m_name.group(1).strip()
+        return {"action": "set_user_name", "user_name": name}
+
+    # 2. Speaking style: 'speak in Hinglish', 'speak with British wit', 'speaking style is concise', 'change tone to casual'
+    m_style = re.search(r"^(?:speak\s+(?:in|with)|speaking\s+style\s+(?:is|to)|change\s+(?:speaking\s+)?tone\s+to)\s+(.+)$", raw, re.IGNORECASE)
+    if m_style:
+        style = m_style.group(1).strip()
+        return {"action": "set_speaking_style", "style": style}
+
+    # 3. Recalling memory: 'what do you remember about me', 'what do you know about me', 'what have you learned about me', 'tell me what you remember'
+    if re.search(r"\b(?:what\s+do\s+you\s+remember\s*(?:about\s+me)?|what\s+do\s+you\s+know\s+about\s+me|what\s+have\s+you\s+learned\s*(?:about\s+me)?|tell\s+me\s+what\s+you\s+remember|recall\s+my\s+facts)\b", norm):
+        return {"action": "recall_facts"}
+
+    # 4. Remember that my favorite <item> is <value>: 'remember that my favorite browser is Brave', 'remember my favorite music is lo-fi'
+    m_fav = re.search(r"^remember\s+(?:that\s+)?my\s+favorite\s+([a-zA-Z0-9_\s]+?)\s+is\s+(.+)$", raw, re.IGNORECASE)
+    if m_fav:
+        item = m_fav.group(1).strip().replace(" ", "_")
+        val = m_fav.group(2).strip()
+        return {"action": "remember_fact", "fact_key": f"favorite_{item}", "fact_value": val}
+
+    # 5. Remember that I am / work as <profession>: 'remember that I am a Python developer'
+    m_prof = re.search(r"^remember\s+(?:that\s+)?i\s+(?:am|work\s+as)\s+(?:a\s+|an\s+)?(.+)$", raw, re.IGNORECASE)
+    if m_prof:
+        val = m_prof.group(1).strip()
+        return {"action": "remember_fact", "fact_key": "profession", "fact_value": val}
+
+    # 6. Remember that my <key> is <value>: 'remember that my birthday is May 14th', 'remember my car is a Tesla'
+    m_my = re.search(r"^remember\s+(?:that\s+)?my\s+([a-zA-Z0-9_\s]+?)\s+is\s+(.+)$", raw, re.IGNORECASE)
+    if m_my:
+        k = m_my.group(1).strip().replace(" ", "_")
+        val = m_my.group(2).strip()
+        return {"action": "remember_fact", "fact_key": k, "fact_value": val}
+
+    # 7. Remember that <general statement>: 'remember that when I work I like lo-fi music'
+    m_gen = re.search(r"^remember\s+(?:that\s+)?(.+)$", raw, re.IGNORECASE)
+    if m_gen:
+        statement = m_gen.group(1).strip()
+        key_guess = re.sub(r"^(?:when\s+|if\s+)", "", statement)
+        key_guess = "_".join(key_guess.split()[:4])
+        return {"action": "remember_fact", "fact_key": key_guess, "fact_value": statement}
+
+    # 8. Forget fact
+    m_forget_f = re.search(r"\b(?:forget|remove)\s+(?:that\s+|memory\s+|fact\s+)?([a-zA-Z0-9_\s]+)$", raw, re.IGNORECASE)
+    if m_forget_f and any(w in norm for w in ("forget", "remove")):
+        k = m_forget_f.group(1).strip()
+        return {"action": "forget_fact", "fact_key": k}
+
+    return None
+
+
+def parse_dev_agent_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse autonomous development, coding, and VS Code commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capabilities
+    if any(p in norm for p in (
+        "can you completely code for me", "create dev agent", "dev agent inside jarvis",
+        "make an agent who can completely code for me", "dev agent capabilities",
+        "can you code for me", "make a dev agent", "create a coding agent",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete autonomous development capabilities active, sir. I can open any folder in Visual Studio Code, write error-free files like index.html, style.css, app.js, or main.py with production syntaxes, scaffold complete web or Python projects from scratch, and launch preview servers reporting local addresses.",
+        }
+
+    # Open folder in VS Code: 'open folder X in vs code', 'open X in vscode', 'open vs code in X'
+    m_vsc1 = re.search(r"\bopen\s+(?:the\s+)?folder\s+(.+?)\s+in\s+(?:vs\s*code|vscode|visual\s+studio\s+code|code)\b", raw, re.IGNORECASE)
+    if m_vsc1:
+        target = m_vsc1.group(1).strip()
+        return {"action": "open_vscode", "target": target}
+
+    m_vsc2 = re.search(r"\bopen\s+(?:vs\s*code|vscode|visual\s+studio\s+code)\s+(?:in|for|at)?\s*(?:folder\s+)?(.+)?\b", raw, re.IGNORECASE)
+    if m_vsc2:
+        target = (m_vsc2.group(1) or ".").strip()
+        target = re.sub(r"^(?:in|at|for|folder)\s+", "", target, flags=re.IGNORECASE).strip()
+        return {"action": "open_vscode", "target": target or "."}
+
+    m_vsc3 = re.search(r"\bopen\s+(.+?)\s+in\s+(?:vs\s*code|vscode|visual\s+studio\s+code)\b", raw, re.IGNORECASE)
+    if m_vsc3:
+        target = m_vsc3.group(1).strip()
+        return {"action": "open_vscode", "target": target}
+
+    # Scaffold Project / Web App: 'create a website in X', 'scaffold web project in X', 'code a portfolio in X'
+    m_scaffold = re.search(r"\b(?:scaffold\s+(?:a\s+)?(?:new\s+)?(?:web\s+|python\s+)?project|code\s+(?:a\s+)?(?:website|web\s+app|app|project)|create\s+(?:a\s+)?(?:website|web\s+app|project))\s*(?:for\s+me\s+)?(?:in|at|inside)?\s*(.+)?\b", raw, re.IGNORECASE)
+    if m_scaffold:
+        target = (m_scaffold.group(1) or "my-project").strip()
+        target = re.sub(r"^(?:in|at|inside|folder)\s+", "", target, flags=re.IGNORECASE).strip()
+        p_type = "python" if "python" in norm else "web"
+        return {"action": "scaffold_project", "target": target or "my-project", "project_type": p_type}
+
+    # Create file: 'create file index.html in my-app', 'create index.html and style.css in my-app'
+    m_file = re.search(r"\bcreate\s+(?:the\s+)?files?\s+(.+?)\s+(?:in|inside)\s*(.+)\b", raw, re.IGNORECASE)
+    if m_file:
+        fname = m_file.group(1).strip()
+        folder = m_file.group(2).strip()
+        target_path = os.path.join(folder, fname)
+        return {"action": "create_file", "target": target_path}
+
+    # Run Project / Preview
+    m_run = re.search(r"\b(?:run\s+project|preview\s+project|start\s+project|preview\s+website)\s*(?:in|at)?\s*(.+)?\b", raw, re.IGNORECASE)
+    if m_run:
+        target = (m_run.group(1) or ".").strip()
+        return {"action": "run_project", "target": target or "."}
+
+    # Check Syntax
+    m_syntax = re.search(r"\bcheck\s+syntax\s+(?:of|for)?\s*(.+)\b", raw, re.IGNORECASE)
+    if m_syntax:
+        return {"action": "check_syntax", "target": m_syntax.group(1).strip()}
+
+    # Diagnose Error
+    m_diag = re.search(r"\b(?:diagnose\s+error|diagnose\s+the\s+error|fix\s+error)\s*(.+)?\b", raw, re.IGNORECASE)
+    if m_diag:
+        return {"action": "diagnose_error", "error_text": (m_diag.group(1) or "").strip()}
+
+    return None
+
+
+def parse_antigravity_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse Google Antigravity desktop IDE automation commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capabilities
+    if any(p in norm for p in (
+        "control antigravity", "automate antigravity", "antigravity capabilities",
+        "can you control antigravity", "can you automate antigravity",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have full Google Antigravity automation active, sir. I can launch it via Antigravity.lnk, open workspaces and project folders, start new chats, choose models like Gemini 3.8 Flash High, attach media and files, and dispatch prompts automatically.",
+        }
+
+    # Open folder in Antigravity: 'open folder X in antigravity', 'open workspace X in antigravity'
+    m_folder = re.search(r"\bopen\s+(?:the\s+)?(?:folder|workspace)\s+(.+?)\s+in\s+antigravity\b", raw, re.IGNORECASE)
+    if m_folder:
+        target = m_folder.group(1).strip()
+        return {"action": "open_folder", "folder_path": target}
+
+    # New chat in Antigravity
+    if re.search(r"\b(?:open\s+)?new\s+chats?\s+in\s+antigravity|new\s+conversation\s+in\s+antigravity\b", norm):
+        return {"action": "new_chat"}
+
+    # Write prompt in Antigravity / Send prompt to Antigravity
+    m_prompt = re.search(r"\b(?:write\s+prompt|send\s+prompt|prompt)\s+(?:in|on|to)\s+antigravity\s*(?:to\s+)?(.+)\b", raw, re.IGNORECASE)
+    if m_prompt:
+        p_text = m_prompt.group(1).strip()
+        m_model = "Gemini 3.8 Flash"
+        m_effort = "High"
+        if re.search(r"\b(?:gemini\s+)?(?:3\.\d+\s+)?pro\b", norm):
+            m_model = "Gemini 3.8 Pro"
+        attachment = None
+        m_att = re.search(r"(?:attach|with\s+file|media)\s+([a-zA-Z0-9_\-\.\/\\]+)", p_text, re.IGNORECASE)
+        if m_att:
+            attachment = m_att.group(1).strip()
+            p_text = re.sub(r"(?:attach|with\s+file|media)\s+[a-zA-Z0-9_\-\.\/\\]+", "", p_text, flags=re.IGNORECASE).strip()
+        return {"action": "send_prompt", "prompt": p_text, "model": m_model, "effort": m_effort, "attachment": attachment}
+
+    m_ask = re.search(r"\bask\s+antigravity\s+(?:to\s+)?(.+)\b", raw, re.IGNORECASE)
+    if m_ask:
+        p_text = m_ask.group(1).strip()
+        return {"action": "send_prompt", "prompt": p_text, "model": "Gemini 3.8 Flash", "effort": "High"}
+
+    # Model selection: 'choose model X in antigravity', 'set antigravity model to X'
+    m_mod = re.search(r"\b(?:choose\s+model|set\s+antigravity\s+model\s+to|select\s+model)\s+(.+?)(?:\s+in\s+antigravity)?\b", raw, re.IGNORECASE)
+    if m_mod and "antigravity" in norm:
+        target_model = m_mod.group(1).strip()
+        return {"action": "choose_model", "model": target_model, "effort": "High"}
+
+    # Launch Antigravity
+    if re.search(r"\b(?:open|launch|start|focus)\s+antigravity(?:\.lnk)?\b", norm):
+        return {"action": "launch"}
+
+    return None
+
+
+
+async def _generate_response(user_text: str, session_user: Optional[Dict[str, Any]] = None) -> str:
     """Intelligently process and answer user questions directly from UI backend,
     supporting dynamic user personalization, deep system inspection, persistent notes/reminders,
     and ultra-fast (<1.5s) AI query generation.
     """
+    if session_user is None:
+        session_user = current_user_state
+
     cleaned = user_text.lower().strip()
     norm = normalize_command(user_text)
-    active_name = current_user_state["name"]
+    active_name = session_user.get("name", "User")
 
-    # 1. User Identity Introduction ("I am Shiv", "My name is Ram")
+    # 0. Pure greeting / Wake acknowledgment
+    skill_intent = parse_skill_learner_intent(user_text)
+    if skill_intent:
+        from tools.skill_tool import SkillLearnerTool
+        s_tool = SkillLearnerTool()
+        act = skill_intent.get("action", "")
+        if act == "capabilities":
+            return skill_intent["message"]
+        res = s_tool.run(**skill_intent)
+        return res.message
+
+    mem_intent = parse_memory_intent(user_text)
+    if mem_intent:
+        from tools.skill_tool import SkillLearnerTool
+        s_tool = SkillLearnerTool()
+        act = mem_intent.get("action", "")
+        res = s_tool.run(**mem_intent)
+        if act == "set_user_name":
+            new_name = mem_intent.get("user_name", active_name)
+            current_user_state["name"] = new_name
+            current_user_state["is_known"] = True
+        return res.message
+
+    ytm_intent = parse_youtube_music_intent(user_text)
+    if ytm_intent:
+        from tools.youtube_music_tool import YouTubeMusicTool
+        ytm_tool = YouTubeMusicTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = ytm_intent.get("action", "")
+        if act == "capabilities":
+            return ytm_intent["message"]
+        res = ytm_tool.run(**ytm_intent)
+        return f"{res.message}, {target}."
+
+    yt_intent = parse_youtube_intent(user_text)
+    if yt_intent:
+        from tools.youtube_tool import YouTubeControlTool
+        yt_tool = YouTubeControlTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = yt_intent.get("action", "")
+        if act == "capabilities":
+            return yt_intent["message"]
+        res = yt_tool.run(**yt_intent)
+        return f"{res.message}, {target}."
+
+    fm_intent = parse_file_manager_intent(user_text)
+    if fm_intent:
+        from tools.file_manager_tool import FileManagerTool
+        fm_tool = FileManagerTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = fm_intent.get("action", "")
+        if act == "capabilities":
+            return fm_intent["message"]
+        res = fm_tool.run(**fm_intent)
+        return f"{res.message}\nAction complete, {target}."
+
+    browser_intent = parse_browser_intent(user_text)
+    if browser_intent:
+        from tools.browser_tools import BrowserControlTool
+        b_tool = BrowserControlTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = browser_intent.get("action", "")
+        if act == "capabilities":
+            return browser_intent["message"]
+        res = b_tool.run(**browser_intent)
+        return f"{res.message}, {target}."
+
+    dev_intent = parse_dev_agent_intent(user_text)
+    if dev_intent:
+        from tools.dev_tools import DevAgentTool
+        d_tool = DevAgentTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = dev_intent.get("action", "")
+        if act == "capabilities":
+            return dev_intent["message"]
+        res = d_tool.run(**dev_intent)
+        return f"{res.message}\nAction complete, {target}."
+
+    anti_intent = parse_antigravity_intent(user_text)
+    if anti_intent:
+        from tools.antigravity_tools import AntigravityControlTool
+        a_tool = AntigravityControlTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = anti_intent.get("action", "")
+        if act == "capabilities":
+            return anti_intent["message"]
+        res = a_tool.run(**anti_intent)
+        return f"{res.message}, {target}."
+
+    wa_intent = parse_whatsapp_intent(user_text)
+    if wa_intent:
+        from tools.whatsapp_tool import WhatsAppTool
+        wa_tool = WhatsAppTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        if wa_intent["action"] == "open":
+            res = wa_tool.open_whatsapp()
+            return f"WhatsApp opened and focused, {target}." if res.success else f"{res.message}, {target}."
+        elif wa_intent["action"] == "search":
+            contact = wa_intent["contact"]
+            res = wa_tool.search_contact(contact)
+            return f"Found '{contact}' and opened chat, {target}." if res.success else f"{res.message}, {target}."
+        elif wa_intent["action"] == "send_file":
+            res = wa_tool.send_file(
+                file_path=wa_intent["file_path"],
+                contact=wa_intent.get("contact"),
+                caption=wa_intent.get("caption")
+            )
+            return f"{res.message}\nFile shared successfully, {target}."
+        else:
+            res = wa_tool.send_message(wa_intent["message"], contact=wa_intent.get("contact"))
+            return f"{res.message}, {target}."
+
+    res_intent = parse_research_report_intent(user_text)
+    if res_intent:
+        from tools.web_tools import WebResearchReportTool
+        r_tool = WebResearchReportTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        res = r_tool.run(**res_intent)
+        return f"{res.message}\nExecutive research report compiled, {target}."
+
+    work_intent = parse_google_workspace_intent(user_text)
+    if work_intent:
+        target = active_name if session_user.get("is_known") else "Sir"
+        if work_intent.get("tool") == "calendar":
+            from tools.google_workspace_tool import GoogleCalendarTool
+            c_tool = GoogleCalendarTool()
+            res = c_tool.run(action=work_intent.get("action", "whats_on_tomorrow"))
+            return f"{res.message}\nCalendar schedule ready, {target}."
+        else:
+            from tools.google_workspace_tool import GmailTool
+            g_tool = GmailTool()
+            res = g_tool.run(action=work_intent.get("action", "list_unread"), reply_body=work_intent.get("reply_body"))
+            return f"{res.message}\nEmail action completed, {target}."
+
+    sem_intent = parse_semantic_memory_intent(user_text)
+    if sem_intent:
+        from tools.semantic_memory_tool import SemanticMemoryTool
+        s_tool = SemanticMemoryTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        res = s_tool.run(**sem_intent)
+        return f"{res.message}\nMemory retrieval complete, {target}."
+
+    watch_intent = parse_watchdog_intent(user_text)
+    if watch_intent:
+        from tools.guardian_tool import HardwareWatchdogTool
+        w_tool = HardwareWatchdogTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        res = w_tool.run(**watch_intent)
+        return f"{res.message}\nHardware status verified, {target}."
+    greeting_triggers = (
+        "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
+        "hey", "hello", "hi", "are you there", "namaste", "namaskar",
+        "namaste jarvis", "namaskar jarvis", "suno jarvis", "bol jarvis", "uth jarvis"
+    )
+    norm_words = norm.split()
+    greeting_tokens = {"hey", "hi", "hello", "jarvis", "namaste", "namaskar", "suno", "bol", "uth", "ok", "there"}
+    is_pure_greeting = (
+        norm in greeting_triggers
+        or (norm_words and all(w in greeting_tokens for w in norm_words))
+        or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
+    )
+    if is_pure_greeting:
+        user_suffix = f", {active_name}" if session_user.get("is_known") else ", Sir"
+        is_mr_hi = any("ऀ" <= c <= "ॿ" for c in user_text) or any(w in norm_words for w in ("namaste", "namaskar", "suno", "bol", "ahes", "ka"))
+        if is_mr_hi:
+            return "हो, मी ऐकतोय. सांगा काय करू?"
+        return f"Greetings! Standing by{user_suffix}. How may I assist you?"
+
+    # 1. User Identity Introduction
     detected_name = detect_user_intro(user_text)
     if detected_name:
+        session_user["name"] = detected_name
+        session_user["is_known"] = True
         current_user_state["name"] = detected_name
         current_user_state["is_known"] = True
         return f"Hello {detected_name}! I have updated my user registers. I am now configured specifically for you. How can I assist you today?"
 
-    # 2. User Identity Query ("Who am I?", "What is my name?")
+    # 2. Reset user
+    if norm in ("reset user", "forget my name", "switch user", "change user", "reset profile"):
+        session_user["name"] = "User"
+        session_user["is_known"] = False
+        current_user_state["name"] = "User"
+        current_user_state["is_known"] = False
+        return "I have cleared my user registers to default neutral mode. How may I assist you?"
+
+    # 3. User Identity Query
     if any(k in norm for k in ("who am i", "what is my name", "do you know my name", "whats my name", "what s my name", "maza naav kay")):
-        if current_user_state["is_known"]:
+        if session_user.get("is_known"):
             return f"You are recognized as {active_name} in my active session. All memory vaults and task logs are dedicated to you."
         return "I currently address you as Sir. If you would like me to address you by your name, simply tell me 'I am [your name]' and I will remember it."
 
-    # 3. Fast-Path Conversational Greetings (<1ms latency)
+    # 4. Fast-Path Conversational Greetings
     greetings = (
         "heyy jarvis", "hey jarvis", "hi jarvis", "hello jarvis", "hi", "hello",
         "hey", "jarvis", "are you there", "good morning", "good evening", "good afternoon",
         "namaste", "namaskar"
     )
     if norm in greetings or any(norm == g for g in greetings):
-        return f"Greetings {active_name}! Jarvis is online, listening, and ready for your command."
+        if session_user.get("is_known"):
+            return f"Greetings {active_name}! Jarvis is online, listening, and ready for your command."
+        return "Greetings! Jarvis is online, listening, and ready for your command."
 
-    # 4. Instant Assistant Self-Identity & Capabilities (<1ms latency)
+    # 5. Assistant Self-Identity & Capabilities
     if norm in (
         "who are you", "what are you", "who r u", "tell me about yourself",
         "introduce yourself", "tu kon ahes", "tu kon aahes", "what is your name",
         "whats your name"
     ):
+        target = active_name if session_user.get("is_known") else "you"
         return (
-            f"I am J.A.R.V.I.S., an autonomous desktop AI assistant configured for {active_name}. "
+            f"I am J.A.R.V.I.S., an autonomous desktop AI assistant configured for {target}. "
             "I manage your PC applications, hardware telemetry, notes & reminders, and answer questions with high-speed intelligence."
         )
 
@@ -700,147 +2375,105 @@ async def _generate_response(user_text: str) -> str:
         )
 
     if norm in ("how are you", "how are you doing", "how r u", "kasa ahes", "kasa ahes tu", "kase ahat"):
-        return f"All quantum registers and neural core systems are operating at peak efficiency, {active_name}. How may I serve you?"
+        target = active_name if session_user.get("is_known") else "Sir"
+        return f"All quantum registers and neural core systems are operating at peak efficiency, {target}. How may I serve you?"
 
-    # 5. Live Time / Date / Day (<1ms latency)
+    # 6. Active Tasks Inspection
+    if any(k in norm for k in ("show active tasks", "running apps", "what processes", "active tasks", "running processes")):
+        procs = get_running_user_processes(limit=8)
+        if procs:
+            lines = [f"• **{p['name']}** (PID: {p['pid']}, RAM: {p['ram_mb']} MB)" for p in procs]
+            return "Active PC Tasks / Running Applications:\n" + "\n".join(lines)
+        return "No significant background user tasks detected on this machine."
+
+    # 7. Device File Search
+    if norm.startswith(("search file", "search files", "find file", "find files", "search pc")):
+        q = re.sub(r"^(?:search|find)\s+(?:files|file|pc)?\s*(?:for)?\s*", "", user_text, flags=re.IGNORECASE).strip()
+        if q:
+            matches = deep_search_user_files(q, max_results=5)
+            if matches:
+                lines = [f"• **{m['name']}** ({m['size_kb']}) in *{m['location']}*\n  `{m['path']}`" for m in matches]
+                return f"Device File Search Results for '{q}':\n" + "\n".join(lines)
+            return f"No files matching '{q}' were found across Desktop, Downloads, Documents, or Workspace."
+
+    # 8. Live Time / Date
     time_triggers = (
-        "current time", "what time", "what is the time", "tell me the time",
-        "tell me the current time", "clock", "date today", "what date",
-        "todays date", "which day", "kiti vajle", "vel kay zali", "time please"
+        "current time", "what time", "what is the time", "tell me the time", "tell me time",
+        "tell time", "what is time", "whats the time", "what time is it", "what is date",
+        "tell me the current time", "clock", "date today", "what date", "today date",
+        "whats today", "aajchi tarikh", "kiti vajle", "vel kay zali", "samay kya hua", "kitne baje"
     )
-    if any(k in norm for k in time_triggers) or norm in ("time", "date"):
+    is_meta = any(w in norm.split() for w in ("why", "wrong", "before", "mistake", "told", "yesterday", "ago"))
+    if not is_meta and (any(k in norm for k in time_triggers) or any(w in norm.split() for w in ("time", "clock", "date", "tarikh", "samay", "vajle", "vel"))):
         now = datetime.datetime.now()
-        t = now.strftime("%I:%M %p")
-        d = now.strftime("%A, %B %d, %Y")
-        return f"The current time is {t} on {d}."
+        time_str = now.strftime("%I:%M %p").lstrip("0")
+        date_str = now.strftime("%A, %B %d, %Y")
+        norm_words = norm.split()
+        has_date_word = any(w in norm_words for w in ("date", "day", "tarikh", "aajchi", "today"))
+        has_time_word = any(w in norm_words for w in ("time", "clock", "vajle", "samay", "baje", "vel"))
+        if has_time_word and not has_date_word:
+            return f"The current time is {time_str}."
+        elif has_date_word and not has_time_word:
+            return f"Today is {date_str}."
+        return f"The current time is {time_str} on {date_str}."
 
-    # 6. Deep Real-Time Host Machine Diagnostics (<50ms latency)
-    sys_triggers = (
-        "system info", "system stats", "laptop specs", "my specs",
-        "tell me about my system", "tell me about the system", "hardware info",
-        "hardware diagnostics", "laptop status", "storage space",
-        "how much storage", "how much ram", "what processor", "my system",
-        "report system status", "cpu usage", "ram usage", "battery status"
-    )
-    if any(k in norm for k in sys_triggers) or norm in ("specs", "system", "cpu", "ram"):
+    # 9. Real Hardware Telemetry Specs
+    if any(k in norm for k in ("system info", "check system specs", "laptop specs", "my specs", "hardware specs", "specs")):
         return get_deep_system_specs()
 
-    # 7. Dynamic Notes & Reminders Parsing (Voice or Text)
-    kind, item_content = parse_note_or_reminder(user_text)
-    if kind == "reminder" and item_content:
+    # 10. Persistent Notes / Reminders
+    kind, content = parse_note_or_reminder(user_text)
+    if kind and content:
         try:
-            await memory_manager.add_note(title="[REMINDER]", content=item_content)
-            return f"Reminder recorded: '{item_content}'. I have logged it into your persistent memory vault."
-        except Exception:
-            return f"Recorded reminder: '{item_content}'."
-
-    if kind == "note" and item_content:
-        try:
-            title = "Personal Note"
-            content = item_content
-            if ":" in item_content:
-                parts = item_content.split(":", 1)
-                title, content = parts[0].strip(), parts[1].strip()
-            await memory_manager.add_note(title=title, content=content)
-            return f"I have saved that to your memory vault:\n**{title}**: {content}"
-        except Exception:
-            return f"Saved note: '{item_content}'."
-
-    # 8. Querying Saved Notes & Reminders
-    if any(k in norm for k in ("what are my notes", "show my notes", "list notes", "my notes", "what did i ask you to remember")):
-        try:
-            notes = await memory_manager.list_notes(limit=10)
-            clean_notes = [n for n in notes if not n["title"].startswith("[REMINDER]")]
-            if not clean_notes:
-                return "Your SQLite memory vault is currently empty. Tell me 'Note that...' or 'Remember that...' anytime to store something."
-            bullet_list = "\n".join([f"• **{n['title']}**: {n['content']}" for n in clean_notes])
-            return f"Here are your saved notes from memory:\n{bullet_list}"
-        except Exception as err:
-            print(f"[WARN] Failed to read notes: {err}")
-
-    if any(k in norm for k in ("what are my reminders", "show reminders", "check reminders", "my reminders")):
-        try:
-            notes = await memory_manager.list_notes(limit=10)
-            reminders = [n for n in notes if n["title"].startswith("[REMINDER]")]
-            if not reminders:
-                return "You currently have no pending reminders. Say 'Remind me to [task] at [time]' to schedule one."
-            bullet_list = "\n".join([f"⏰ {n['content']}" for n in reminders])
-            return f"Here are your active reminders:\n{bullet_list}"
-        except Exception as err:
-            print(f"[WARN] Failed to read reminders: {err}")
-
-    # 9. Weather query
-    if "weather" in norm or "havaman" in norm:
-        return (
-            "Current weather conditions: Clear skies, approximately 26°C with 65% humidity. "
-            "Optimal conditions for desktop operations."
-        )
-
-    # 10. Check Fast In-Memory LRU Cache
-    if norm in _response_cache:
-        return _response_cache[norm]
-
-    # 11. Advanced AI Generative Response using Persistent GenAI SDK (with ultra-fast gemini-3.5-flash-lite)
-    client = get_genai_client()
-    if client:
-        try:
-            from google.genai import types
-
-            # Fetch recent conversation context (last 2 turns) for lightweight multi-turn awareness
-            context_history = []
-            try:
-                recent = await memory_manager.get_recent_history(limit=2)
-                for msg in recent:
-                    role_tag = active_name if msg["role"] == "user" else "Jarvis"
-                    context_history.append(f"{role_tag}: {msg['content']}")
-            except Exception:
-                pass
-
-            history_snippet = "\n".join(context_history)
-            prompt_content = (
-                f"Recent Context:\n{history_snippet}\n\nUser Question: {user_text}"
-                if history_snippet
-                else user_text
-            )
-
-            # High-speed gemini-3.5-flash-lite with gemini-flash-lite-latest fallback
-            for model_candidate in ("gemini-3.5-flash-lite", "gemini-flash-lite-latest"):
-                try:
-                    response = await client.aio.models.generate_content(
-                        model=model_candidate,
-                        contents=prompt_content,
-                        config=types.GenerateContentConfig(
-                            system_instruction=(
-                                f"You are JARVIS, an autonomous AI desktop assistant. The active user is {active_name}. "
-                                "Address them politely. Provide concise, direct, intelligent, and helpful answers in 1-2 short paragraphs. "
-                                "If the user asks in Marathi or Hindi, feel free to respond in that language or English as appropriate."
-                            ),
-                            max_output_tokens=250,
-                        ),
-                    )
-                    if response.text and response.text.strip():
-                        ans = response.text.strip()
-                        if len(_response_cache) < 150:
-                            _response_cache[norm] = ans
-                        return ans
-                except Exception as model_err:
-                    print(f"[INFO] Model {model_candidate} retry: {model_err}")
-                    continue
-
+            prefix = "[REMINDER] " if kind == "reminder" else "[NOTE] "
+            title = prefix + (content[:30] + "..." if len(content) > 30 else content)
+            note_id = await memory_manager.add_note(title=title, content=content)
+            return f"Understood. I have logged this {kind} to SQLite memory (Reference ID #{note_id}): '{content}'."
         except Exception as exc:
-            print(f"[WARN] GenAI chat generation error: {exc}")
+            return f"Logged your {kind}: '{content}'."
 
-    # 12. Fallback if offline or network failure
-    return (
-        f"Jarvis Core acknowledged your directive: '{user_text}'. "
-        f"All local memory vaults and hardware telemetry are fully operational."
-    )
+    # 10.5. WhatsApp Messaging & Contact Search & App Launch
+    wa_intent = parse_whatsapp_intent(user_text)
+    if wa_intent:
+        from tools.whatsapp_tool import WhatsAppTool
+        wa_tool = WhatsAppTool()
+        if wa_intent["action"] == "open":
+            res = wa_tool.open_whatsapp()
+            return f"{res.message}, sir."
+        elif wa_intent["action"] == "search":
+            contact = wa_intent["contact"]
+            res = wa_tool.search_contact(contact)
+            if res.success:
+                return f"I have searched for '{contact}' in WhatsApp and opened the chat conversation, sir."
+            return f"{res.message}, sir."
+        else:
+            msg = wa_intent["message"]
+            contact = wa_intent.get("contact")
+            res = wa_tool.send_message(msg, contact=contact)
+            if res.success:
+                target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
+                return f"Message sent to {target_name} on WhatsApp: '{msg}', sir."
+            return f"{res.message}, sir."
+
+    # 11. Core Gemini brain
+    try:
+        from core.service import handle_text
+        brain_res = await handle_text(user_text, source="ui_internal")
+        if brain_res and brain_res.get("text"):
+            return brain_res["text"]
+    except Exception as exc:
+        print(f"[WARN] Core Gemini request failed: {exc}")
+
+    return "I couldn't reach the assistant service to answer that request, sir."
 
 
+@app.websocket("/ws")
 @app.websocket("/ws/jarvis")
 async def websocket_jarvis(websocket: WebSocket) -> None:
     """Real-time bi-directional WebSocket channel for HUD chat and telemetry."""
     await websocket.accept()
+    _active_hud_websockets.add(websocket)
+    session_user: Dict[str, Any] = {"name": "User", "is_known": False}
     last_chat_msg = ""
     last_chat_time = 0.0
     try:
@@ -853,72 +2486,444 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
             action = payload.get("action", "chat")
 
-            if action == "chat":
-                user_text = payload.get("text", "").strip()
+            if action == "voice_start":
+                await _start_live_voice(websocket)
+
+            elif action == "voice_stop":
+                await _stop_live_voice(websocket)
+                await websocket.send_json({
+                    "type": "voice_status", "status": "stopped", "message": "Live voice disconnected."
+                })
+
+            elif action == "chat":
+                user_text = (payload.get("text") or payload.get("prompt") or payload.get("query") or "").strip()
                 mode = payload.get("mode", "normal")
                 if not user_text:
                     continue
 
-                import time
-
                 now_ts = time.time()
                 if user_text.lower() == last_chat_msg.lower() and (now_ts - last_chat_time) < 2.0:
-                    # Guard against rapid duplicate voice recognition bursts
                     continue
                 last_chat_msg = user_text
                 last_chat_time = now_ts
 
-                # Detect if user introduced their name dynamically
+                norm = normalize_command(user_text)
+
+                # Reset user request
+                if norm in ("reset user", "forget my name", "switch user", "change user", "reset profile"):
+                    session_user["name"] = "User"
+                    session_user["is_known"] = False
+                    current_user_state["name"] = "User"
+                    current_user_state["is_known"] = False
+                    await websocket.send_json({"type": "user_identified", "name": "GUEST"})
+                    await websocket.send_json({"type": "response", "text": "I have reset my user registers to default neutral mode. How may I assist you?"})
+                    await websocket.send_json({"type": "status", "status": "idle"})
+                    continue
+
+                # Detect user introduction
                 detected_name = detect_user_intro(user_text)
                 if detected_name:
+                    session_user["name"] = detected_name
+                    session_user["is_known"] = True
                     current_user_state["name"] = detected_name
                     current_user_state["is_known"] = True
                     await websocket.send_json({"type": "user_identified", "name": detected_name})
 
-                # 1. Push 'thinking' status to HUD
+                # 1. Push thinking status to HUD
                 await websocket.send_json({"type": "status", "status": "thinking"})
 
-                # 2. Check for quick app launcher helper or direct desktop shortcut
-                launched_app = try_launch_system_app(user_text)
-                if launched_app:
-                    user_suffix = f", {current_user_state['name']}." if current_user_state.get("is_known") else "."
-                    reply_text = f"Opening {launched_app} for you now{user_suffix}"
-                    tool_steps = [f"open_app({launched_app})"]
+                # 2. Check routing
+                norm_words = norm.split()
+                time_triggers = (
+                    "what time", "what is the time", "tell me the time", "tell me time",
+                    "tell time", "current time", "time please", "what time is it", "whats the time",
+                    "what s the time", "what is time", "what is date", "what is the date",
+                    "today date", "what date", "todays date", "date today",
+                    "what day is it", "kiti vajle", "vel kay zali", "samay kya hua", "kitne baje", "aajchi tarikh"
+                )
+                is_meta_time = any(w in norm_words for w in ("why", "wrong", "before", "mistake", "told", "yesterday", "ago", "spent", "table", "timeline", "schedule", "plan"))
+                is_time_query = not is_meta_time and (
+                    any(t in norm for t in time_triggers)
+                    or any(w in norm_words for w in ("time", "clock", "date", "tarikh", "vajle", "samay"))
+                )
+
+                greeting_triggers = (
+                    "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
+                    "hey", "hello", "hi", "are you there", "namaste", "namaskar",
+                    "namaste jarvis", "namaskar jarvis", "suno jarvis", "bol jarvis", "uth jarvis"
+                )
+                greeting_tokens = {"hey", "hi", "hello", "jarvis", "namaste", "namaskar", "suno", "bol", "uth", "ok", "there"}
+                is_pure_greeting = (
+                    norm in greeting_triggers
+                    or (norm_words and all(w in greeting_tokens for w in norm_words))
+                    or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
+                )
+
+                skill_intent = parse_skill_learner_intent(user_text)
+                mem_intent = parse_memory_intent(user_text) if not skill_intent else None
+                wa_intent = parse_whatsapp_intent(user_text) if not skill_intent and not mem_intent else None
+                ytm_intent = parse_youtube_music_intent(user_text) if not skill_intent and not mem_intent and not wa_intent else None
+                yt_intent = parse_youtube_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent else None
+                fm_intent = parse_file_manager_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent else None
+                browser_intent = parse_browser_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent else None
+                dev_intent = parse_dev_agent_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent else None
+                anti_intent = parse_antigravity_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent and not dev_intent else None
+                research_intent = parse_research_report_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent) else None
+                workspace_intent = parse_google_workspace_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent) else None
+                sem_intent = parse_semantic_memory_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent or workspace_intent) else None
+                watchdog_intent = parse_watchdog_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent or workspace_intent or sem_intent) else None
+                launch_info = try_launch_system_app(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent or workspace_intent or sem_intent or watchdog_intent) else None
+                tool_steps = []
+                if skill_intent:
+                    from tools.skill_tool import SkillLearnerTool
+                    s_tool = SkillLearnerTool()
+                    act = skill_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = skill_intent["message"]
+                        tool_steps = ["skill_learner_capabilities()"]
+                    else:
+                        res = s_tool.run(**skill_intent)
+                        reply_text = res.message
+                        tool_steps = [f"skill_learner(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif mem_intent:
+                    from tools.skill_tool import SkillLearnerTool
+                    s_tool = SkillLearnerTool()
+                    act = mem_intent.get("action", "")
+                    res = s_tool.run(**mem_intent)
+                    if act == "set_user_name":
+                        new_name = mem_intent.get("user_name", session_user["name"])
+                        current_user_state["name"] = new_name
+                        current_user_state["is_known"] = True
+                        session_user["name"] = new_name
+                        session_user["is_known"] = True
+                    reply_text = res.message
+                    tool_steps = [f"skill_learner(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif wa_intent:
+                    from tools.whatsapp_tool import WhatsAppTool
+                    wa_tool = WhatsAppTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    if wa_intent["action"] == "open":
+                        res = wa_tool.open_whatsapp()
+                        if res.success:
+                            reply_text = f"WhatsApp opened and brought to focus{user_suffix}."
+                        else:
+                            reply_text = f"{res.message}{user_suffix}."
+                        tool_steps = ["whatsapp_open()"]
+                    elif wa_intent["action"] == "search":
+                        contact = wa_intent["contact"]
+                        res = wa_tool.search_contact(contact)
+                        if res.success:
+                            reply_text = f"Searching for '{contact}' in WhatsApp and opening the chat{user_suffix}."
+                        else:
+                            reply_text = f"I could not search for '{contact}' because {res.message}{user_suffix}."
+                        tool_steps = [f"whatsapp_search('{contact}')"]
+                    elif wa_intent["action"] == "send_file":
+                        file_p = wa_intent["file_path"]
+                        contact = wa_intent.get("contact")
+                        caption = wa_intent.get("caption")
+                        res = wa_tool.send_file(file_path=file_p, contact=contact, caption=caption)
+                        if res.success:
+                            reply_text = f"{res.message}{user_suffix}."
+                        else:
+                            reply_text = f"Could not share file: {res.message}{user_suffix}."
+                        tool_steps = [f"whatsapp_send_file('{file_p}')"]
+                    else:
+                        msg = wa_intent["message"]
+                        contact = wa_intent.get("contact")
+                        res = wa_tool.send_message(msg, contact=contact)
+                        if res.success:
+                            target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
+                            reply_text = f"Message sent to {target_name} on WhatsApp: '{msg}'{user_suffix}."
+                        else:
+                            reply_text = f"I could not send your message because {res.message}{user_suffix}."
+                        tool_steps = [f"whatsapp_send('{msg}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif ytm_intent:
+                    from tools.youtube_music_tool import YouTubeMusicTool
+                    ytm_tool = YouTubeMusicTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = ytm_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = ytm_intent["message"]
+                        tool_steps = ["youtube_music_capabilities()"]
+                    else:
+                        res = ytm_tool.run(**ytm_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"youtube_music_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif yt_intent:
+                    from tools.youtube_tool import YouTubeControlTool
+                    yt_tool = YouTubeControlTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = yt_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = yt_intent["message"]
+                        tool_steps = ["youtube_capabilities()"]
+                    else:
+                        res = yt_tool.run(**yt_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"youtube_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif fm_intent:
+                    from tools.file_manager_tool import FileManagerTool
+                    fm_tool = FileManagerTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = fm_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = fm_intent["message"]
+                        tool_steps = ["file_manager_capabilities()"]
+                    else:
+                        res = fm_tool.run(**fm_intent)
+                        reply_text = f"{res.message}\nAction complete{user_suffix}."
+                        tool_steps = [f"file_manager_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif browser_intent:
+                    from tools.browser_tools import BrowserControlTool
+                    b_tool = BrowserControlTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = browser_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = browser_intent["message"]
+                        tool_steps = ["browser_capabilities()"]
+                    else:
+                        res = b_tool.run(**browser_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"browser_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif dev_intent:
+                    from tools.dev_tools import DevAgentTool
+                    d_tool = DevAgentTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = dev_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = dev_intent["message"]
+                        tool_steps = ["dev_agent_capabilities()"]
+                    else:
+                        res = d_tool.run(**dev_intent)
+                        reply_text = f"{res.message}\nAction complete{user_suffix}."
+                        tool_steps = [f"dev_agent(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif anti_intent:
+                    from tools.antigravity_tools import AntigravityControlTool
+                    a_tool = AntigravityControlTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = anti_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = anti_intent["message"]
+                        tool_steps = ["antigravity_capabilities()"]
+                    else:
+                        res = a_tool.run(**anti_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"antigravity_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif research_intent:
+                    from tools.web_tools import WebResearchReportTool
+                    r_tool = WebResearchReportTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    res = r_tool.run(**research_intent)
+                    reply_text = f"{res.message}\nExecutive research report compiled{user_suffix}."
+                    tool_steps = [f"research_and_report('{research_intent.get('topic')}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif workspace_intent:
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    if workspace_intent.get("tool") == "calendar":
+                        from tools.google_workspace_tool import GoogleCalendarTool
+                        c_tool = GoogleCalendarTool()
+                        act = workspace_intent.get("action", "whats_on_tomorrow")
+                        res = c_tool.run(action=act)
+                        reply_text = f"{res.message}\nSchedule ready{user_suffix}."
+                        tool_steps = [f"google_calendar(action='{act}')"]
+                    else:
+                        from tools.google_workspace_tool import GmailTool
+                        g_tool = GmailTool()
+                        act = workspace_intent.get("action", "list_unread")
+                        res = g_tool.run(action=act, reply_body=workspace_intent.get("reply_body"))
+                        reply_text = f"{res.message}\nEmail action completed{user_suffix}."
+                        tool_steps = [f"gmail(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif sem_intent:
+                    from tools.semantic_memory_tool import SemanticMemoryTool
+                    s_tool = SemanticMemoryTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = sem_intent.get("action", "")
+                    res = s_tool.run(**sem_intent)
+                    reply_text = f"{res.message}\nMemory retrieval complete{user_suffix}."
+                    tool_steps = [f"semantic_memory(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif watchdog_intent:
+                    from tools.guardian_tool import HardwareWatchdogTool
+                    w_tool = HardwareWatchdogTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = watchdog_intent.get("action", "check_status")
+                    res = w_tool.run(**watchdog_intent)
+                    reply_text = f"{res.message}\nSystem watchdog verified{user_suffix}."
+                    tool_steps = [f"hardware_watchdog(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif launch_info:
+                    app_label = str(launch_info.label if hasattr(launch_info, 'label') else launch_info[0])
+                    task_detail = launch_info.detail if hasattr(launch_info, 'detail') else (launch_info[1] if len(launch_info) > 1 else None)
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ""
+                    if task_detail:
+                        reply_text = f"Opening {app_label} for you now{user_suffix}. {task_detail}"
+                    else:
+                        reply_text = f"Opening {app_label} for you now{user_suffix}."
+                    tool_steps = [f"open_app({app_label})"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif is_pure_greeting:
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    is_mr_hi = any("ऀ" <= c <= "ॿ" for c in user_text) or any(w in norm_words for w in ("namaste", "namaskar", "suno", "bol", "ahes", "ka"))
+                    if is_mr_hi:
+                        reply_text = "हो, मी ऐकतोय. सांगा काय करू?"
+                    else:
+                        reply_text = f"Greetings! Standing by{user_suffix}. How may I assist you?"
+                    tool_steps = ["wake_listener()"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif is_time_query:
+                    now = datetime.datetime.now()
+                    time_str = now.strftime("%I:%M %p").lstrip("0")
+                    date_str = now.strftime("%A, %B %d, %Y")
+                    has_date_word = any(w in norm_words for w in ("date", "day", "tarikh", "aajchi", "today"))
+                    has_time_word = any(w in norm_words for w in ("time", "clock", "vajle", "samay", "baje", "vel"))
+                    if has_time_word and not has_date_word:
+                        reply_text = f"The current time is {time_str}."
+                    elif has_date_word and not has_time_word:
+                        reply_text = f"Today is {date_str}."
+                    else:
+                        reply_text = f"The current time is {time_str} on {date_str}."
+                    tool_steps = ["get_system_time()"]
                     try:
                         await memory_manager.save_interaction(role="user", content=user_text)
                         await memory_manager.save_interaction(role="assistant", content=reply_text)
                     except Exception:
                         pass
                 else:
-                    # 3. Delegate directly to Core Brain Engine via handle_text
-                    from core.service import handle_text
-                    result = await handle_text(user_text, source="ui", mode=mode)
-                    reply_text = result.get("text", "")
-                    tool_steps = result.get("tool_steps", [])
+                    # 3. Stream Gemini output so the first words reach the HUD
+                    # immediately, while the brain lock preserves turn ordering.
+                    reply_text = ""
+                    try:
+                        from core.service import handle_text_stream
+                        await websocket.send_json({"type": "response_start"})
+                        async for event in handle_text_stream(user_text, source="ui", mode=mode):
+                            event_type = event.get("type")
+                            if event_type == "chunk":
+                                reply_text += str(event.get("text", ""))
+                                await websocket.send_json({"type": "response_chunk", "text": event.get("text", "")})
+                            elif event_type == "done":
+                                reply_text = str(event.get("text", reply_text))
+                                tool_steps = event.get("tool_steps", [])
+                            elif event_type == "interrupted":
+                                reply_text = str(event.get("text", reply_text)) or "Request interrupted."
+                    except Exception:
+                        reply_text = ""
+
+                    if not reply_text:
+                        reply_text = await _generate_response(user_text, session_user=session_user)
+
+                    # Strip conversational filler to ensure exact answers only
+                    reply_text = strip_unnecessary_filler(reply_text)
 
                 # 4. Broadcast executed tool steps to HUD
                 if tool_steps:
                     await websocket.send_json({"type": "tool_steps", "steps": tool_steps})
 
-                # 5. Push response (Frontend lifecycle manages speaking -> idle)
+                # 5. Push response and reset to idle
                 await websocket.send_json({"type": "response", "text": reply_text})
                 await websocket.send_json({"type": "status", "status": "idle"})
 
-            elif action == "get_telemetry":
-                # Push live telemetry on request
-                from tools.system_tools import GetSystemStatsTool
+            elif action == "set_user":
+                name = payload.get("name", "").strip()
+                if name:
+                    session_user["name"] = name
+                    session_user["is_known"] = True
+                    current_user_state["name"] = name
+                    current_user_state["is_known"] = True
+                    await websocket.send_json({"type": "user_identified", "name": name})
+                else:
+                    session_user["name"] = "User"
+                    session_user["is_known"] = False
+                    current_user_state["name"] = "User"
+                    current_user_state["is_known"] = False
+                    await websocket.send_json({"type": "user_identified", "name": "GUEST"})
 
-                stats = GetSystemStatsTool().run()
-                await websocket.send_json({"type": "telemetry", "data": stats.data})
+            elif action == "get_telemetry":
+                try:
+                    from tools.system_tools import GetSystemStatsTool
+                    stats = GetSystemStatsTool().run()
+                    await websocket.send_json({"type": "telemetry", "data": stats.data})
+                except Exception:
+                    pass
 
             elif action == "ping":
                 await websocket.send_json({"type": "pong"})
 
     except WebSocketDisconnect:
-        # Client disconnected normally
-        pass
+        await _stop_live_voice(websocket)
     except Exception as exc:
         print(f"[WARN] WebSocket session terminated: {exc}")
+    finally:
+        _active_hud_websockets.discard(websocket)
 
 
 # ---------------------------------------------------------------------------
@@ -935,6 +2940,30 @@ async def serve_hud() -> FileResponse:
     if INDEX_HTML.exists():
         return FileResponse(INDEX_HTML)
     raise HTTPException(status_code=404, detail="HUD index.html not found")
+
+
+@app.get("/manifest.json")
+async def serve_manifest() -> FileResponse:
+    manifest_file = UI_DIR / "manifest.json"
+    if manifest_file.exists():
+        return FileResponse(manifest_file, media_type="application/manifest+json")
+    raise HTTPException(status_code=404, detail="manifest.json not found")
+
+
+@app.get("/sw.js")
+async def serve_sw() -> FileResponse:
+    sw_file = UI_DIR / "sw.js"
+    if sw_file.exists():
+        return FileResponse(sw_file, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="sw.js not found")
+
+
+@app.get("/icon.svg")
+async def serve_icon() -> FileResponse:
+    icon_file = UI_DIR / "icon.svg"
+    if icon_file.exists():
+        return FileResponse(icon_file, media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="icon.svg not found")
 
 
 if __name__ == "__main__":

@@ -52,11 +52,14 @@ The `messaging` module powers remote access to JARVIS through Telegram and Whats
 
 * **Day 6: WhatsApp Messaging + Verified Contacts**
   * `messaging/contacts.py`:
-    * `load_contacts() -> dict`: Loads `contacts.json` if available, falls back to `contacts.example.json`.
-    * `find_contact(name: str) -> str | None`: Case-insensitive, whitespace-agnostic contact phone lookup.
+    * `load_contacts() -> dict`: Loads `contacts.json`, with `contacts.example.json` as a display/test fallback.
+    * `load_saved_contacts() -> dict`: Loads only the user's real `contacts.json` entries.
+    * `find_contact(name, include_examples=False)`: Case-insensitive lookup; WhatsApp delivery uses saved contacts only.
+    * JARVIS can search saved contact names without exposing phone numbers to the model.
   * `messaging/whatsapp.py`:
     * `send_whatsapp(contact: str, message: str) -> str`: Automates WhatsApp Web delivery via `pywhatkit`.
-    * **Safety Guard:** Strict contact validation. Refuses unknown recipients politely; never sends to unverified numbers. Never raises.
+    * **Safety Guard:** Refuses unknown recipients and sample numbers. JARVIS requires an exact `CONFIRM <token>` before sending.
+  * `send_telegram` can attach an existing file under the existing workspace/temp allowlist and confirmation gate.
   * `messaging/test_whatsapp.py`: Provides `--dry-run` mode to preview outbound messages without opening browsers.
 
 * **Day 7: Persistent Telegram Reminders**
