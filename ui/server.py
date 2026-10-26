@@ -896,19 +896,16 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
                 msg_text = m_hi.group(1).strip()
                 recipient = m_hi.group(2).strip()
 
-        detail_msg = f"Transmitting communication to {recipient}" + (f": '{msg_text}'" if msg_text else "")
         try:
             from tools.whatsapp_tool import WhatsAppTool
             tool = WhatsAppTool()
             if msg_text:
-                tool.send_message(msg_text, contact=recipient)
+                res = tool.send_message(msg_text, contact=recipient)
             else:
-                tool.search_contact(recipient)
-        except Exception:
-            try:
-                subprocess.Popen("cmd.exe /c start whatsapp:", shell=True)
-            except Exception:
-                subprocess.Popen("cmd.exe /c start https://web.whatsapp.com", shell=True)
+                res = tool.search_contact(recipient)
+            detail_msg = res.message
+        except Exception as exc:
+            detail_msg = f"Failed to automate WhatsApp: {exc}"
         return AppLaunchResult("WhatsApp", detail_msg)
 
     if ("chrome" in norm or "google" in norm or "browser" in norm) and ("search" in norm or "find" in norm or "look for" in norm):
@@ -930,13 +927,14 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
         m_yt = re.search(r"(?:play|search|for)\s+(.*)$", user_text, re.IGNORECASE)
         if m_yt:
             query = m_yt.group(1).strip()
-        import urllib.parse
-        yt_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}" if query else "https://www.youtube.com"
-        try:
-            subprocess.Popen(["cmd.exe", "/c", f"start {yt_url}"], shell=True)
-        except Exception:
-            webbrowser.open(yt_url)
-        detail_msg = f"Streaming request: '{query}'" if query else "Opening YouTube"
+            query = re.sub(r"\b(?:on\s+youtube|in\s+youtube|from\s+youtube)\b", "", query, flags=re.I).strip()
+        from tools.youtube_tool import YouTubeControlTool
+        yt_tool = YouTubeControlTool()
+        if "search" in norm and not ("play" in norm or "song" in norm):
+            res = yt_tool.run(action="search", query=query)
+        else:
+            res = yt_tool.run(action="play", query=query)
+        detail_msg = res.message
         return AppLaunchResult("YouTube", detail_msg)
 
     if "notepad" in norm and ("write" in norm or "note" in norm or "meeting" in norm):
@@ -1003,6 +1001,10 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
             or norm.endswith(f"open {key}.")
         )
         if is_match:
+            if key == "whatsapp":
+                from tools.whatsapp_tool import WhatsAppTool
+                res = WhatsAppTool().open_whatsapp()
+                return AppLaunchResult("WhatsApp", res.message)
             launched = False
             for p in paths:
                 if os.path.isfile(p):
@@ -1060,9 +1062,12 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
 # Dynamic User State & Hardware Intelligence Engine
 # ---------------------------------------------------------------------------
 
+from memory.manager import preference_manager
+
+_init_user_name = preference_manager.get_preference("user_name", "Sir")
 current_user_state: Dict[str, Any] = {
-    "name": "User",
-    "is_known": False,
+    "name": _init_user_name if _init_user_name != "Sir" else "User",
+    "is_known": _init_user_name != "Sir",
 }
 
 
@@ -1237,10 +1242,18 @@ def parse_note_or_reminder(user_text: str) -> Tuple[Optional[str], Optional[str]
 
 
 def parse_whatsapp_intent(user_text: str) -> Optional[Dict[str, Any]]:
-    """Parse WhatsApp commands: search contacts, send messages, or compound messaging."""
+    """Parse WhatsApp commands: open/launch, search contacts, send messages, or compound messaging."""
     cleaned = user_text.strip()
     norm = re.sub(r"[^\w\s]", " ", cleaned.lower())
     norm = " ".join(norm.split())
+
+    # 0. Open WhatsApp directly
+    if norm in (
+        "whatsapp", "open whatsapp", "launch whatsapp", "start whatsapp",
+        "focus whatsapp", "whatsapp open", "whatsapp launch",
+        "whatsapp khol", "whatsapp kholo", "open the whatsapp"
+    ) or re.search(r"^(?:open|launch|start|focus)\s+(?:the\s+)?whatsapp$", norm):
+        return {"action": "open"}
 
     # 1. Search contact: 'search contact Aryan in whatsapp', 'search Aryan in whatsapp', 'find contact Jay'
     m_search = re.search(r"^(?:search|find|look up|lookup|look for)\s+(?:for\s+)?(?:contact\s+)?(.+?)(?:\s+(?:in|on)\s+whatsapp|\s+whatsapp)?$", norm)
@@ -1272,6 +1285,669 @@ def parse_whatsapp_intent(user_text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def parse_youtube_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse YouTube-specific control commands: play, pause, resume, fullscreen, exit fullscreen, scroll, click video, mute, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Check for meta capability questions regarding YouTube control
+    if any(phrase in norm for phrase in (
+        "must be able to", "can you control youtube", "are you able to play youtube",
+        "how do you control youtube", "control whole youtube", "control whole youtbe",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have full YouTube control online, sir. I can stream videos directly, scroll pages, click and open videos, pause, resume, toggle fullscreen, exit fullscreen, and adjust volume, speed, and captions on your command.",
+        }
+
+    # 1. Fullscreen / Exit Fullscreen
+    if re.search(r"\b(?:out\s+full\s*screen|exit\s+full\s*screen|leave\s+full\s*screen|close\s+full\s*screen|unfull\s*screen)\b", norm):
+        return {"action": "exit_fullscreen"}
+    if re.search(r"\b(?:go\s+full\s*screen|make\s+(?:it\s+)?full\s*screen|enter\s+full\s*screen|^full\s*screen$|\bfull\s*screen\b)", norm):
+        if not any(w in norm for w in ("out", "exit", "leave", "close", "off", "un")):
+            return {"action": "fullscreen"}
+
+    # 2. Pause / Stop video
+    if re.search(r"\b(?:pause\s+(?:the\s+)?video|pause\s+youtube|pause\s+playback|^pause$|\bpause\s+it\b)", norm):
+        return {"action": "pause"}
+
+    # 3. Resume / Unpause / Play (when no specific search song is given)
+    if re.search(r"\b(?:resume\s+(?:the\s+)?video|resume\s+youtube|resume\s+playback|^resume$|unpause|\bplay\s+(?:the\s+)?video\b)", norm):
+        if not re.search(r"\bplay\s+(?:the\s+video\s+)?(?:about|of|song|track)?\s*[a-zA-Z0-9_]{3,}\b", norm):
+            return {"action": "resume"}
+
+    # 4. Scroll YouTube
+    m_scroll = re.search(r"\bscroll\s*(?:down|up)?\s*(?:on\s+)?youtube\b|\bscroll\s+youtube\s*(?:for\s+me\s*)?(?:down|up)?\b|\bscroll\s+(?:down|up)\b", norm)
+    if m_scroll:
+        if "up" in norm:
+            return {"action": "scroll_up", "scroll_amount": 6}
+        return {"action": "scroll_down", "scroll_amount": 6}
+
+    # 5. Click and open video
+    m_click = re.search(r"\b(?:click\s+(?:and\s+)?(?:open\s+)?(?:the\s+)?video|open\s+(?:the\s+)?first\s+video|click\s+(?:the\s+)?video|open\s+video\s*(\d+)|click\s+video\s*(\d+))\b", norm)
+    if m_click:
+        idx = 1
+        if m_click.group(1):
+            idx = int(m_click.group(1))
+        elif m_click.group(2):
+            idx = int(m_click.group(2))
+        return {"action": "click_video", "index": idx}
+
+    # 6. Audio / Volume / Mute
+    if re.search(r"\b(?:mute\s+(?:the\s+)?video|mute\s+youtube|^mute$|unmute)\b", norm):
+        return {"action": "mute"}
+    if re.search(r"\b(?:volume\s+up|increase\s+volume|turn\s+up\s+(?:the\s+)?volume)\b", norm) and ("youtube" in norm or "video" in norm):
+        return {"action": "volume_up"}
+    if re.search(r"\b(?:volume\s+down|decrease\s+volume|turn\s+down\s+(?:the\s+)?volume)\b", norm) and ("youtube" in norm or "video" in norm):
+        return {"action": "volume_down"}
+
+    # 7. Seek / Skip / Next / Prev
+    if re.search(r"\b(?:next\s+video|skip\s+(?:this\s+)?video|play\s+next)\b", norm):
+        return {"action": "next"}
+    if re.search(r"\b(?:previous\s+video|prev\s+video|play\s+previous)\b", norm):
+        return {"action": "prev"}
+    if re.search(r"\b(?:fast\s+forward|skip\s+forward|forward\s+10\s+seconds?)\b", norm):
+        return {"action": "skip_forward"}
+    if re.search(r"\b(?:rewind|skip\s+backward|skip\s+back|back\s+10\s+seconds?)\b", norm):
+        return {"action": "skip_backward"}
+
+    # 8. Captions / Subtitles
+    if re.search(r"\b(?:subtitles?|captions?|cc)\b", norm) and ("turn" in norm or "toggle" in norm or "on" in norm or "off" in norm or "video" in norm or "youtube" in norm):
+        return {"action": "captions"}
+
+    # 9. Speed
+    if re.search(r"\b(?:speed\s+up\s+video|faster\s+video|increase\s+playback\s+speed)\b", norm):
+        return {"action": "speed_up"}
+    if re.search(r"\b(?:slow\s+down\s+video|slower\s+video|decrease\s+playback\s+speed)\b", norm):
+        return {"action": "slow_down"}
+
+    # 10. Restart / Replay
+    if re.search(r"\b(?:restart\s+(?:the\s+)?video|replay\s+(?:the\s+)?video|play\s+from\s+(?:the\s+)?beginning)\b", norm):
+        return {"action": "restart"}
+
+    # 11. Play specific video/song on YouTube
+    m_play = re.search(r"^(?:play|stream|listen to)\s+(?:the\s+)?(?:video\s+)?(.+?)(?:\s+(?:on|in|from)\s+youtube|\s+youtube)?$", norm)
+    if m_play and ("youtube" in norm or "song" in norm or "video" in norm or "track" in norm):
+        q = m_play.group(1).strip()
+        q = re.sub(r"^(?:youtube\s+video|youtube\s+song|video|song|track)\s+", "", q).strip()
+        q = re.sub(r"\s+(?:on|in|from)\s+youtube$", "", q).strip()
+        if q and q not in ("video", "youtube", "videos", "music"):
+            return {"action": "play", "query": q}
+        elif q in ("video", "youtube", "videos", "music"):
+            return {"action": "play", "query": ""}
+
+    m_play_yt = re.search(r"^(?:open\s+and\s+play|play\s+youtube\s+video|play\s+on\s+youtube)\s+(.+)$", norm)
+    if m_play_yt:
+        q = m_play_yt.group(1).strip()
+        q = re.sub(r"^(?:youtube\s+video|youtube\s+song|video|song|track)\s+", "", q).strip()
+        return {"action": "play", "query": q}
+
+    return None
+
+
+def parse_youtube_music_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse YouTube Music control commands: songs, lyrics, next/prev, reload, search, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "automate full youtube music", "control youtube music", "handle youtube music",
+        "automate youtube music", "can you control youtube music",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete YouTube Music automation active, sir. I can search songs, stream specific tracks, play next or previous songs, toggle the lyrics section, reload the music tab, adjust volume, seek, and toggle shuffle or repeat on your command.",
+        }
+
+    # Next / Previous song
+    if re.search(r"\b(?:next\s+song|skip\s+song|play\s+next\s+song|next\s+track|play\s+next\s+track|skip\s+track)\b", norm):
+        return {"action": "next_song"}
+    if re.search(r"\b(?:previous\s+song|prev\s+song|play\s+previous\s+song|last\s+song|previous\s+track|prev\s+track)\b", norm):
+        return {"action": "prev_song"}
+
+    # Lyrics
+    if re.search(r"\b(?:open\s+lyrics|show\s+lyrics|lyrics\s+section|open\s+lyrics\s+section|display\s+lyrics|view\s+lyrics|^lyrics$)\b", norm):
+        return {"action": "lyrics"}
+
+    # Reload music tab
+    if re.search(r"\b(?:reload\s+(?:the\s+)?music(?:\s+tab)?|refresh\s+(?:the\s+)?music(?:\s+tab)?|reload\s+youtube\s+music|refresh\s+youtube\s+music)\b", norm):
+        return {"action": "reload"}
+
+    # Pause / Resume / Stop
+    if re.search(r"\b(?:pause\s+music|pause\s+song|stop\s+music|pause\s+youtube\s+music)\b", norm):
+        return {"action": "pause"}
+    if re.search(r"\b(?:resume\s+music|resume\s+song|unpause\s+music|resume\s+youtube\s+music)\b", norm):
+        return {"action": "resume"}
+
+    # Shuffle / Repeat
+    if re.search(r"\b(?:shuffle\s+music|toggle\s+shuffle|shuffle\s+songs?|^shuffle$)\b", norm):
+        return {"action": "shuffle"}
+    if re.search(r"\b(?:repeat\s+song|repeat\s+music|cycle\s+repeat|^repeat$)\b", norm):
+        return {"action": "repeat"}
+
+    # Like / Dislike
+    if re.search(r"\b(?:like\s+(?:this\s+)?song|like\s+music)\b", norm):
+        return {"action": "like"}
+    if re.search(r"\b(?:dislike\s+(?:this\s+)?song|dislike\s+music)\b", norm):
+        return {"action": "dislike"}
+
+    # Search songs on YouTube Music
+    m_search_ytm1 = re.search(r"\bsearch\s+(?:for\s+)?(?:songs?\s+)?(.+?)\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)\b", norm)
+    if m_search_ytm1:
+        q = m_search_ytm1.group(1).strip()
+        q = re.sub(r"^(?:for|song|tracks?)\s+", "", q).strip()
+        return {"action": "search", "query": q}
+
+    m_search_ytm2 = re.search(r"\bsearch\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)\s*(?:for\s+)?(.+)?\b", norm)
+    if m_search_ytm2:
+        q = (m_search_ytm2.group(1) or "").strip()
+        q = re.sub(r"^(?:for|song|tracks?)\s+", "", q).strip()
+        return {"action": "search", "query": q}
+
+    m_search_ytm3 = re.search(r"\b(?:search\s+songs?|search\s+youtube\s+music|search\s+yt\s+music)\s*(?:for\s+)?(.+)?\b", norm)
+    if m_search_ytm3:
+        q = (m_search_ytm3.group(1) or "").strip()
+        q = re.sub(r"^(?:for|song|tracks?)\s+", "", q).strip()
+        return {"action": "search", "query": q}
+
+    # Open and play/search
+    m_open_ytm = re.search(r"\bopen\s+(?:youtube\s+music|yt\s+music)\s+(?:and\s+)?(?:play|search)\s+(.+)\b", norm)
+    if m_open_ytm:
+        q = m_open_ytm.group(1).strip()
+        return {"action": "play", "query": q}
+
+    # Play song on YouTube Music
+    m_play_target = re.search(r"\b(?:play|stream|listen\s+to)\s+(?:the\s+)?(?:song\s+|music\s+)?(.+?)\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)\b", norm)
+    if m_play_target:
+        q = m_play_target.group(1).strip()
+        if q.lower() in ("song", "songs", "some songs", "music", "some music", "a song", "tracks", "track"):
+            q = "top hit songs"
+        return {"action": "play", "query": q}
+
+    m_play_ytm = re.search(r"\b(?:play\s+song|listen\s+to\s+song|stream\s+song|play\s+music|play\s+on\s+youtube\s+music|play\s+in\s+youtube\s+music|play\s+on\s+yt\s+music)\s*(.+)?\b", norm)
+    if m_play_ytm:
+        q = (m_play_ytm.group(1) or "").strip()
+        q = re.sub(r"\s+(?:on|in)\s+(?:youtube\s+music|yt\s+music)$", "", q).strip()
+        q = re.sub(r"^(?:song|track|music)\s+", "", q).strip()
+        if q and q not in ("song", "music", "youtube music", "yt music"):
+            return {"action": "play", "query": q}
+        return {"action": "play", "query": "top hit songs"}
+
+    # Direct query like "play bohemian rhapsody on youtube music"
+    m_direct_ytm = re.search(r"^play\s+(.+?)\s+on\s+(?:youtube\s+music|yt\s+music)$", norm)
+    if m_direct_ytm:
+        q = m_direct_ytm.group(1).strip()
+        return {"action": "play", "query": q}
+
+    return None
+
+
+def parse_file_manager_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse File Manager / Explorer control commands: drives, folders, search, look at, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "handle my whole file manager", "handle whole file manager", "control whole file manager",
+        "can you handle my file manager", "manage whole file manager", "manage my whole file manager",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete Windows File Explorer automation at your service, sir. I can list all disk drives, open physical drives like C or D, search folders across your drives, open any directory, and look into folders to report their contents, files, and sizes.",
+        }
+
+    # List Drives
+    if re.search(r"\b(?:list\s+drives|show\s+drives|show\s+my\s+drives|check\s+drives|what\s+drives|all\s+drives|disk\s+drives|get\s+drives)\b", norm):
+        return {"action": "list_drives"}
+
+    # Open Drive: 'open c drive', 'open drive c', 'open d drive', 'open drive d'
+    m_drive = re.search(r"\b(?:open\s+(?:the\s+)?([a-zA-Z])\s+drive|open\s+drive\s+([a-zA-Z])|open\s+([a-zA-Z]):\\?)\b", norm)
+    if m_drive:
+        letter = m_drive.group(1) or m_drive.group(2) or m_drive.group(3)
+        return {"action": "open_drive", "drive": f"{letter.upper()}:\\"}
+
+    # Look at / inspect folders: 'look at folder Project - A', 'look at folders', 'inspect folder downloads'
+    m_look = re.search(r"\b(?:look\s+at\s+folders?|look\s+into\s+folders?|inspect\s+folders?|view\s+folders?|show\s+folder\s+contents?|what\s+is\s+in\s+folder)\s*(.+)?$", raw, re.IGNORECASE)
+    if m_look:
+        target = (m_look.group(1) or "").strip()
+        target = re.sub(r"^(?:the\s+)?folder\s+", "", target, flags=re.IGNORECASE).strip()
+        return {"action": "look_at_folder", "folder_path": target or "."}
+
+    # Search folders: 'search folders project', 'search folder python', 'find folder docs'
+    m_search_f = re.search(r"\b(?:search\s+folders?|find\s+folders?|search\s+for\s+folders?|find\s+directory|search\s+directory)\s*(?:named\s+|for\s+)?(.+)?$", raw, re.IGNORECASE)
+    if m_search_f and m_search_f.group(1):
+        q = m_search_f.group(1).strip()
+        q = re.sub(r"^(?:for|named)\s+", "", q, flags=re.IGNORECASE).strip()
+        if q:
+            return {"action": "search_folders", "query": q}
+
+    # Open specific standard folder aliases
+    m_alias = re.search(r"\bopen\s+(downloads|desktop|documents|docs|pictures|photos|videos|music)\b", norm)
+    if m_alias:
+        return {"action": "open_folder", "folder_path": m_alias.group(1)}
+
+    # Open folder: 'open folder <name>'
+    m_open_f = re.search(r"\b(?:open\s+folder|open\s+directory)\s+(.+)$", raw, re.IGNORECASE)
+    if m_open_f:
+        target = m_open_f.group(1).strip()
+        return {"action": "open_folder", "folder_path": target}
+
+    # Create folder: 'create folder <name>', 'make folder <name>'
+    m_create_f = re.search(r"\b(?:create\s+folder|make\s+folder|new\s+folder)\s+(.+)$", raw, re.IGNORECASE)
+    if m_create_f:
+        target = m_create_f.group(1).strip()
+        return {"action": "create_folder", "folder_path": target}
+
+    return None
+
+
+def parse_browser_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse complete browser control commands: tabs, navigation, scroll, zoom, click, etc."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "control my complete browser", "automate full browser", "control whole browser",
+        "automate browser", "can you control my browser", "control the whole browser",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete browser automation active, sir. I can navigate forward and back, switch to the tab ahead or tab behind, switch numbered tabs, reopen closed tabs, scroll pages, zoom, reload, click links, and manage browser windows on your command.",
+        }
+
+    # Tab ahead / next tab: 'open tab ahead of current active tab', 'tab ahead', 'next tab'
+    if re.search(r"\b(?:tab\s+ahead|next\s+tab|open\s+tab\s+ahead(?:\s+of\s+curent\s+active\s+tab|\s+of\s+current\s+active\s+tab)?|switch\s+to\s+next\s+tab|go\s+to\s+next\s+tab|forward\s+tab)\b", norm):
+        return {"action": "next_tab"}
+
+    # Tab behind / previous tab: 'tab behind active tab', 'tab behind', 'previous tab', 'prev tab'
+    if re.search(r"\b(?:tab\s+behind(?:\s+active\s+tab)?|previous\s+tab|prev\s+tab|open\s+tab\s+behind|switch\s+to\s+previous\s+tab|go\s+to\s+previous\s+tab|back\s+tab)\b", norm):
+        return {"action": "prev_tab"}
+
+    # Switch to tab number: 'switch to tab 2', 'go to tab 3', 'select tab 1'
+    m_switch = re.search(r"\b(?:switch\s+(?:between\s+tabs\s+to|to\s+)?tab\s+(\d+)|go\s+to\s+tab\s+(\d+)|select\s+tab\s+(\d+))\b", norm)
+    if m_switch:
+        idx = int(m_switch.group(1) or m_switch.group(2) or m_switch.group(3))
+        return {"action": "switch_tab", "tab_index": idx}
+
+    # Reopen closed tab: 'reopen closed tab', 'reopen tab', 'restore tab'
+    if re.search(r"\b(?:reopen\s+(?:closed\s+)?tab|restore\s+(?:closed\s+)?tab|bring\s+back\s+tab)\b", norm):
+        return {"action": "reopen_tab"}
+
+    # Close tab: 'close tab', 'close active tab'
+    if re.search(r"\b(?:close\s+(?:the\s+)?(?:active\s+)?tab|shut\s+(?:the\s+)?tab)\b", norm):
+        return {"action": "close_tab"}
+
+    # New tab: 'new tab', 'open a new tab', 'open another tab'
+    if re.search(r"\b(?:new\s+tab|open\s+(?:a\s+)?new\s+tab|open\s+another\s+tab)\b", norm):
+        return {"action": "new_tab"}
+
+    # Reload / refresh
+    if re.search(r"\b(?:hard\s+reload|hard\s+refresh|force\s+reload)\b", norm):
+        return {"action": "hard_reload"}
+    if re.search(r"\b(?:reload\s+(?:the\s+)?(?:tab|page|browser)|refresh\s+(?:the\s+)?(?:tab|page|browser)|reloading\s+tab)\b", norm):
+        return {"action": "reload"}
+
+    # Scrolling
+    if re.search(r"\b(?:scroll\s+(?:to\s+)?top|top\s+of\s+page)\b", norm):
+        return {"action": "scroll_top"}
+    if re.search(r"\b(?:scroll\s+(?:to\s+)?bottom|bottom\s+of\s+page)\b", norm):
+        return {"action": "scroll_bottom"}
+    if re.search(r"\b(?:scroll\s+(?:the\s+)?(?:page|browser)\s+down|scroll\s+down\s+(?:the\s+)?(?:page|browser)|scroll\s+browser)\b", norm):
+        return {"action": "scroll_down"}
+    if re.search(r"\b(?:scroll\s+(?:the\s+)?(?:page|browser)\s+up|scroll\s+up\s+(?:the\s+)?(?:page|browser))\b", norm):
+        return {"action": "scroll_up"}
+
+    # Zoom
+    if re.search(r"\b(?:zoom\s+in(?:\s+(?:browser|page))?)\b", norm):
+        return {"action": "zoom_in"}
+    if re.search(r"\b(?:zoom\s+out(?:\s+(?:browser|page))?)\b", norm):
+        return {"action": "zoom_out"}
+    if re.search(r"\b(?:reset\s+zoom|zoom\s+reset|zoom\s+100%?)\b", norm):
+        return {"action": "zoom_reset"}
+
+    # Fullscreen browser
+    if re.search(r"\b(?:fullscreen\s+browser|browser\s+fullscreen)\b", norm):
+        return {"action": "fullscreen"}
+
+    # Navigation: back / forward
+    if re.search(r"\b(?:browser\s+back|go\s+back\s+in\s+browser|page\s+back)\b", norm):
+        return {"action": "back"}
+    if re.search(r"\b(?:browser\s+forward|go\s+forward\s+in\s+browser|page\s+forward)\b", norm):
+        return {"action": "forward"}
+
+    # Click links: 'click link login', 'click link about'
+    m_link = re.search(r"\bclick\s+(?:on\s+)?(?:the\s+)?link\s+(?:named\s+|saying\s+|called\s+)?(.+)\b", norm)
+    if m_link:
+        link_text = m_link.group(1).strip()
+        return {"action": "click_link", "text": link_text}
+
+    # Bookmark / History / Downloads
+    if re.search(r"\b(?:bookmark\s+page|bookmark\s+this\s+page|add\s+bookmark)\b", norm):
+        return {"action": "bookmark"}
+    if re.search(r"\b(?:browser\s+history|open\s+browser\s+history)\b", norm):
+        return {"action": "history"}
+    if re.search(r"\b(?:browser\s+downloads|open\s+browser\s+downloads)\b", norm):
+        return {"action": "downloads"}
+
+    # Incognito / New window / Close browser
+    if re.search(r"\b(?:incognito\s+window|private\s+window|open\s+incognito)\b", norm):
+        return {"action": "incognito"}
+    if re.search(r"\b(?:new\s+browser\s+window|open\s+new\s+window)\b", norm):
+        return {"action": "new_window"}
+    if re.search(r"\b(?:close\s+browser|exit\s+browser|quit\s+browser)\b", norm):
+        return {"action": "close_browser"}
+
+    return None
+
+
+def parse_skill_learner_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse skill learning, custom procedure execution, and skill management commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capability queries
+    if any(phrase in norm for phrase in (
+        "learn new skills", "skill learner", "learn new things", "learn things",
+        "can you learn new skills", "how do you learn", "can you learn",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I am an active skill learner, sir. You can teach me new skills or workflows by saying 'learn a new skill <name>: <steps>' or 'when I say <trigger>, <actions>'. I will memorize the procedure, execute it on your command, and adapt my behavior to your preferences.",
+        }
+
+    # 1. Learn new skill: 'learn a new skill morning routine: open Brave, open YouTube Music, and set volume to 50'
+    m_learn = re.search(
+        r"^(?:learn|teach)(?:\s+(?:me|a))?\s+(?:new\s+)?skill\s+(?:called\s+|named\s+)?([^:]+?)\s*:\s*(?:steps\s*[:\s]*)?(.+)$",
+        raw,
+        re.IGNORECASE,
+    )
+    if not m_learn:
+        m_learn = re.search(
+            r"^(?:learn|teach)(?:\s+(?:me|a))?\s+(?:new\s+)?skill\s+(?:called\s+|named\s+)?([a-zA-Z0-9_-]+)\s+(?:to\s+|that\s+)?(.+)$",
+            raw,
+            re.IGNORECASE,
+        )
+    if m_learn:
+        name = m_learn.group(1).strip()
+        instructions = m_learn.group(2).strip()
+        return {
+            "action": "learn_skill",
+            "skill_name": name,
+            "trigger": name,
+            "instructions": instructions,
+        }
+
+    # 2. 'when I say <trigger>, <instructions>'
+    m_when = re.search(
+        r"^when\s+i\s+say\s+([^,:]+?)[,:]\s+(.+)$",
+        raw,
+        re.IGNORECASE,
+    )
+    if m_when:
+        trigger = m_when.group(1).strip()
+        instructions = m_when.group(2).strip()
+        return {
+            "action": "learn_skill",
+            "skill_name": trigger.replace(" ", "_"),
+            "trigger": trigger,
+            "instructions": instructions,
+        }
+
+    # 3. 'learn how to <name>: <instructions>'
+    m_how = re.search(
+        r"^learn\s+how\s+to\s+([^:]+?)\s*:\s*(.+)$",
+        raw,
+        re.IGNORECASE,
+    )
+    if m_how:
+        name = m_how.group(1).strip()
+        instructions = m_how.group(2).strip()
+        return {
+            "action": "learn_skill",
+            "skill_name": name,
+            "trigger": name,
+            "instructions": instructions,
+        }
+
+    # 4. List skills
+    if re.search(r"\b(?:list\s+(?:all\s+)?(?:learned\s+)?skills|show\s+(?:my\s+|learned\s+)?skills|what\s+skills\s+(?:have\s+you\s+learned|can\s+you\s+do|do\s+you\s+know|are\s+learned))\b", norm):
+        return {"action": "list_skills"}
+
+    # 5. Forget skill
+    m_forget = re.search(r"\b(?:forget|delete|remove)\s+(?:the\s+)?skill\s+([a-zA-Z0-9_\s-]+)\b", raw, re.IGNORECASE)
+    if m_forget:
+        name = m_forget.group(1).strip()
+        return {"action": "forget_skill", "skill_name": name}
+
+    # 6. Execute / Run skill: 'run skill morning routine', 'execute skill work_mode', 'trigger skill code_prep'
+    m_run = re.search(r"^(?:run|execute|trigger|start)\s+(?:learned\s+)?skill\s+([a-zA-Z0-9_\s-]+)$", raw, re.IGNORECASE)
+    if m_run:
+        name = m_run.group(1).strip()
+        return {"action": "execute_skill", "skill_name": name}
+
+    # 7. Check if user input directly matches a learned skill trigger!
+    from memory.manager import preference_manager
+    matched = preference_manager.find_matching_skill(raw)
+    if matched:
+        trig = (matched.get("trigger") or "").strip().lower()
+        if len(trig.split()) >= 2 or trig == raw.lower().strip():
+            return {"action": "execute_skill", "skill_name": matched.get("name")}
+
+    return None
+
+
+def parse_memory_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse personal facts, memory retention, custom naming, and speaking style commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # 1. Custom Address / Name: 'call me Boss', 'remember to call me Captain', 'address me as Shiv'
+    m_name = re.search(r"^(?:remember\s+(?:to\s+)?)?(?:call\s+me|address\s+me\s+as)\s+([a-zA-Z0-9_]+)$", raw, re.IGNORECASE)
+    if m_name:
+        name = m_name.group(1).strip()
+        return {"action": "set_user_name", "user_name": name}
+
+    # 2. Speaking style: 'speak in Hinglish', 'speak with British wit', 'speaking style is concise', 'change tone to casual'
+    m_style = re.search(r"^(?:speak\s+(?:in|with)|speaking\s+style\s+(?:is|to)|change\s+(?:speaking\s+)?tone\s+to)\s+(.+)$", raw, re.IGNORECASE)
+    if m_style:
+        style = m_style.group(1).strip()
+        return {"action": "set_speaking_style", "style": style}
+
+    # 3. Recalling memory: 'what do you remember about me', 'what do you know about me', 'what have you learned about me', 'tell me what you remember'
+    if re.search(r"\b(?:what\s+do\s+you\s+remember\s*(?:about\s+me)?|what\s+do\s+you\s+know\s+about\s+me|what\s+have\s+you\s+learned\s*(?:about\s+me)?|tell\s+me\s+what\s+you\s+remember|recall\s+my\s+facts)\b", norm):
+        return {"action": "recall_facts"}
+
+    # 4. Remember that my favorite <item> is <value>: 'remember that my favorite browser is Brave', 'remember my favorite music is lo-fi'
+    m_fav = re.search(r"^remember\s+(?:that\s+)?my\s+favorite\s+([a-zA-Z0-9_\s]+?)\s+is\s+(.+)$", raw, re.IGNORECASE)
+    if m_fav:
+        item = m_fav.group(1).strip().replace(" ", "_")
+        val = m_fav.group(2).strip()
+        return {"action": "remember_fact", "fact_key": f"favorite_{item}", "fact_value": val}
+
+    # 5. Remember that I am / work as <profession>: 'remember that I am a Python developer'
+    m_prof = re.search(r"^remember\s+(?:that\s+)?i\s+(?:am|work\s+as)\s+(?:a\s+|an\s+)?(.+)$", raw, re.IGNORECASE)
+    if m_prof:
+        val = m_prof.group(1).strip()
+        return {"action": "remember_fact", "fact_key": "profession", "fact_value": val}
+
+    # 6. Remember that my <key> is <value>: 'remember that my birthday is May 14th', 'remember my car is a Tesla'
+    m_my = re.search(r"^remember\s+(?:that\s+)?my\s+([a-zA-Z0-9_\s]+?)\s+is\s+(.+)$", raw, re.IGNORECASE)
+    if m_my:
+        k = m_my.group(1).strip().replace(" ", "_")
+        val = m_my.group(2).strip()
+        return {"action": "remember_fact", "fact_key": k, "fact_value": val}
+
+    # 7. Remember that <general statement>: 'remember that when I work I like lo-fi music'
+    m_gen = re.search(r"^remember\s+(?:that\s+)?(.+)$", raw, re.IGNORECASE)
+    if m_gen:
+        statement = m_gen.group(1).strip()
+        key_guess = re.sub(r"^(?:when\s+|if\s+)", "", statement)
+        key_guess = "_".join(key_guess.split()[:4])
+        return {"action": "remember_fact", "fact_key": key_guess, "fact_value": statement}
+
+    # 8. Forget fact
+    m_forget_f = re.search(r"\b(?:forget|remove)\s+(?:that\s+|memory\s+|fact\s+)?([a-zA-Z0-9_\s]+)$", raw, re.IGNORECASE)
+    if m_forget_f and any(w in norm for w in ("forget", "remove")):
+        k = m_forget_f.group(1).strip()
+        return {"action": "forget_fact", "fact_key": k}
+
+    return None
+
+
+def parse_dev_agent_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse autonomous development, coding, and VS Code commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capabilities
+    if any(p in norm for p in (
+        "can you completely code for me", "create dev agent", "dev agent inside jarvis",
+        "make an agent who can completely code for me", "dev agent capabilities",
+        "can you code for me", "make a dev agent", "create a coding agent",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have complete autonomous development capabilities active, sir. I can open any folder in Visual Studio Code, write error-free files like index.html, style.css, app.js, or main.py with production syntaxes, scaffold complete web or Python projects from scratch, and launch preview servers reporting local addresses.",
+        }
+
+    # Open folder in VS Code: 'open folder X in vs code', 'open X in vscode', 'open vs code in X'
+    m_vsc1 = re.search(r"\bopen\s+(?:the\s+)?folder\s+(.+?)\s+in\s+(?:vs\s*code|vscode|visual\s+studio\s+code|code)\b", raw, re.IGNORECASE)
+    if m_vsc1:
+        target = m_vsc1.group(1).strip()
+        return {"action": "open_vscode", "target": target}
+
+    m_vsc2 = re.search(r"\bopen\s+(?:vs\s*code|vscode|visual\s+studio\s+code)\s+(?:in|for|at)?\s*(?:folder\s+)?(.+)?\b", raw, re.IGNORECASE)
+    if m_vsc2:
+        target = (m_vsc2.group(1) or ".").strip()
+        target = re.sub(r"^(?:in|at|for|folder)\s+", "", target, flags=re.IGNORECASE).strip()
+        return {"action": "open_vscode", "target": target or "."}
+
+    m_vsc3 = re.search(r"\bopen\s+(.+?)\s+in\s+(?:vs\s*code|vscode|visual\s+studio\s+code)\b", raw, re.IGNORECASE)
+    if m_vsc3:
+        target = m_vsc3.group(1).strip()
+        return {"action": "open_vscode", "target": target}
+
+    # Scaffold Project / Web App: 'create a website in X', 'scaffold web project in X', 'code a portfolio in X'
+    m_scaffold = re.search(r"\b(?:scaffold\s+(?:a\s+)?(?:new\s+)?(?:web\s+|python\s+)?project|code\s+(?:a\s+)?(?:website|web\s+app|app|project)|create\s+(?:a\s+)?(?:website|web\s+app|project))\s*(?:for\s+me\s+)?(?:in|at|inside)?\s*(.+)?\b", raw, re.IGNORECASE)
+    if m_scaffold:
+        target = (m_scaffold.group(1) or "my-project").strip()
+        target = re.sub(r"^(?:in|at|inside|folder)\s+", "", target, flags=re.IGNORECASE).strip()
+        p_type = "python" if "python" in norm else "web"
+        return {"action": "scaffold_project", "target": target or "my-project", "project_type": p_type}
+
+    # Create file: 'create file index.html in my-app', 'create index.html and style.css in my-app'
+    m_file = re.search(r"\bcreate\s+(?:the\s+)?files?\s+(.+?)\s+(?:in|inside)\s*(.+)\b", raw, re.IGNORECASE)
+    if m_file:
+        fname = m_file.group(1).strip()
+        folder = m_file.group(2).strip()
+        target_path = os.path.join(folder, fname)
+        return {"action": "create_file", "target": target_path}
+
+    # Run Project / Preview
+    m_run = re.search(r"\b(?:run\s+project|preview\s+project|start\s+project|preview\s+website)\s*(?:in|at)?\s*(.+)?\b", raw, re.IGNORECASE)
+    if m_run:
+        target = (m_run.group(1) or ".").strip()
+        return {"action": "run_project", "target": target or "."}
+
+    # Check Syntax
+    m_syntax = re.search(r"\bcheck\s+syntax\s+(?:of|for)?\s*(.+)\b", raw, re.IGNORECASE)
+    if m_syntax:
+        return {"action": "check_syntax", "target": m_syntax.group(1).strip()}
+
+    # Diagnose Error
+    m_diag = re.search(r"\b(?:diagnose\s+error|diagnose\s+the\s+error|fix\s+error)\s*(.+)?\b", raw, re.IGNORECASE)
+    if m_diag:
+        return {"action": "diagnose_error", "error_text": (m_diag.group(1) or "").strip()}
+
+    return None
+
+
+def parse_antigravity_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse Google Antigravity desktop IDE automation commands."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+    norm = re.sub(r"[^\w\s]", " ", raw.lower())
+    norm = " ".join(norm.split())
+
+    # Capabilities
+    if any(p in norm for p in (
+        "control antigravity", "automate antigravity", "antigravity capabilities",
+        "can you control antigravity", "can you automate antigravity",
+    )):
+        return {
+            "action": "capabilities",
+            "message": "I have full Google Antigravity automation active, sir. I can launch it via Antigravity.lnk, open workspaces and project folders, start new chats, choose models like Gemini 3.8 Flash High, attach media and files, and dispatch prompts automatically.",
+        }
+
+    # Open folder in Antigravity: 'open folder X in antigravity', 'open workspace X in antigravity'
+    m_folder = re.search(r"\bopen\s+(?:the\s+)?(?:folder|workspace)\s+(.+?)\s+in\s+antigravity\b", raw, re.IGNORECASE)
+    if m_folder:
+        target = m_folder.group(1).strip()
+        return {"action": "open_folder", "folder_path": target}
+
+    # New chat in Antigravity
+    if re.search(r"\b(?:open\s+)?new\s+chats?\s+in\s+antigravity|new\s+conversation\s+in\s+antigravity\b", norm):
+        return {"action": "new_chat"}
+
+    # Write prompt in Antigravity / Send prompt to Antigravity
+    m_prompt = re.search(r"\b(?:write\s+prompt|send\s+prompt|prompt)\s+(?:in|on|to)\s+antigravity\s*(?:to\s+)?(.+)\b", raw, re.IGNORECASE)
+    if m_prompt:
+        p_text = m_prompt.group(1).strip()
+        m_model = "Gemini 3.8 Flash"
+        m_effort = "High"
+        if re.search(r"\b(?:gemini\s+)?(?:3\.\d+\s+)?pro\b", norm):
+            m_model = "Gemini 3.8 Pro"
+        attachment = None
+        m_att = re.search(r"(?:attach|with\s+file|media)\s+([a-zA-Z0-9_\-\.\/\\]+)", p_text, re.IGNORECASE)
+        if m_att:
+            attachment = m_att.group(1).strip()
+            p_text = re.sub(r"(?:attach|with\s+file|media)\s+[a-zA-Z0-9_\-\.\/\\]+", "", p_text, flags=re.IGNORECASE).strip()
+        return {"action": "send_prompt", "prompt": p_text, "model": m_model, "effort": m_effort, "attachment": attachment}
+
+    m_ask = re.search(r"\bask\s+antigravity\s+(?:to\s+)?(.+)\b", raw, re.IGNORECASE)
+    if m_ask:
+        p_text = m_ask.group(1).strip()
+        return {"action": "send_prompt", "prompt": p_text, "model": "Gemini 3.8 Flash", "effort": "High"}
+
+    # Model selection: 'choose model X in antigravity', 'set antigravity model to X'
+    m_mod = re.search(r"\b(?:choose\s+model|set\s+antigravity\s+model\s+to|select\s+model)\s+(.+?)(?:\s+in\s+antigravity)?\b", raw, re.IGNORECASE)
+    if m_mod and "antigravity" in norm:
+        target_model = m_mod.group(1).strip()
+        return {"action": "choose_model", "model": target_model, "effort": "High"}
+
+    # Launch Antigravity
+    if re.search(r"\b(?:open|launch|start|focus)\s+antigravity(?:\.lnk)?\b", norm):
+        return {"action": "launch"}
+
+    return None
+
+
+
 async def _generate_response(user_text: str, session_user: Optional[Dict[str, Any]] = None) -> str:
     """Intelligently process and answer user questions directly from UI backend,
     supporting dynamic user personalization, deep system inspection, persistent notes/reminders,
@@ -1285,6 +1961,93 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
     active_name = session_user.get("name", "User")
 
     # 0. Pure greeting / Wake acknowledgment
+    skill_intent = parse_skill_learner_intent(user_text)
+    if skill_intent:
+        from tools.skill_tool import SkillLearnerTool
+        s_tool = SkillLearnerTool()
+        act = skill_intent.get("action", "")
+        if act == "capabilities":
+            return skill_intent["message"]
+        res = s_tool.run(**skill_intent)
+        return res.message
+
+    mem_intent = parse_memory_intent(user_text)
+    if mem_intent:
+        from tools.skill_tool import SkillLearnerTool
+        s_tool = SkillLearnerTool()
+        act = mem_intent.get("action", "")
+        res = s_tool.run(**mem_intent)
+        if act == "set_user_name":
+            new_name = mem_intent.get("user_name", active_name)
+            current_user_state["name"] = new_name
+            current_user_state["is_known"] = True
+        return res.message
+
+    ytm_intent = parse_youtube_music_intent(user_text)
+    if ytm_intent:
+        from tools.youtube_music_tool import YouTubeMusicTool
+        ytm_tool = YouTubeMusicTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = ytm_intent.get("action", "")
+        if act == "capabilities":
+            return ytm_intent["message"]
+        res = ytm_tool.run(**ytm_intent)
+        return f"{res.message}, {target}."
+
+    yt_intent = parse_youtube_intent(user_text)
+    if yt_intent:
+        from tools.youtube_tool import YouTubeControlTool
+        yt_tool = YouTubeControlTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = yt_intent.get("action", "")
+        if act == "capabilities":
+            return yt_intent["message"]
+        res = yt_tool.run(**yt_intent)
+        return f"{res.message}, {target}."
+
+    fm_intent = parse_file_manager_intent(user_text)
+    if fm_intent:
+        from tools.file_manager_tool import FileManagerTool
+        fm_tool = FileManagerTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = fm_intent.get("action", "")
+        if act == "capabilities":
+            return fm_intent["message"]
+        res = fm_tool.run(**fm_intent)
+        return f"{res.message}\nAction complete, {target}."
+
+    browser_intent = parse_browser_intent(user_text)
+    if browser_intent:
+        from tools.browser_tools import BrowserControlTool
+        b_tool = BrowserControlTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = browser_intent.get("action", "")
+        if act == "capabilities":
+            return browser_intent["message"]
+        res = b_tool.run(**browser_intent)
+        return f"{res.message}, {target}."
+
+    dev_intent = parse_dev_agent_intent(user_text)
+    if dev_intent:
+        from tools.dev_tools import DevAgentTool
+        d_tool = DevAgentTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = dev_intent.get("action", "")
+        if act == "capabilities":
+            return dev_intent["message"]
+        res = d_tool.run(**dev_intent)
+        return f"{res.message}\nAction complete, {target}."
+
+    anti_intent = parse_antigravity_intent(user_text)
+    if anti_intent:
+        from tools.antigravity_tools import AntigravityControlTool
+        a_tool = AntigravityControlTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        act = anti_intent.get("action", "")
+        if act == "capabilities":
+            return anti_intent["message"]
+        res = a_tool.run(**anti_intent)
+        return f"{res.message}, {target}."
     greeting_triggers = (
         "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
         "hey", "hello", "hi", "are you there", "namaste", "namaskar",
@@ -1420,21 +2183,28 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
         except Exception as exc:
             return f"Logged your {kind}: '{content}'."
 
-    # 10.5. WhatsApp Messaging & Contact Search
+    # 10.5. WhatsApp Messaging & Contact Search & App Launch
     wa_intent = parse_whatsapp_intent(user_text)
     if wa_intent:
         from tools.whatsapp_tool import WhatsAppTool
         wa_tool = WhatsAppTool()
-        if wa_intent["action"] == "search":
+        if wa_intent["action"] == "open":
+            res = wa_tool.open_whatsapp()
+            return f"{res.message}, sir."
+        elif wa_intent["action"] == "search":
             contact = wa_intent["contact"]
-            wa_tool.search_contact(contact)
-            return f"I have searched for '{contact}' in WhatsApp and opened the chat conversation, sir."
+            res = wa_tool.search_contact(contact)
+            if res.success:
+                return f"I have searched for '{contact}' in WhatsApp and opened the chat conversation, sir."
+            return f"{res.message}, sir."
         else:
             msg = wa_intent["message"]
             contact = wa_intent.get("contact")
-            wa_tool.send_message(msg, contact=contact)
-            target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
-            return f"Message sent to {target_name} on WhatsApp: '{msg}', sir."
+            res = wa_tool.send_message(msg, contact=contact)
+            if res.success:
+                target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
+                return f"Message sent to {target_name} on WhatsApp: '{msg}', sir."
+            return f"{res.message}, sir."
 
     # 11. Core Gemini brain
     try:
@@ -1539,25 +2309,182 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                     or (norm_words and norm_words[0] in ("hey", "hi", "hello", "namaste", "namaskar") and len(norm_words) <= 3)
                 )
 
-                wa_intent = parse_whatsapp_intent(user_text)
-                launch_info = try_launch_system_app(user_text) if not wa_intent else None
+                skill_intent = parse_skill_learner_intent(user_text)
+                mem_intent = parse_memory_intent(user_text) if not skill_intent else None
+                wa_intent = parse_whatsapp_intent(user_text) if not skill_intent and not mem_intent else None
+                ytm_intent = parse_youtube_music_intent(user_text) if not skill_intent and not mem_intent and not wa_intent else None
+                yt_intent = parse_youtube_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent else None
+                fm_intent = parse_file_manager_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent else None
+                browser_intent = parse_browser_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent else None
+                dev_intent = parse_dev_agent_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent else None
+                anti_intent = parse_antigravity_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent and not dev_intent else None
+                launch_info = try_launch_system_app(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent and not dev_intent and not anti_intent else None
                 tool_steps = []
-                if wa_intent:
+                if skill_intent:
+                    from tools.skill_tool import SkillLearnerTool
+                    s_tool = SkillLearnerTool()
+                    act = skill_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = skill_intent["message"]
+                        tool_steps = ["skill_learner_capabilities()"]
+                    else:
+                        res = s_tool.run(**skill_intent)
+                        reply_text = res.message
+                        tool_steps = [f"skill_learner(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif mem_intent:
+                    from tools.skill_tool import SkillLearnerTool
+                    s_tool = SkillLearnerTool()
+                    act = mem_intent.get("action", "")
+                    res = s_tool.run(**mem_intent)
+                    if act == "set_user_name":
+                        new_name = mem_intent.get("user_name", session_user["name"])
+                        current_user_state["name"] = new_name
+                        current_user_state["is_known"] = True
+                        session_user["name"] = new_name
+                        session_user["is_known"] = True
+                    reply_text = res.message
+                    tool_steps = [f"skill_learner(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif wa_intent:
                     from tools.whatsapp_tool import WhatsAppTool
                     wa_tool = WhatsAppTool()
                     user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
-                    if wa_intent["action"] == "search":
+                    if wa_intent["action"] == "open":
+                        res = wa_tool.open_whatsapp()
+                        if res.success:
+                            reply_text = f"WhatsApp opened and brought to focus{user_suffix}."
+                        else:
+                            reply_text = f"{res.message}{user_suffix}."
+                        tool_steps = ["whatsapp_open()"]
+                    elif wa_intent["action"] == "search":
                         contact = wa_intent["contact"]
-                        wa_tool.search_contact(contact)
-                        reply_text = f"Searching for '{contact}' in WhatsApp and opening the chat{user_suffix}."
+                        res = wa_tool.search_contact(contact)
+                        if res.success:
+                            reply_text = f"Searching for '{contact}' in WhatsApp and opening the chat{user_suffix}."
+                        else:
+                            reply_text = f"I could not search for '{contact}' because {res.message}{user_suffix}."
                         tool_steps = [f"whatsapp_search('{contact}')"]
                     else:
                         msg = wa_intent["message"]
                         contact = wa_intent.get("contact")
-                        wa_tool.send_message(msg, contact=contact)
-                        target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
-                        reply_text = f"Message sent to {target_name} on WhatsApp: '{msg}'{user_suffix}."
+                        res = wa_tool.send_message(msg, contact=contact)
+                        if res.success:
+                            target_name = contact or WhatsAppTool._last_searched_contact or "your contact"
+                            reply_text = f"Message sent to {target_name} on WhatsApp: '{msg}'{user_suffix}."
+                        else:
+                            reply_text = f"I could not send your message because {res.message}{user_suffix}."
                         tool_steps = [f"whatsapp_send('{msg}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif ytm_intent:
+                    from tools.youtube_music_tool import YouTubeMusicTool
+                    ytm_tool = YouTubeMusicTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = ytm_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = ytm_intent["message"]
+                        tool_steps = ["youtube_music_capabilities()"]
+                    else:
+                        res = ytm_tool.run(**ytm_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"youtube_music_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif yt_intent:
+                    from tools.youtube_tool import YouTubeControlTool
+                    yt_tool = YouTubeControlTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = yt_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = yt_intent["message"]
+                        tool_steps = ["youtube_capabilities()"]
+                    else:
+                        res = yt_tool.run(**yt_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"youtube_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif fm_intent:
+                    from tools.file_manager_tool import FileManagerTool
+                    fm_tool = FileManagerTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = fm_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = fm_intent["message"]
+                        tool_steps = ["file_manager_capabilities()"]
+                    else:
+                        res = fm_tool.run(**fm_intent)
+                        reply_text = f"{res.message}\nAction complete{user_suffix}."
+                        tool_steps = [f"file_manager_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif browser_intent:
+                    from tools.browser_tools import BrowserControlTool
+                    b_tool = BrowserControlTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = browser_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = browser_intent["message"]
+                        tool_steps = ["browser_capabilities()"]
+                    else:
+                        res = b_tool.run(**browser_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"browser_control(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif dev_intent:
+                    from tools.dev_tools import DevAgentTool
+                    d_tool = DevAgentTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = dev_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = dev_intent["message"]
+                        tool_steps = ["dev_agent_capabilities()"]
+                    else:
+                        res = d_tool.run(**dev_intent)
+                        reply_text = f"{res.message}\nAction complete{user_suffix}."
+                        tool_steps = [f"dev_agent(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif anti_intent:
+                    from tools.antigravity_tools import AntigravityControlTool
+                    a_tool = AntigravityControlTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = anti_intent.get("action", "")
+                    if act == "capabilities":
+                        reply_text = anti_intent["message"]
+                        tool_steps = ["antigravity_capabilities()"]
+                    else:
+                        res = a_tool.run(**anti_intent)
+                        reply_text = f"{res.message}{user_suffix}"
+                        tool_steps = [f"antigravity_control(action='{act}')"]
                     try:
                         await memory_manager.save_interaction(role="user", content=user_text)
                         await memory_manager.save_interaction(role="assistant", content=reply_text)
