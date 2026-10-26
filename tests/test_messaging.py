@@ -432,11 +432,12 @@ def test_whatsapp_tool_dispatches_exact_contact_and_message(mock_send: Any) -> N
 
 def test_day3_acceptance_what_is_the_date() -> None:
     """Day 3 Acceptance test: 'What is the date today?' returns accurate date response."""
-    brain = JarvisBrain()
-    response = brain.chat("What is the date today?")
-    assert isinstance(response, str)
-    assert len(response) > 0
-    assert "date" in response.lower() or "today" in response.lower()
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key_dummy"}):
+        brain = JarvisBrain()
+        response = brain.chat("What is the date today?")
+        assert isinstance(response, str)
+        assert len(response) > 0
+        assert "date" in response.lower() or "today" in response.lower()
 
 
 @patch("messaging.tools.send_telegram", return_value=True)
@@ -767,6 +768,173 @@ def test_day8_acceptance_cli_autonomous_dispatch() -> None:
     # Clean up
     items = load_reminders()
     save_reminders([r for r in items if r.get("text") != unique_text])
+
+
+# ==============================================================================
+# 10. Day 9: Voice Notes, Inline Confirmation Buttons & WhatsApp File Sharing
+# ==============================================================================
+
+def test_telegram_voice_note_handler() -> None:
+    """Owner voice notes must be downloaded, transcribed, and answered by handler."""
+    from messaging.telegram_bot import start_bot
+
+    mock_bot = MagicMock()
+    registered_handlers = {}
+
+    def mock_message_handler(*args: Any, **kwargs: Any) -> Any:
+        def decorator(fn: Any) -> Any:
+            if "content_types" in kwargs:
+                for ct in kwargs["content_types"]:
+                    registered_handlers[ct] = fn
+            return fn
+        return decorator
+
+    mock_bot.message_handler = mock_message_handler
+    mock_bot.infinity_polling = MagicMock()
+    mock_bot.get_file.return_value = MagicMock(file_path="voice/memo1.ogg")
+    mock_bot.download_file.return_value = b"OggS_fake_voice_data"
+
+    with patch("messaging.telegram_bot.get_owner_id", return_value=12345):
+        start_bot(handler=lambda txt: f"Echoing: {txt}", bot_instance=mock_bot)
+        voice_fn = registered_handlers.get("voice")
+        assert voice_fn is not None, "Missing voice message handler"
+
+        fake_msg = MagicMock()
+        fake_msg.chat.id = 12345
+        fake_voice = MagicMock()
+        fake_voice.file_id = "voice_file_abc_999"
+        fake_msg.voice = fake_voice
+        fake_msg.audio = None
+
+        with patch("messaging.telegram_bot.split_message", side_effect=lambda t: [t]):
+            voice_fn(fake_msg)
+
+        assert mock_bot.send_message.called
+        call_text = mock_bot.send_message.call_args[0][1]
+        assert "Heard:" in call_text or "Echoing:" in call_text
+
+
+def test_telegram_inline_confirmation_buttons() -> None:
+    """send_telegram_with_confirmation must deliver message with InlineKeyboardMarkup."""
+    from messaging.telegram_bot import send_telegram_with_confirmation
+
+    mock_bot = MagicMock()
+    with patch("messaging.telegram_bot.get_owner_id", return_value=12345):
+        ok = send_telegram_with_confirmation(
+            text="Confirm WhatsApp send to Jayesh?",
+            action_token="AUTH_TOKEN_777",
+            confirm_label="Approve",
+            cancel_label="Reject",
+            bot_instance=mock_bot,
+        )
+        assert ok is True
+        assert mock_bot.send_message.called
+        call_kwargs = mock_bot.send_message.call_args[1]
+        markup = call_kwargs.get("reply_markup")
+        assert markup is not None
+        # Check inline keyboard has confirm and cancel buttons
+        buttons = markup.keyboard[0]
+        assert len(buttons) == 2
+        assert buttons[0].callback_data == "confirm:AUTH_TOKEN_777"
+        assert buttons[1].callback_data == "cancel:AUTH_TOKEN_777"
+
+
+def test_telegram_callback_query_confirm_and_cancel() -> None:
+    """Callback queries from owner must confirm or cancel actions."""
+    from messaging.telegram_bot import start_bot
+
+    mock_bot = MagicMock()
+    registered_callbacks = []
+
+    def mock_callback_handler(*args: Any, **kwargs: Any) -> Any:
+        def decorator(fn: Any) -> Any:
+            registered_callbacks.append(fn)
+            return fn
+        return decorator
+
+    mock_bot.callback_query_handler = mock_callback_handler
+    mock_bot.infinity_polling = MagicMock()
+
+    with patch("messaging.telegram_bot.get_owner_id", return_value=12345):
+        start_bot(bot_instance=mock_bot)
+        assert len(registered_callbacks) > 0
+        cb_fn = registered_callbacks[0]
+
+        # 1. Test confirmation click
+        fake_call = MagicMock()
+        fake_call.from_user.id = 12345
+        fake_call.data = "confirm:TOKEN_XYZ"
+        fake_call.message.chat.id = 12345
+        fake_call.message.message_id = 99
+
+        cb_fn(fake_call)
+        assert mock_bot.edit_message_text.called
+        assert "Confirmed" in mock_bot.edit_message_text.call_args[1]["text"]
+
+        # 2. Test cancellation click
+        fake_call.data = "cancel:TOKEN_XYZ"
+        cb_fn(fake_call)
+        assert "cancelled" in mock_bot.edit_message_text.call_args[1]["text"].lower()
+
+
+def test_send_whatsapp_file_tool_schema() -> None:
+    """SendWhatsAppFileTool schema must define contact, file_path, and caption."""
+    from messaging.tools import SendWhatsAppFileTool
+
+    tool = SendWhatsAppFileTool()
+    schema = tool.get_schema()
+    assert schema["name"] == "send_whatsapp_file"
+    assert "contact" in schema["parameters"]["properties"]
+    assert "file_path" in schema["parameters"]["properties"]
+    assert "contact" in schema["parameters"]["required"]
+    assert "file_path" in schema["parameters"]["required"]
+
+
+def test_send_whatsapp_file_tool_execution() -> None:
+    """SendWhatsAppFileTool must validate inputs and dispatch via share_whatsapp_file."""
+    from messaging.tools import SendWhatsAppFileTool
+
+    tool = SendWhatsAppFileTool()
+    # Missing contact
+    assert not tool.run(contact="", file_path="test.pdf").success
+    # Missing file_path
+    assert not tool.run(contact="Jayesh", file_path="").success
+
+    with patch("messaging.tools.share_whatsapp_file", return_value="Successfully shared file 'test.pdf' with Jayesh on WhatsApp."):
+        res = tool.run(contact="Jayesh", file_path="workspace/test.pdf", caption="Review this")
+        assert res.success is True
+        assert "Successfully shared file" in res.message
+
+
+def test_search_whatsapp_contacts_tool_query() -> None:
+    """SearchWhatsAppContactsTool should return matching contacts without exposing numbers."""
+    from messaging.tools import SearchWhatsAppContactsTool
+
+    tool = SearchWhatsAppContactsTool()
+    assert not tool.run(query="").success
+
+    with patch("messaging.tools.load_saved_contacts", return_value={"Jayesh": "+919876543210", "Aryan": "+919123456789"}):
+        res = tool.run(query="jay")
+        assert res.success is True
+        assert "Jayesh" in res.data["contacts"]
+        assert "+919876543210" not in res.message
+
+
+def test_day9_acceptance_all_tools_in_registry() -> None:
+    """Day 9 Acceptance Test: All 6 messaging tools are auto-discovered and registered in TOOL_REGISTRY."""
+    from tools.registry import TOOL_REGISTRY, auto_load_module_tools
+
+    auto_load_module_tools()
+    expected_tools = [
+        "send_telegram",
+        "search_whatsapp_contacts",
+        "send_whatsapp",
+        "send_whatsapp_file",
+        "set_reminder",
+        "list_reminders",
+    ]
+    for name in expected_tools:
+        assert name in TOOL_REGISTRY, f"Tool '{name}' was not found in TOOL_REGISTRY"
 
 
 if __name__ == "__main__":

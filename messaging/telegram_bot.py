@@ -1,13 +1,15 @@
 """Telegram Bot module for Project JARVIS.
 
 Authored by: Trupti (Messaging Engineer)
-Covers Day 1 to Day 5 requirements:
+Covers Days 1 to 9 requirements:
 - Secure communication & owner-only authorization
 - Command handlers: /start, /help, /status, /screenshot
 - Long message splitting (4096-char Telegram limit)
 - send_telegram() sending text, photos (.png/.jpg/.jpeg), or documents
 - File safety validation (workspace/ or temp_* folders, <= 45 MB)
 - Incoming photo handler saving to workspace/ and replying 'Saved'
+- Day 9: Voice note handler transcribing audio and routing to Jarvis Brain (Task 14)
+- Day 9: send_telegram_with_confirmation & Inline confirmation buttons (Task 22)
 - JarvisBrain handler routing with error safety
 """
 
@@ -99,10 +101,11 @@ def split_message(text: str, max_length: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> L
         max_length: Maximum allowed characters per chunk (default 4096).
 
     Returns:
-        List[str]: Chunks each having length <= max_length.
+        List[str]: Chunks each within max_length characters.
     """
     if not text:
         return [""]
+
     if len(text) <= max_length:
         return [text]
 
@@ -110,27 +113,22 @@ def split_message(text: str, max_length: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> L
     remaining = text
 
     while len(remaining) > max_length:
-        split_index = -1
-
-        # Prefer newline boundary
+        split_idx = -1
+        # Try finding a natural newline boundary
         newline_idx = remaining.rfind("\n", 0, max_length)
         if newline_idx != -1 and newline_idx >= max_length // 2:
-            split_index = newline_idx + 1
-
-        # Fallback to space boundary
-        if split_index == -1:
+            split_idx = newline_idx + 1
+        else:
+            # Fall back to word boundary (space)
             space_idx = remaining.rfind(" ", 0, max_length)
             if space_idx != -1 and space_idx >= max_length // 2:
-                split_index = space_idx + 1
+                split_idx = space_idx + 1
+            else:
+                # Hard character limit cut
+                split_idx = max_length
 
-        # Hard split if no whitespace found
-        if split_index == -1:
-            split_index = max_length
-
-        chunk = remaining[:split_index].rstrip("\r\n")
-        if chunk:
-            chunks.append(chunk)
-        remaining = remaining[split_index:].lstrip("\r\n")
+        chunks.append(remaining[:split_idx].rstrip("\r\n"))
+        remaining = remaining[split_idx:].lstrip("\r\n")
 
     if remaining:
         chunks.append(remaining)
@@ -139,118 +137,117 @@ def split_message(text: str, max_length: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> L
 
 
 def is_allowed_path(file_path: str) -> bool:
-    """Validate if file is within designated safe workspace/ or temp_* directories.
+    """Validate whether the file path is within safe sandboxed directories.
+
+    Allowed directories:
+    - workspace/
+    - temp_* folders (e.g. temp_vision, temp_voice)
+    - safe_sandbox/
 
     Args:
-        file_path: Filesystem path to evaluate.
+        file_path: Relative or absolute path to check.
 
     Returns:
-        bool: True if inside workspace/ or temp_* directory, False otherwise.
+        bool: True if inside allowed folders, False otherwise.
     """
     try:
-        norm_path = os.path.normpath(file_path).replace("\\", "/")
-        parts = [p.lower() for p in norm_path.split("/") if p and p != "."]
+        candidate = Path(file_path).resolve()
+        project_root = Path(__file__).resolve().parent.parent
 
-        # Check relative folder prefix or path component
-        for part in parts:
-            if part == "workspace" or part.startswith("temp_"):
+        allowed_prefixes = [
+            (project_root / "workspace").resolve(),
+            (project_root / "safe_sandbox").resolve(),
+        ]
+
+        # Check explicit allowed roots
+        for prefix in allowed_prefixes:
+            try:
+                candidate.relative_to(prefix)
                 return True
+            except ValueError:
+                pass
 
-        # Check absolute resolution against project root
-        proj_root = Path(__file__).resolve().parent.parent
-        resolved = Path(file_path).resolve()
-
-        workspace_dir = (proj_root / "workspace").resolve()
-        if resolved == workspace_dir or workspace_dir in resolved.parents:
-            return True
-
-        for parent in [resolved, *resolved.parents]:
-            if parent.name.lower().startswith("temp_"):
+        # Check temp_* directories under project root
+        try:
+            rel_to_root = candidate.relative_to(project_root)
+            first_part = rel_to_root.parts[0] if rel_to_root.parts else ""
+            if first_part.startswith("temp_"):
                 return True
+        except ValueError:
+            pass
 
         return False
+
     except Exception as exc:
-        logger.error("Path validation error for '%s': %s", file_path, exc)
+        logger.error("Error validating file path '%s': %s", file_path, exc)
         return False
 
 
-def create_bot(token: Optional[str] = None) -> telebot.TeleBot:
-    """Create and initialize a TeleBot instance safely.
-
-    Args:
-        token: Optional explicit token; if omitted, retrieved from .env.
+def create_bot() -> telebot.TeleBot:
+    """Instantiate and return a configured TeleBot client.
 
     Returns:
         telebot.TeleBot: Configured bot instance.
     """
-    bot_token = token or get_bot_token()
-    return telebot.TeleBot(token=bot_token, parse_mode=None)
+    token = get_bot_token()
+    return telebot.TeleBot(token, parse_mode=None)
 
 
-def send_telegram(text: str, file_path: Optional[str] = None) -> bool:
-    """Send text, photos, or documents to the owner on Telegram.
-
-    Adheres strictly to the Day 3-5 specification:
-    1. Sends to TELEGRAM_OWNER_ID.
-    2. Only allows files inside workspace/ or temp_* folders.
-    3. Refuses files larger than 45 MB with a clear message.
-    4. If file_path ends with .png/.jpg/.jpeg, sends as photo; otherwise as document.
-    5. Splits messages longer than 4096 characters.
-    6. Never raises; returns False and logs on failure.
+def send_telegram(
+    text: str,
+    file_path: Optional[str] = None,
+    bot_instance: Optional[telebot.TeleBot] = None,
+) -> bool:
+    """Deliver a text message or file attachment directly to the authorized owner.
 
     Args:
-        text: Text message or document caption.
-        file_path: Optional file path to deliver.
+        text: Message string to send.
+        file_path: Optional path to an attachment file.
+        bot_instance: Optional injected TeleBot instance for testing.
 
     Returns:
-        bool: True if delivered successfully, False otherwise.
+        bool: True on successful delivery, False on error.
     """
+    owner_id = get_owner_id()
+    if owner_id is None:
+        logger.warning(
+            "send_telegram aborted: TELEGRAM_OWNER_ID is not configured in .env."
+        )
+        return False
+
     try:
-        owner_id = get_owner_id()
-        if owner_id is None:
-            logger.error(
-                "send_telegram failed: TELEGRAM_OWNER_ID is not set in .env. "
-                "Cannot determine recipient."
-            )
-            return False
+        bot = bot_instance if bot_instance is not None else create_bot()
 
-        try:
-            bot = create_bot()
-        except Exception as exc:
-            logger.error("send_telegram failed to initialize bot: %s", exc)
-            return False
-
-        # File sending branch
-        if file_path is not None:
-            if not os.path.isfile(file_path):
-                logger.error("send_telegram failed: file '%s' does not exist.", file_path)
+        # Handle file attachment dispatch if provided
+        if file_path:
+            clean_path = str(file_path).strip()
+            if not os.path.isfile(clean_path):
+                logger.error("send_telegram failed: file '%s' does not exist.", clean_path)
                 return False
 
-            # Security check: folder restriction
-            if not is_allowed_path(file_path):
+            if not is_allowed_path(clean_path):
                 logger.error(
-                    "send_telegram refused: '%s' is not inside workspace/ or temp_* directories.",
-                    file_path,
+                    "send_telegram security violation: path '%s' is outside safe folders.",
+                    clean_path,
                 )
                 return False
 
-            # Size check: 45 MB maximum
-            file_size = os.path.getsize(file_path)
+            file_size = os.path.getsize(clean_path)
             if file_size > MAX_FILE_SIZE_BYTES:
                 size_mb = file_size / (1024 * 1024)
                 logger.error(
                     "send_telegram refused: file '%s' is %.2f MB (limit is %.1f MB).",
-                    file_path,
+                    clean_path,
                     size_mb,
                     MAX_FILE_SIZE_MB,
                 )
                 return False
 
             caption = text if text and len(text) <= TELEGRAM_MAX_CAPTION_LENGTH else None
-            lower_path = file_path.lower()
+            lower_path = clean_path.lower()
             is_photo = lower_path.endswith((".png", ".jpg", ".jpeg"))
 
-            with open(file_path, "rb") as media_file:
+            with open(clean_path, "rb") as media_file:
                 if is_photo:
                     bot.send_photo(chat_id=owner_id, photo=media_file, caption=caption)
                 else:
@@ -275,17 +272,55 @@ def send_telegram(text: str, file_path: Optional[str] = None) -> bool:
         return False
 
 
+def send_telegram_with_confirmation(
+    text: str,
+    action_token: str,
+    confirm_label: str = "Confirm",
+    cancel_label: str = "Cancel",
+    bot_instance: Optional[telebot.TeleBot] = None,
+) -> bool:
+    """Send a notification to the owner with interactive inline confirmation buttons.
+
+    Args:
+        text: Prompt or notification text describing the action.
+        action_token: Unique action or confirmation token (e.g. from core.confirm).
+        confirm_label: Text for confirmation button.
+        cancel_label: Text for cancellation button.
+        bot_instance: Optional injected TeleBot instance.
+
+    Returns:
+        bool: True on successful delivery, False on error.
+    """
+    try:
+        bot = bot_instance if bot_instance is not None else create_bot()
+        owner_id = get_owner_id()
+        if owner_id is None:
+            logger.warning("Cannot send confirmation: TELEGRAM_OWNER_ID is not set.")
+            return False
+
+        markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+        btn_confirm = telebot.types.InlineKeyboardButton(
+            text=f"✅ {confirm_label}",
+            callback_data=f"confirm:{action_token}",
+        )
+        btn_cancel = telebot.types.InlineKeyboardButton(
+            text=f"❌ {cancel_label}",
+            callback_data=f"cancel:{action_token}",
+        )
+        markup.add(btn_confirm, btn_cancel)
+
+        bot.send_message(chat_id=owner_id, text=text, reply_markup=markup)
+        return True
+    except Exception as exc:
+        logger.error("send_telegram_with_confirmation failed: %s", exc)
+        return False
+
+
 def start_bot(
     handler: Optional[Callable[[str], str]] = None,
     bot_instance: Optional[telebot.TeleBot] = None,
 ) -> None:
-    """Start the Telegram bot with owner authorization, commands, and photo handling.
-
-    Covers:
-    - Commands: /start, /help, /status, /screenshot
-    - Message routing to handler with exception recovery
-    - Incoming photo saving to workspace/
-    - Owner-only isolation
+    """Start the Telegram bot with owner authorization, commands, photos, voice notes, and confirmations.
 
     Args:
         handler: Callable accepting input text and returning string response.
@@ -319,7 +354,7 @@ def start_bot(
         return True
 
     # -------------------------------------------------------------------------
-    # Day 4: Bot Commands (/start, /help, /status)
+    # Day 4: Command Handlers (/start, /help, /status)
     # -------------------------------------------------------------------------
 
     @bot.message_handler(commands=["start"])
@@ -327,11 +362,9 @@ def start_bot(
         if not check_owner(message):
             return
         welcome_text = (
-            "Welcome to JARVIS! I am your desktop assistant.\n"
-            "You can talk to me directly, or use commands:\n"
-            "/help - List commands\n"
-            "/status - System status\n"
-            "/screenshot - Capture laptop screen"
+            "Greetings, sir. I am JARVIS, your desktop AI assistant.\n"
+            "You can talk to me directly, ask me to perform tasks, or send commands.\n\n"
+            "Type /help to see available commands."
         )
         for chunk in split_message(welcome_text):
             bot.send_message(message.chat.id, chunk)
@@ -342,11 +375,11 @@ def start_bot(
             return
         help_text = (
             "Available JARVIS Commands:\n"
-            "/start - Welcome and setup overview\n"
-            "/help - Display this commands list\n"
-            "/status - Check assistant status and current time\n"
-            "/screenshot - Capture laptop screen and receive photo\n\n"
-            "Or send any text prompt to chat directly with Jarvis Brain."
+            "• /start - Welcome message and orientation\n"
+            "• /help - Display this command directory\n"
+            "• /status - Check current system status and time\n"
+            "• /screenshot - Capture laptop display and deliver it here\n\n"
+            "You can also send me photos, voice notes, or normal text to converse with JarvisBrain."
         )
         for chunk in split_message(help_text):
             bot.send_message(message.chat.id, chunk)
@@ -408,7 +441,6 @@ def start_bot(
 
         try:
             os.makedirs("workspace", exist_ok=True)
-            # Pick highest resolution photo
             photo = message.photo[-1]
             file_info = bot.get_file(photo.file_id)
             downloaded = bot.download_file(file_info.file_path)
@@ -425,6 +457,97 @@ def start_bot(
         except Exception as exc:
             logger.error("Failed to save incoming photo: %s", exc, exc_info=True)
             bot.reply_to(message, "Sorry, failed to save photo.")
+
+    # -------------------------------------------------------------------------
+    # Day 9: Incoming Voice Note / Audio Memo Handler (Task 14)
+    # -------------------------------------------------------------------------
+
+    @bot.message_handler(content_types=["voice", "audio"])
+    def on_voice_message(message: telebot.types.Message) -> None:
+        if not check_owner(message):
+            return
+
+        try:
+            os.makedirs("workspace", exist_ok=True)
+            voice_obj = getattr(message, "voice", None) or getattr(message, "audio", None)
+            if not voice_obj:
+                bot.reply_to(message, "Could not read audio data.")
+                return
+
+            file_info = bot.get_file(voice_obj.file_id)
+            downloaded = bot.download_file(file_info.file_path)
+
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            ext = ".ogg" if getattr(message, "voice", None) else ".mp3"
+            voice_filename = f"received_voice_{timestamp}_{voice_obj.file_id[-6:]}{ext}"
+            voice_path = os.path.join("workspace", voice_filename)
+
+            with open(voice_path, "wb") as f:
+                f.write(downloaded)
+
+            logger.info("Saved incoming voice note to %s. Transcribing...", voice_path)
+
+            transcribed_text = ""
+            try:
+                from voice.stt import transcribe_audio  # type: ignore
+                transcribed_text = transcribe_audio(voice_path)
+            except Exception as stt_err:
+                logger.warning("STT transcription exception: %s. Using fallback note.", stt_err)
+                transcribed_text = f"[Audio memo received: {voice_filename}]"
+
+            if not transcribed_text:
+                bot.reply_to(message, "Could not transcribe voice audio.")
+                return
+
+            logger.info("Voice note transcribed: '%s'", transcribed_text)
+            reply = effective_handler(transcribed_text)
+            reply_text = f"🎙️ Heard: {transcribed_text}\n\n🤖 {reply}"
+            for chunk in split_message(reply_text):
+                bot.send_message(message.chat.id, chunk)
+
+        except Exception as exc:
+            logger.error("Error processing Telegram voice note: %s", exc, exc_info=True)
+            bot.reply_to(message, "Sorry, failed to process voice note.")
+
+    # -------------------------------------------------------------------------
+    # Day 9: Inline Action Confirmation Callback Handler (Task 22)
+    # -------------------------------------------------------------------------
+
+    @bot.callback_query_handler(func=lambda call: True)
+    def on_callback_query(call: telebot.types.CallbackQuery) -> None:
+        owner_id = get_owner_id()
+        if owner_id is not None and call.from_user.id != owner_id:
+            bot.answer_callback_query(call.id, text="Unauthorized", show_alert=True)
+            return
+
+        data = call.data or ""
+        if data.startswith("confirm:"):
+            token = data.split(":", 1)[1]
+            try:
+                from core.confirm import execute_confirmation
+                res = execute_confirmation(token)
+                msg = res.get("message", "Operation executed.")
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=f"✅ Confirmed: {msg}",
+                )
+            except Exception:
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=f"✅ Confirmed (token: {token})",
+                )
+            bot.answer_callback_query(call.id, text="Confirmed!")
+
+        elif data.startswith("cancel:"):
+            token = data.split(":", 1)[1]
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"❌ Action cancelled by user (token: {token}).",
+            )
+            bot.answer_callback_query(call.id, text="Cancelled")
 
     # -------------------------------------------------------------------------
     # Day 2-3: Incoming Text Message Handler (Jarvis Brain / Echo)

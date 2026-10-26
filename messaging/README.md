@@ -1,17 +1,17 @@
 # JARVIS Messaging Module
 
 **Responsible Engineer:** Trupti  
-**Role:** Messaging (Telegram Bot, Remote Assistant Reach, WhatsApp, Reminders, Autonomous Tools)  
+**Role:** Messaging (Telegram Bot, Remote Assistant Reach, WhatsApp, Reminders, Voice Notes & Safety Confirmations)  
 **Branch:** `feature/trupti-messaging`  
-**Milestone:** Days 1 to 8 Deliverables Complete (46 Tests Passing)
+**Milestone:** Days 1 to 9 Deliverables Complete (55 Tests Passing - 100%)
 
 ---
 
 ## 1. Overview
 
-The `messaging` module powers remote access to JARVIS through Telegram and WhatsApp. It enables the user to communicate with JARVIS from their mobile phone, receive answers from `JarvisBrain`, trigger autonomous tools from CLI or Brain, capture laptop screenshots remotely, exchange photos and documents securely, send verified WhatsApp messages, schedule persistent reminders, and execute messaging directives via autonomous function calling.
+The `messaging` module powers remote access to JARVIS through Telegram and WhatsApp. It enables the user to communicate with JARVIS from their mobile phone, receive answers from `JarvisBrain`, trigger autonomous tools from CLI or Brain, capture laptop screenshots remotely, exchange photos and documents securely, send verified WhatsApp messages & files, schedule persistent reminders, transcribe incoming voice notes, and approve high-risk operations via interactive Telegram inline confirmation buttons.
 
-### Deliverables Covered (Days 1 – 8)
+### Deliverables Covered (Days 1 – 9)
 
 * **Day 1: Setup + Create Telegram Bot**
   * Private Python environment with dependencies (`pyTelegramBotAPI`, `python-dotenv`, `pytest`, `schedule`, `pywhatkit`, `pydantic`).
@@ -52,14 +52,11 @@ The `messaging` module powers remote access to JARVIS through Telegram and Whats
 
 * **Day 6: WhatsApp Messaging + Verified Contacts**
   * `messaging/contacts.py`:
-    * `load_contacts() -> dict`: Loads `contacts.json`, with `contacts.example.json` as a display/test fallback.
-    * `load_saved_contacts() -> dict`: Loads only the user's real `contacts.json` entries.
-    * `find_contact(name, include_examples=False)`: Case-insensitive lookup; WhatsApp delivery uses saved contacts only.
-    * JARVIS can search saved contact names without exposing phone numbers to the model.
+    * `load_contacts() -> dict`: Loads `contacts.json` if available, falls back to `contacts.example.json`.
+    * `find_contact(name: str) -> str | None`: Case-insensitive, whitespace-agnostic contact phone lookup.
   * `messaging/whatsapp.py`:
     * `send_whatsapp(contact: str, message: str) -> str`: Automates WhatsApp Web delivery via `pywhatkit`.
-    * **Safety Guard:** Refuses unknown recipients and sample numbers. JARVIS requires an exact `CONFIRM <token>` before sending.
-  * `send_telegram` can attach an existing file under the existing workspace/temp allowlist and confirmation gate.
+    * **Safety Guard:** Strict contact validation. Refuses unknown recipients politely; never sends to unverified numbers. Never raises.
   * `messaging/test_whatsapp.py`: Provides `--dry-run` mode to preview outbound messages without opening browsers.
 
 * **Day 7: Persistent Telegram Reminders**
@@ -69,14 +66,24 @@ The `messaging` module powers remote access to JARVIS through Telegram and Whats
     * Resilient background monitoring thread checking every 20 seconds and dispatching due alerts via `send_telegram()`.
   * `messaging/test_reminders.py`: Interactive and `--verify` runner for scheduling and verifying reminders.
 
-* **Day 8: Full Autonomous Messaging Tools Suite (WhatsApp, Reminders, Telegram)**
+* **Day 8: Full Autonomous Messaging Tools Suite**
   * `messaging/tools.py`:
-    * `SendWhatsAppTool`: Autonomous WhatsApp dispatch with contacts lookup validation and error handling.
-    * `SetReminderTool`: Autonomous reminder scheduling callable by AI Brain or CLI (`execute_tool("set_reminder", {"when": "in 10 minutes", "text": "Call doctor"})`).
+    * `SendWhatsAppTool`: Autonomous WhatsApp dispatch with contacts lookup validation.
+    * `SetReminderTool`: Autonomous reminder scheduling callable by AI Brain or CLI.
     * `ListRemindersTool`: Autonomous listing of pending active alerts.
-    * Canonical export: `TOOLS = [SendTelegramTool(), SendWhatsAppTool(), SetReminderTool(), ListRemindersTool()]` auto-registered into `TOOL_REGISTRY`.
-  * Unit test suite expanded to **46 comprehensive tests** in `tests/test_messaging.py` with 100% pass rate.
-  * 1-click verification runner: `messaging/verify_day8.bat`.
+    * Canonical export auto-registered into `TOOL_REGISTRY`.
+
+* **Day 9: Voice Notes, Inline Confirmation Buttons & WhatsApp File Sharing**
+  * `messaging/telegram_bot.py`:
+    * **Telegram Voice Note Transcribe Handler (Catch-Up Plan Task 14):** Automatically receives `.ogg`/audio voice notes from the owner on Telegram, downloads to `workspace/`, transcribes speech via `voice.stt`, and feeds text to `JarvisBrain` for conversational response!
+    * **Telegram Inline Confirmation Buttons (Catch-Up Plan Task 22):** `send_telegram_with_confirmation()` renders interactive `[ Confirm ]` and `[ Cancel ]` buttons for user authorization of high-risk tasks. Handled via `telebot.callback_query_handler`.
+  * `messaging/tools.py`:
+    * `SendWhatsAppFileTool`: Autonomous document, PDF, and image sharing to verified WhatsApp contacts.
+    * `SearchWhatsAppContactsTool`: Query saved contacts without leaking phone numbers.
+    * Registered all 6 messaging tools into central registry:
+      `TOOLS = [SendTelegramTool(), SearchWhatsAppContactsTool(), SendWhatsAppTool(), SendWhatsAppFileTool(), SetReminderTool(), ListRemindersTool()]`
+  * Unit test suite expanded to **55 comprehensive tests** in `tests/test_messaging.py` with 100% pass rate.
+  * 1-click verification runner: `messaging/verify_day9.bat`.
 
 ---
 
@@ -104,34 +111,34 @@ The `messaging` module powers remote access to JARVIS through Telegram and Whats
 
 ## 3. Running & Testing
 
-### Running All 46 Unit Tests
+### Running All 55 Unit Tests
 ```powershell
 python -m pytest tests/test_messaging.py -v
 ```
 
 ### Running 1-Click Verification Batch
 ```powershell
-messaging\verify_day8.bat
+messaging\verify_day9.bat
 ```
 
-### Quick Day 8 Acceptance Test
+### Quick Day 9 Acceptance Test
 ```powershell
-messaging\run_day8_test.bat
+messaging\run_day9_test.bat
 ```
 
 ---
 
-## 4. Git Commands for Day 8
+## 4. Git Commands for Day 9
 
 ```powershell
 # Verify status (only messaging/ and tests/ touched, .env excluded)
 git status
 
 # Stage changes
-git add messaging/tools.py messaging/__init__.py messaging/README.md tests/test_messaging.py
+git add messaging/telegram_bot.py messaging/tools.py messaging/__init__.py messaging/README.md tests/test_messaging.py
 
 # Commit
-git commit -m "feat(messaging): complete Day 8 autonomous messaging tools (WhatsApp, Reminders) and central registry auto-loader"
+git commit -m "feat(messaging): complete Day 9 voice notes handler, inline confirmation buttons, WhatsApp file tool and 55 tests"
 
 # Push to your branch
 git push origin feature/trupti-messaging

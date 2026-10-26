@@ -188,7 +188,7 @@ class SendWhatsAppTool(BaseTool):
 
             contact_clean = str(contact).strip()
             message_clean = str(message).strip()
-            outcome = send_whatsapp(contact=contact_clean, message=message_clean)
+            outcome = send_whatsapp(contact_clean, message_clean)
 
             if "not in your saved contacts" in outcome or "Failed to send" in outcome:
                 return ToolResult(
