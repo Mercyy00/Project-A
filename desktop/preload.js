@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximizeWindow: () => ipcRenderer.send('window-maximize'),
   closeWindow: () => ipcRenderer.send('window-close'),
   openExternal: (url) => ipcRenderer.send('open-external', url),
+  retryBackend: () => ipcRenderer.send('retry-backend'),
 });

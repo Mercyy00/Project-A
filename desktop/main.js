@@ -18,13 +18,16 @@ let isQuitting = false;
 // Single-instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
+  console.log('[!] Another instance of JARVIS Desktop is already running. Focusing existing window...');
   app.quit();
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.setAlwaysOnTop(true);
       mainWindow.focus();
+      mainWindow.setAlwaysOnTop(false);
     }
   });
 }
@@ -61,12 +64,14 @@ async function waitForBackend(maxWaitMs = 30000) {
   while (Date.now() - startTime < maxWaitMs) {
     const isHealthy = await checkBackendHealth(800);
     if (isHealthy) return true;
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 600));
   }
   return false;
 }
 
 function spawnPythonBackend() {
+  if (pythonProcess) return;
+
   const pyExe = findPythonExecutable();
   const rootDir = path.resolve(__dirname, '..');
   const scriptPath = path.join(rootDir, 'main.py');
@@ -84,6 +89,7 @@ function spawnPythonBackend() {
     cwd: rootDir,
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   backendSpawnedByApp = true;
 
@@ -137,7 +143,7 @@ function createMainWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       spellcheck: false,
     },
   };
@@ -147,15 +153,15 @@ function createMainWindow() {
     windowOpts.backgroundMaterial = 'acrylic';
     windowOpts.titleBarOverlay = {
       color: 'rgba(0, 0, 0, 0)',
-      symbolColor: '#3a3a3c',
-      height: 52,
+      symbolColor: '#8b949e',
+      height: 48,
     };
-    windowOpts.backgroundColor = '#f5f5f7';
+    windowOpts.backgroundColor = '#0a0c10';
   } else if (process.platform === 'darwin') {
     windowOpts.vibrancy = 'under-window';
     windowOpts.visualEffectState = 'active';
   } else {
-    windowOpts.backgroundColor = '#f5f5f7';
+    windowOpts.backgroundColor = '#0a0c10';
   }
 
   mainWindow = new BrowserWindow(windowOpts);
@@ -183,7 +189,9 @@ function createMainWindow() {
     }
   });
 
-  mainWindow.loadURL(BACKEND_URL);
+  // Show splash screen immediately so window appears without delay
+  const splashPath = path.join(__dirname, 'splash.html');
+  mainWindow.loadFile(splashPath);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -195,6 +203,7 @@ function createMainWindow() {
       // Hide to system tray instead of destroying
       event.preventDefault();
       mainWindow.hide();
+      console.log('[*] JARVIS window minimized to tray. Double-click tray icon or press Ctrl+Shift+Space to summon.');
     }
   });
 }
@@ -207,7 +216,7 @@ function setupTray() {
       trayIcon = nativeImage.createFromPath(iconPath);
     }
     if (!trayIcon || trayIcon.isEmpty()) {
-      // Fallback empty transparent 16x16 icon
+      // Fallback empty transparent icon
       trayIcon = nativeImage.createEmpty();
     }
 
@@ -219,6 +228,7 @@ function setupTray() {
         label: 'Show JARVIS',
         click: () => {
           if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.show();
             mainWindow.focus();
           }
@@ -243,8 +253,10 @@ function setupTray() {
     tray.setContextMenu(contextMenu);
     tray.on('double-click', () => {
       if (mainWindow) {
-        if (mainWindow.isVisible()) mainWindow.hide();
-        else {
+        if (mainWindow.isVisible()) {
+          mainWindow.hide();
+        } else {
+          if (mainWindow.isMinimized()) mainWindow.restore();
           mainWindow.show();
           mainWindow.focus();
         }
@@ -252,6 +264,37 @@ function setupTray() {
     });
   } catch (e) {
     console.warn('System tray setup notice:', e);
+  }
+}
+
+async function initializeBackendConnection() {
+  const alreadyRunning = await checkBackendHealth(500);
+  if (!alreadyRunning) {
+    spawnPythonBackend();
+  } else {
+    console.log('[*] Detected running JARVIS backend on port 8000. Attaching...');
+  }
+
+  const ready = await waitForBackend(30000);
+  if (ready) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      console.log(`[OK] Backend healthy. Loading interface: ${BACKEND_URL}`);
+      mainWindow.loadURL(BACKEND_URL);
+    }
+  } else {
+    console.error('[ERROR] Backend connection timed out.');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.postMessage('message', {
+        type: 'STATUS_UPDATE',
+        message: 'Could not connect to Python Core at 127.0.0.1:8000',
+        failed: true,
+      });
+      dialog.showErrorBox(
+        'JARVIS Backend Failed to Start',
+        `Could not establish connection to ${BACKEND_URL}/health within 30 seconds.\n` +
+        'Please verify that Python 3.11+ and project dependencies are installed.'
+      );
+    }
   }
 }
 
@@ -277,40 +320,24 @@ ipcMain.on('open-external', (event, url) => {
   }
 });
 
+ipcMain.on('retry-backend', async () => {
+  console.log('[*] Retrying backend connection...');
+  await initializeBackendConnection();
+});
+
 app.whenReady().then(async () => {
-  // 1. Check if backend is already running
-  const alreadyRunning = await checkBackendHealth(500);
-  if (!alreadyRunning) {
-    spawnPythonBackend();
-  } else {
-    console.log('[*] Detected running JARVIS backend on port 8000. Attaching...');
-  }
-
-  // 2. Poll until backend is healthy
-  const ready = await waitForBackend(30000);
-  if (!ready) {
-    dialog.showErrorBox(
-      'JARVIS Backend Failed to Start',
-      `Could not establish connection to ${BACKEND_URL}/health within 30 seconds.\n` +
-      'Please check your Python environment or logs.'
-    );
-    stopPythonBackend();
-    app.quit();
-    return;
-  }
-
-  // 3. Create Desktop Window and System Tray
+  // 1. Create Desktop Window immediately with loading splash
   createMainWindow();
   setupTray();
 
-  // 4. Register Global Shortcut to Summon JARVIS (Ctrl+Shift+Space / Cmd+Shift+Space)
-  // Does not conflict with Ctrl+Alt+Q emergency switch
+  // 2. Register Global Shortcut to Summon JARVIS (Ctrl+Shift+Space / Cmd+Shift+Space)
   const summonKey = 'CommandOrControl+Shift+Space';
   const registered = globalShortcut.register(summonKey, () => {
     if (mainWindow) {
       if (mainWindow.isVisible() && mainWindow.isFocused()) {
         mainWindow.hide();
       } else {
+        if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
         mainWindow.focus();
       }
@@ -320,11 +347,16 @@ app.whenReady().then(async () => {
     console.log(`[OK] Global summon shortcut registered: ${summonKey}`);
   }
 
+  // 3. Connect to backend in background and navigate when ready
+  await initializeBackendConnection();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
     } else if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
+      mainWindow.focus();
     }
   });
 });
