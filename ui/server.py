@@ -2927,6 +2927,104 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Workspace & Document Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/conversations/recent", response_model=List[Dict[str, Any]])
+async def get_recent_conversations(limit: int = 10) -> List[Dict[str, Any]]:
+    """Retrieve recent user conversation topics from persistent memory."""
+    try:
+        from memory.storage import MemoryManager
+        mem = MemoryManager()
+        history = await mem.get_recent_history(limit=limit * 3)
+        user_turns = [turn for turn in reversed(history) if turn.get("role") == "user"]
+        unique_topics: List[Dict[str, Any]] = []
+        seen = set()
+        for turn in user_turns:
+            content = str(turn.get("content", "")).strip()
+            if not content:
+                continue
+            short_title = content if len(content) <= 32 else content[:30].strip() + "..."
+            lower_title = short_title.lower()
+            if lower_title not in seen:
+                seen.add(lower_title)
+                unique_topics.append({
+                    "id": turn.get("id"),
+                    "title": short_title,
+                    "prompt": content,
+                    "timestamp": turn.get("timestamp"),
+                })
+            if len(unique_topics) >= limit:
+                break
+        return unique_topics
+    except Exception as exc:
+        logger.debug("Failed to fetch recent conversations: %s", exc)
+        return []
+
+
+@app.get("/api/documents/recent", response_model=List[Dict[str, Any]])
+async def get_recent_documents(limit: int = 20) -> List[Dict[str, Any]]:
+    """Retrieve recent generated documents from workspace and downloads."""
+    try:
+        docs: List[Dict[str, Any]] = []
+        search_dirs = [
+            Path("workspace"),
+            Path("downloads"),
+            Path("output"),
+            Path.home() / "Downloads",
+            Path.home() / "Desktop",
+        ]
+        seen_paths = set()
+        for sdir in search_dirs:
+            if not sdir.exists():
+                continue
+            for ext in ("*.pdf", "*.docx", "*.pptx", "*.html"):
+                try:
+                    for fpath in sdir.glob(ext):
+                        full_str = str(fpath.resolve())
+                        if full_str in seen_paths:
+                            continue
+                        seen_paths.add(full_str)
+                        st = fpath.stat()
+                        docs.append({
+                            "title": fpath.stem.replace("_", " ").title(),
+                            "filename": fpath.name,
+                            "path": full_str,
+                            "size": st.st_size,
+                            "modified": st.st_mtime,
+                            "format": fpath.suffix.lstrip(".").lower(),
+                        })
+                except Exception:
+                    pass
+        docs.sort(key=lambda x: x["modified"], reverse=True)
+        return docs[:limit]
+    except Exception as exc:
+        logger.debug("Failed to list recent documents: %s", exc)
+        return []
+
+
+@app.post("/api/open-file")
+async def api_open_file(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Open a file using the system default application."""
+    file_path = str(payload.get("file_path", "")).strip()
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file_path required")
+    try:
+        target = Path(file_path).resolve()
+        if not target.exists():
+            return {"success": False, "message": f"File does not exist: {file_path}"}
+        if os.name == "nt":
+            os.startfile(str(target))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(target)])
+        return {"success": True, "message": f"Opened {target.name}"}
+    except Exception as exc:
+        return {"success": False, "message": f"Failed to open file: {exc}"}
+
+
+# ---------------------------------------------------------------------------
 # Static Web HUD Serving
 # ---------------------------------------------------------------------------
 
