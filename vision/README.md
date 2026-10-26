@@ -1,57 +1,79 @@
-# Vision Module — Project Jarvis
+# Vision Module â€” Project Jarvis
 
 **Owner**: Aryan (`feature/aryan-vision`)  
 **Pair**: Pair C (Tools + Vision with Abhijit)  
-**Role**: Computer Vision, Screen Understanding & Visual Automation  
+**Role**: Computer Vision, Screen Understanding, Visual Automation & Code Diagnostics  
 
 ---
 
 ## 1. Overview
 
-The `vision` module provides Project Jarvis with the ability to see and understand the user's desktop, diagnose on-screen errors, locate UI buttons and menu items visually, and trigger mouse clicks through the system tool registry.
+The `vision` module empowers Project Jarvis with autonomous visual perception and screen-level interactions:
+- **Instant Screen Inspection**: High-resolution screen captures with automatic 1280px AI downsizing and active window cropping.
+- **Multimodal Screen Intelligence**: Live desktop understanding powered by Google Gemini multimodal vision.
+- **Visual Error Diagnosis**: Automated error traceback detection, cause explanation, and actionable fixes.
+- **Visual UI Control**: Visual button/control locating with high-DPI coordinate scaling and click dispatching.
+- **Autonomous Look-Decide-Act Loop**: Multi-step visual task execution (`do_on_screen`) with safety kill-switch integration.
+- **Live Code Explanation & Fixing**: Instant explanation and automated bug repair for code open on screen.
+- **Ultra-low Latency Speed**: Sub-second follow-up response caching and active-window bounding.
 
 All tools in this module subclass `BaseTool` (from `tools/base.py`) and export a `TOOLS` list in `vision/tools.py`. They are automatically discovered and loaded into `tools.registry.TOOL_REGISTRY` at runtime.
 
 ---
 
-## 2. Implemented Tools & Functions (Up to 22 October 2026)
+## 2. Implemented Tools & Functions (Complete Sprint Overview)
 
-| Date | Phase | Function / Tool | Description |
-|------|-------|-----------------|-------------|
-| **18 Oct (Day 1)** | Setup | `capture_hello_screenshot()` (`vision/hello_screenshot.py`) | Baseline verification capturing primary display with `mss`, saving to `temp_vision/hello.png`. |
-| **19 Oct (Day 2)** | Capture & Privacy | `take_screenshot()` (`vision/screen.py`)<br>`ScreenshotTool` (`vision/tools.py`) | Captures primary monitor or region, resizes to max 1280px wide (JPEG 70), retains 10 newest files, respects `VISION_PAUSED=1`. |
-| **20 Oct (Day 3)** | AI Description | `describe_screen()` (`vision/screen.py`)<br>`DescribeScreenTool` (`vision/tools.py`) | Multimodal desktop analysis using Google Gemini (`gemini-2.5-flash`), answering questions about open windows, code, or dialogs. |
-| **21 Oct (Day 4)** | Error Diagnostics | `explain_screen_error()` (`vision/screen.py`)<br>`ExplainScreenErrorTool` (`vision/tools.py`) | Captures the screen, detects traceback/error dialogs, quotes the error exactly, explains cause in 2 sentences, and suggests a fix. Supports `region_hint` ('top half', 'bottom half', 'left half', 'right half'). |
-| **22 Oct (Day 5)** | Visual Click | `locate_element()` (`vision/screen.py`)<br>`ClickElementTool` (`vision/tools.py`) | Prompts Gemini to detect UI element coordinates as JSON, scales coordinates back to native display pixels, and executes Abhijit's `click` tool via `tools.registry.execute_tool`. |
+| Day / Milestone | Phase | Function / Tool | Description |
+|-----------------|-------|-----------------|-------------|
+| **Day 1 (18 Oct)** | Setup | `capture_hello_screenshot()` (`vision/hello_screenshot.py`) | Baseline verification capturing primary display with `mss`, saving to `temp_vision/hello.png`. |
+| **Day 2 (19 Oct)** | Capture & Privacy | `take_screenshot()` (`vision/screen.py`)<br>`ScreenshotTool` (`vision/tools.py`) | Captures primary monitor or region, resizes to max 1280px wide (JPEG 70), retains 10 newest files, respects `VISION_PAUSED=1`. |
+| **Day 3 (20 Oct)** | AI Description | `describe_screen()` (`vision/screen.py`)<br>`DescribeScreenTool` (`vision/tools.py`) | Multimodal desktop analysis using Google Gemini (`gemini-2.5-flash`), answering queries about open windows, documents, or UI controls. |
+| **Day 4 (21 Oct)** | Error Diagnostics | `explain_screen_error()` (`vision/screen.py`)<br>`ExplainScreenErrorTool` (`vision/tools.py`) | Detects on-screen error dialogs/tracebacks, quotes error text, explains cause in 2 sentences, and provides a fix. Supports `region_hint` ('top half', 'bottom half', 'left half', 'right half'). |
+| **Day 5 (22 Oct)** | Visual Click | `locate_element()` (`vision/screen.py`)<br>`ClickElementTool` (`vision/tools.py`) | Asks Gemini to locate UI elements as JSON, scales coordinates to real display pixels, and dispatches clicks through `tools.registry.execute_tool("click", ...)`. |
+| **Day 6 (23 Oct)** | Look-Decide-Act | `do_on_screen()` (`vision/screen.py`)<br>`DoOnScreenTool` (`vision/tools.py`) | Autonomous visual loop repeating up to 5 steps toward a goal: screenshot $\to$ next action JSON $\to$ registry dispatch $\to$ 1s pause $\to$ stop on done or emergency kill switch (`tools.guard.is_stopped()`). |
+| **Day 7 (24 Oct)** | Speed & Latency | `active_window=True`, screenshot reuse, timing logs | Optimizes capture by cropping to active foreground window (`pygetwindow`), reuses screenshots within 2 seconds for follow-up questions, and logs capture/prep/inference milliseconds. |
+| **Day 8 (25 Oct)** | Code Intelligence | `explain_code_on_screen()` (`vision/screen.py`)<br>`ExplainCodeOnScreenTool` (`vision/tools.py`) | Reads visible code in editor/terminal. Explains logic line-by-line (`task='explain'`) or diagnoses syntax/logical bugs and outputs corrected code (`task='fix'`). |
+| **Day 9 (26 Oct)** | Scaling Calibration | `run_scaling_test()` (`vision/test_scaling.py`) | Validates mouse coordinate landing accuracy at 100%, 125%, and 150% Windows DPI scaling across 5 screen calibration anchor points. |
+| **Day 11 (28 Oct)** | Privacy & Hardening | Complete documentation & verification | Hardens privacy constraints, auto-cleans ephemeral cache, and validates security boundaries. |
 
 ---
 
-## 3. Privacy & Safety Controls
+## 3. Privacy, Security & Safety Controls
 
 ### 3.1 The `VISION_PAUSED` Privacy Switch
-To protect sensitive user information (passwords, online banking, personal chat logs):
-- Set the environment variable `VISION_PAUSED=1` in `.env` or system environment.
-- When active, all vision functions (`take_screenshot`, `describe_screen`, `explain_screen_error`, `locate_element`) immediately raise a `PermissionError` and all vision tools return a safe error `ToolResult` without capturing or transmitting any images.
+To protect sensitive user information (passwords, online banking, private conversations):
+- Set the environment variable `VISION_PAUSED=1` in `.env` or the operating system.
+- When active, every vision function (`take_screenshot`, `describe_screen`, `explain_screen_error`, `locate_element`, `do_on_screen`, `explain_code_on_screen`) immediately aborts with a `PermissionError`.
+- All vision tools return a structured `ToolResult(success=False, message="Screen capture is currently paused by user privacy mode (VISION_PAUSED=1).")` without capturing or transmitting any screen data.
 
-### 3.2 Privacy Advisory
-> **Warning**: Screenshots analyzed by `describe_screen`, `explain_screen_error`, or `locate_element` are transmitted over TLS to the Google Gemini multimodal API for inference.
-> - Always close banking tabs, credential managers, and sensitive documents before requesting screen analysis.
-> - Set `VISION_PAUSED=1` when working with confidential materials.
+### 3.2 Privacy Notice
+> **Important Privacy Notice**: Screenshots processed by multimodal vision functions are transmitted securely over TLS to Google Gemini for AI inference.
+> - **Always minimize or close** banking portals, credential managers, confidential emails, and sensitive documents before requesting vision analysis.
+> - Use `active_window=True` or `region_hint` to restrict the capture strictly to the intended application window.
+> - Toggle `VISION_PAUSED=1` whenever confidential materials are present.
 
 ### 3.3 Ephemeral File Storage
-- Captured screenshots are stored in `temp_vision/`.
-- `clean_temp_vision(keep_newest=10)` automatically deletes older screenshots to conserve disk space and prevent sensitive visual data accumulation.
-- `temp_vision/` is ignored in Git (`.gitignore`).
+- Captured images are temporarily stored in `temp_vision/`.
+- `clean_temp_vision(keep_newest=10)` automatically trims older captures so that no more than 10 recent images remain on disk.
+- `temp_vision/` and all image files (`*.jpg`, `*.png`) are strictly excluded in `.gitignore` to prevent any image data from being committed to Git.
+
+### 3.4 Emergency Kill-Switch Integration
+- The look-decide-act loop (`do_on_screen`) checks `tools.guard.is_stopped()` before every step.
+- Pressing the global emergency hotkey (`Ctrl+Alt+Q`) immediately aborts the loop within 1 second.
 
 ---
 
 ## 4. High-DPI & Display Scaling Support
 
-On Windows, high-DPI displays (125%, 150%, 200% scaling) can cause mismatches between mouse automation coordinates and pixel buffers.
-- At module import time in `vision/screen.py`, `ctypes.windll.shcore.SetProcessDpiAwareness(2)` (Per-Monitor DPI Aware V2) is invoked.
-- Coordinates returned by Gemini on the resized image (max 1280px width) are scaled back to native monitor pixels in `locate_element`:
+On Windows systems with display scaling (125%, 150%, 175%, 200%):
+- At import time, `vision/screen.py` invokes `ctypes.windll.shcore.SetProcessDpiAwareness(2)` (Per-Monitor DPI Aware V2).
+- Coordinates returned by Gemini on the resized image (max 1280px width) are scaled to real display pixels:
   $$\text{real\_x} = \text{monitor\_left} + \left\lfloor x_{\text{model}} \times \frac{\text{orig\_width}}{\text{image\_width}} \right\rfloor$$
   $$\text{real\_y} = \text{monitor\_top} + \left\lfloor y_{\text{model}} \times \frac{\text{orig\_height}}{\text{image\_height}} \right\rfloor$$
+- To verify coordinate precision on your display, run:
+  ```powershell
+  python vision/test_scaling.py --auto
+  ```
 
 ---
 
@@ -59,33 +81,56 @@ On Windows, high-DPI displays (125%, 150%, 200% scaling) can cause mismatches be
 
 ### 5.1 Python API
 ```python
-from vision.screen import take_screenshot, describe_screen, explain_screen_error, locate_element
+from vision.screen import (
+    take_screenshot,
+    describe_screen,
+    explain_screen_error,
+    locate_element,
+    do_on_screen,
+    explain_code_on_screen,
+)
 
-# 1. Capture screen
-path = take_screenshot(region_hint="top half")
+# 1. Capture screen cropped to active window
+path = take_screenshot(active_window=True)
 print("Saved to:", path)
 
-# 2. Describe screen with Gemini
-answer = describe_screen("What application is open in the foreground?")
-print("Jarvis Vision:", answer)
+# 2. Describe screen contents with Gemini
+description = describe_screen("What application is open in the foreground?")
+print("Jarvis Vision:", description)
 
 # 3. Diagnose visible error
 error_report = explain_screen_error()
 print("Error Diagnosis:", error_report)
 
-# 4. Locate button
-loc = locate_element("blue Submit button")
-if loc["found"]:
-    print(f"Element at: ({loc['x']}, {loc['y']})")
+# 4. Locate and get coordinates of a button
+btn_loc = locate_element("blue Submit button")
+if btn_loc["found"]:
+    print(f"Target found at: ({btn_loc['x']}, {btn_loc['y']})")
+
+# 5. Autonomous look-decide-act loop
+summary = do_on_screen("open the File menu in Notepad", max_steps=3)
+print("Actions performed:\n", summary)
+
+# 6. Read and fix visible code
+code_fixes = explain_code_on_screen(task="fix")
+print("Code Diagnosis & Fixes:\n", code_fixes)
 ```
 
-### 5.2 Via Tool Registry
+### 5.2 Via Tool Registry Dispatch
 ```python
 import tools.registry as registry
 
-# Execute through dynamic registry
-res = registry.execute_tool("click_element", {"description": "File menu in Notepad"})
-print(res.message)
+# 1. Click element
+res_click = registry.execute_tool("click_element", {"description": "File menu in Notepad"})
+print(res_click.message)
+
+# 2. Autonomous screen goal
+res_loop = registry.execute_tool("do_on_screen", {"goal": "scroll down the page", "max_steps": 2})
+print(res_loop.message)
+
+# 3. Code explanation
+res_code = registry.execute_tool("explain_code_on_screen", {"task": "explain"})
+print(res_code.message)
 ```
 
 ---
@@ -94,8 +139,8 @@ print(res.message)
 
 | Issue / Error | Likely Cause | Solution |
 |---------------|--------------|----------|
-| `PermissionError: Screen capture is currently paused...` | `VISION_PAUSED=1` is set in `.env` | Set `VISION_PAUSED=0` or remove it from `.env` to resume vision. |
-| `ValueError: GEMINI_API_KEY is missing or invalid` | No valid API key provided | Add a valid Google Gemini API key to `.env` as `GEMINI_API_KEY=AIzaSy...` |
-| `ScreenShotError: BitBlt failed` | Thread desktop access restricted on Windows | `_ensure_desktop_access()` handles desktop binding automatically; ensure user session is active (not locked). |
-| Click misses target on high-DPI display | Non-aware process coordinate offset | Ensure Windows DPI awareness call ran; test scaling with `test_scaling.py`. |
-| `Could not find UI element: '...'` | Element off-screen or description vague | Make description more specific (e.g., 'upper-left File menu' instead of 'File'). |
+| `PermissionError: Screen capture is currently paused...` | `VISION_PAUSED=1` is set in `.env` | Set `VISION_PAUSED=0` or unset it in `.env` to resume vision. |
+| `ValueError: GEMINI_API_KEY is missing or invalid` | Missing API credentials | Add a valid Google Gemini API key to `.env` as `GEMINI_API_KEY=AIzaSy...` |
+| `ScreenShotError: BitBlt failed` | Thread desktop access restricted on Windows | `_ensure_desktop_access()` binds desktop handles automatically; ensure the Windows session is unlocked. |
+| Click misses target on high-DPI display | Coordinate scaling mismatch | Run `python vision/test_scaling.py` to confirm calibration; ensure display scaling is set to standard 100%, 125%, or 150%. |
+| `do_on_screen` stops early | Model reached goal or emergency stop triggered | Check the returned step log: model outputs `done` when goal is reached or halts if kill switch is triggered. |

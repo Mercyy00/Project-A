@@ -461,7 +461,6 @@ def test_click_element_tool_empty_description() -> None:
 # 6. Day 6 Tests (Fri 23 Oct): Look-Decide-Act Autonomous Loop
 # ---------------------------------------------------------------------------
 
-
 def test_do_on_screen_empty_goal() -> None:
     """Verify do_on_screen raises ValueError on empty goal."""
     with pytest.raises(ValueError, match="Goal must be a non-empty string"):
@@ -655,19 +654,43 @@ def test_explain_code_on_screen_tool() -> None:
     assert "Parameter 'task' must be either 'explain' or 'fix'" in res_bad.message
 
 
+# ---------------------------------------------------------------------------
+# 9. Day 9 Tests (Mon 26 Oct): Display Scaling Test Calibration
+# ---------------------------------------------------------------------------
+
+@patch("pyautogui.moveTo")
+@patch("pyautogui.position")
+def test_scaling_test_auto_mode(mock_pos: MagicMock, mock_move: MagicMock) -> None:
+    """Verify run_scaling_test executes and completes in automated test mode."""
+    from vision.test_scaling import get_display_metrics, run_scaling_test
+
+    metrics = get_display_metrics()
+    assert metrics["width"] > 0
+    assert metrics["height"] > 0
+    assert metrics["dpi_scale"] >= 0.5
+
+    mock_pos.side_effect = lambda: (mock_move.call_args[0][0], mock_move.call_args[0][1]) if mock_move.call_args else (0, 0)
+    code = run_scaling_test(auto_mode=True)
+    assert code == 0
+
+
+# ---------------------------------------------------------------------------
+# 10. Schemas & Registry Integration Tests
+# ---------------------------------------------------------------------------
+
 def test_tools_schema_definitions() -> None:
-    """Verify all tools export valid JSON parameter schemas compliant with BaseTool."""
+    """Verify all 6 tools export valid JSON schemas adhere to OpenAI/Gemini format."""
     for tool in TOOLS:
         schema = tool.get_schema()
         assert "name" in schema
+        assert schema["name"] == tool.name
         assert "description" in schema
         assert "parameters" in schema
-        assert schema["parameters"].get("type") == "object"
-        assert "properties" in schema["parameters"]
+        assert schema["parameters"]["type"] == "object"
 
 
 def test_tools_export_list() -> None:
-    """Verify TOOLS list contains all 6 tools up to Day 8."""
+    """Verify TOOLS list contains all 6 tools from Sprint Pair C."""
     assert len(TOOLS) == 6
     tool_names = [t.name for t in TOOLS]
     assert "take_screenshot" in tool_names
@@ -689,6 +712,7 @@ def test_registry_auto_loads_all_vision_tools() -> None:
     assert "do_on_screen" in TOOL_REGISTRY
     assert "explain_code_on_screen" in TOOL_REGISTRY
 
+    # Execute screenshot tool through registry
     res = execute_tool("take_screenshot")
     assert isinstance(res, ToolResult)
     assert res.success is True

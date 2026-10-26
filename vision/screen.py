@@ -27,6 +27,15 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# Set Process DPI Awareness on Windows at import time
+if os.name == "nt":
+    try:
+        import ctypes
+        # 2 = PROCESS_PER_MONITOR_DPI_AWARE_V2
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception as _dpi_exc:
+        logger.debug("Could not set process DPI awareness: %s", _dpi_exc)
+
 TEMP_VISION_DIR = Path("temp_vision")
 TEMP_VISION_DIR.mkdir(parents=True, exist_ok=True)
 
