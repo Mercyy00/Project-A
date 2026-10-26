@@ -1,5 +1,5 @@
 // JARVIS Autonomous Assistant PWA Service Worker
-const CACHE_NAME = 'jarvis-pwa-v6';
+const CACHE_NAME = 'jarvis-pwa-v7';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
