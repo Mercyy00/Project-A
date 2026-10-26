@@ -2069,6 +2069,13 @@
           (data.steps || []).forEach(appendToolTrace);
         } else if (data.type === 'tool_step') {
           appendToolTrace(data.text || 'Tool action');
+        } else if (data.type === 'proactive_alert') {
+          appendToolTrace([PROACTIVE ALERT] : );
+          appendMessage('assistant', ⚠️ **[] **
+);
+          if (!state.isVoiceActive) {
+            speakText(${data.title}. );
+          }
         } else if (data.type === 'response' || data.text) {
           const responseText = data.text || data.response;
           if (state.streamingAssistant) {

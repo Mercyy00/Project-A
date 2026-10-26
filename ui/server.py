@@ -97,15 +97,59 @@ class NoteResponse(BaseModel):
     created_at: str
 
 
+_active_hud_websockets: set[WebSocket] = set()
+
+
+async def _broadcast_hud_proactive_alert(alert_data: Dict[str, Any]) -> None:
+    """Broadcasts proactive alerts from scheduler/watchdog to connected HUD WebSockets."""
+    dead_sockets = []
+    for ws in list(_active_hud_websockets):
+        try:
+            await ws.send_json({
+                "type": "proactive_alert",
+                "title": alert_data.get("title", "Proactive Alert"),
+                "message": alert_data.get("message", ""),
+                "level": alert_data.get("level", "warning"),
+                "category": alert_data.get("category", "hardware"),
+                "time": alert_data.get("formatted_time", ""),
+            })
+        except Exception:
+            dead_sockets.append(ws)
+    for ws in dead_sockets:
+        _active_hud_websockets.discard(ws)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Lifespan context manager handling database setup on boot."""
+    """Lifespan context manager handling database setup and proactive background scheduler on boot."""
     try:
         await init_db()
     except Exception as exc:
         print(f"[ERROR] Failed to initialize SQLite database during startup: {exc}")
         raise exc
+
+    # Start Proactive Scheduler and Hardware Watchdog
+    try:
+        from core.scheduler import JarvisScheduler
+        from core.hardware_watchdog import HardwareWatchdog
+        scheduler = JarvisScheduler.get_instance()
+        scheduler.start()
+        scheduler.register_alert_listener(lambda a: asyncio.create_task(_broadcast_hud_proactive_alert(a)))
+        watchdog = HardwareWatchdog.get_instance()
+        watchdog.start_background_monitoring(poll_interval_seconds=30.0)
+    except Exception as sched_err:
+        logger.debug("Failed to start background scheduler/watchdog: %s", sched_err)
+
     yield
+
+    # Clean shutdown
+    try:
+        from core.hardware_watchdog import HardwareWatchdog
+        from core.scheduler import JarvisScheduler
+        HardwareWatchdog.get_instance().stop_background_monitoring()
+        JarvisScheduler.get_instance().stop()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -903,7 +947,10 @@ def try_launch_system_app(user_text: str) -> Optional[AppLaunchResult]:
                 res = tool.send_message(msg_text, contact=recipient)
             else:
                 res = tool.search_contact(recipient)
-            detail_msg = res.message
+            if res.success:
+                detail_msg = res.message
+            else:
+                detail_msg = f"{res.message} Target: {recipient}, Message: '{msg_text}'."
         except Exception as exc:
             detail_msg = f"Failed to automate WhatsApp: {exc}"
         return AppLaunchResult("WhatsApp", detail_msg)
@@ -1256,13 +1303,14 @@ def parse_whatsapp_intent(user_text: str) -> Optional[Dict[str, Any]]:
         return {"action": "open"}
 
     # 1. Search contact: 'search contact Aryan in whatsapp', 'search Aryan in whatsapp', 'find contact Jay'
-    m_search = re.search(r"^(?:search|find|look up|lookup|look for)\s+(?:for\s+)?(?:contact\s+)?(.+?)(?:\s+(?:in|on)\s+whatsapp|\s+whatsapp)?$", norm)
-    if m_search:
-        contact_candidate = m_search.group(1).strip()
-        contact_candidate = re.sub(r"^(?:contact|for)\s+", "", contact_candidate).strip()
-        contact_candidate = re.sub(r"\s+(?:in|on)\s+whatsapp$", "", contact_candidate).strip()
-        if contact_candidate and contact_candidate not in ("contact", "whatsapp"):
-            return {"action": "search", "contact": contact_candidate}
+    if "whatsapp" in norm or "contact" in norm:
+        m_search = re.search(r"^(?:search|find|look up|lookup|look for)\s+(?:for\s+)?(?:contact\s+)?(.+?)(?:\s+(?:in|on)\s+whatsapp|\s+whatsapp)?$", norm)
+        if m_search:
+            contact_candidate = m_search.group(1).strip()
+            contact_candidate = re.sub(r"^(?:contact|for)\s+", "", contact_candidate).strip()
+            contact_candidate = re.sub(r"\s+(?:in|on)\s+whatsapp$", "", contact_candidate).strip()
+            if contact_candidate and contact_candidate not in ("contact", "whatsapp"):
+                return {"action": "search", "contact": contact_candidate}
 
     # 2. Message to specific contact with message content: 'send message to Aryan: hello', 'message Aryan saying hello'
     m_to = re.search(r"^(?:send\s+(?:a\s+)?message\s+to|message|text|tell)\s+([a-zA-Z0-9_]+)\s*(?:on\s+whatsapp)?\s*(?:saying|that|says|:)?\s*(.+)$", user_text, re.IGNORECASE)
@@ -1281,6 +1329,146 @@ def parse_whatsapp_intent(user_text: str) -> Optional[Dict[str, Any]]:
         msg = m_send.group(1).lstrip(": -").strip()
         if msg:
             return {"action": "send", "contact": None, "message": msg}
+
+    # 4. File / document / image sharing:
+    # 'share file report.pdf with Aryan on whatsapp', 'send image photo.png to Jay on whatsapp', 'share document workspace/report.pdf with Abhijit'
+    m_file = re.search(
+        r"(?:share|send)\s+(?:the\s+)?(?:file|document|image|doc|pdf|photo|pic)?\s*([^\s]+\.[a-zA-Z0-9]+)\s+(?:with|to)\s+([a-zA-Z0-9_]+)(?:\s*(?:on|in|via)\s+whatsapp)?(?:\s+(?:with\s+caption|saying)\s+(.+))?",
+        user_text,
+        re.IGNORECASE
+    )
+    if m_file:
+        file_target = m_file.group(1).strip()
+        contact_target = m_file.group(2).strip()
+        caption_target = m_file.group(3).strip() if m_file.group(3) else None
+        return {
+            "action": "send_file",
+            "file_path": file_target,
+            "contact": contact_target,
+            "caption": caption_target,
+        }
+
+    m_file2 = re.search(
+        r"(?:share|send)\s+(?:with|to\s+)?([a-zA-Z0-9_]+)\s+(?:the\s+)?(?:file|document|image|doc|pdf)?\s*([^\s]+\.[a-zA-Z0-9]+)(?:\s*(?:on|in|via)\s+whatsapp)?",
+        user_text,
+        re.IGNORECASE
+    )
+    if m_file2:
+        contact_target = m_file2.group(1).strip()
+        file_target = m_file2.group(2).strip()
+        if contact_target.lower() not in ("file", "document", "image", "doc", "pdf", "the", "whatsapp"):
+            return {
+                "action": "send_file",
+                "file_path": file_target,
+                "contact": contact_target,
+                "caption": None,
+            }
+
+    return None
+
+
+def parse_semantic_memory_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse semantic memory and RAG queries: 'where did I write about X?', 'index folder Y', 'semantic search Z'."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+
+    # 1. 'where did I write about X?' / 'where did I write X?'
+    m_where = re.search(r"\bwhere\s+did\s+i\s+write\s+(?:about\s+)?(.+?)\s*[.?!]*$", raw, re.IGNORECASE)
+    if m_where:
+        query = m_where.group(1).strip()
+        return {"action": "where_did_i_write", "query": query}
+
+    # 2. 'index folder <path>' / 'index directory <path>'
+    m_index = re.search(r"^(?:index\s+(?:folder|directory|codebase|workspace)?\s*)(.+?)\s*[.?!]*$", raw, re.IGNORECASE)
+    if m_index and not re.search(r"\b(?:file|tab|youtube|google|browser)\b", raw, re.I):
+        folder = m_index.group(1).strip()
+        return {"action": "index_folder", "folder_path": folder}
+
+    # 3. 'semantic search <query>'
+    m_search = re.search(r"^(?:semantic\s+search\s+(?:for\s+)?)(.+?)\s*[.?!]*$", raw, re.IGNORECASE)
+    if m_search:
+        return {"action": "search_memory", "query": m_search.group(1).strip()}
+
+    return None
+
+
+def parse_watchdog_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse hardware watchdog commands: 'battery 15%', 'disk almost full', 'hardware status', 'check battery'."""
+    raw = (user_text or "").strip().lower()
+    if not raw:
+        return None
+
+    if any(phrase in raw for phrase in (
+        "hardware status", "hardware health", "hardware watchdog", "check hardware",
+        "how is my battery", "how is battery", "how is my disk", "check disk space",
+        "battery status", "system health check", "system watchdog", "check system health"
+    )):
+        return {"action": "check_status"}
+
+    if "upcoming meetings" in raw or "check meetings" in raw or "meeting alerts" in raw:
+        return {"action": "check_meetings"}
+
+    return None
+
+
+def parse_research_report_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse 'Research X and make me a PDF with sources' or 'Research X and compile a report'."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return None
+
+    m = re.search(
+        r"\bresearch\s+(.+?)(?:\s+and\s+(?:make|generate|build|create)\s+(?:me\s+)?(?:a\s+)?(?:pdf|report|docx|word)?(?:\s+report)?(?:\s+with\s+sources)?)?\s*[.?!]*$",
+        raw,
+        re.IGNORECASE
+    )
+    if m:
+        topic = m.group(1).strip()
+        topic = re.sub(r"\s+and\s+(?:make|generate|build|create).*$", "", topic, flags=re.I).strip()
+        topic = re.sub(r"\s+with\s+sources\s*$", "", topic, flags=re.I).strip()
+        if topic and len(topic) > 2 and not any(w in topic.lower() for w in ("paper on google", "web page")):
+            return {"topic": topic, "format": "pdf", "max_sources": 5, "auto_open": True}
+
+    return None
+
+
+def parse_google_workspace_intent(user_text: str) -> Optional[Dict[str, Any]]:
+    """Parse Google Calendar & Gmail commands: 'what's on tomorrow?', 'draft a reply to this', 'check my emails'."""
+    raw = (user_text or "").strip().lower()
+    if not raw:
+        return None
+
+    # Calendar: "what's on tomorrow?", "what is on tomorrow", "schedule for tomorrow", "calendar tomorrow"
+    if any(phrase in raw for phrase in (
+        "what's on tomorrow", "whats on tomorrow", "what is on tomorrow",
+        "schedule tomorrow", "schedule for tomorrow", "calendar tomorrow",
+        "what's on my calendar tomorrow", "whats on my calendar tomorrow",
+        "what do i have tomorrow", "agenda tomorrow"
+    )):
+        return {"tool": "calendar", "action": "whats_on_tomorrow"}
+
+    if any(phrase in raw for phrase in ("what's on today", "whats on today", "schedule today", "calendar today")):
+        return {"tool": "calendar", "action": "get_events", "days": 0}
+
+    # Calendar: schedule / create event
+    m_create = re.search(r"\b(?:schedule\s+meeting|create\s+(?:calendar\s+)?event|add\s+event)(?:\s+(?:for|with|called)?\s+(.+))?$", user_text, re.IGNORECASE)
+    if m_create:
+        summary_text = m_create.group(1).strip() if m_create.group(1) else "New Meeting"
+        return {"tool": "calendar", "action": "create_event", "summary": summary_text}
+
+    # Gmail: "check my emails", "list unread emails", "unread emails", "inbox"
+    if any(phrase in raw for phrase in (
+        "check my emails", "check emails", "unread emails", "list unread emails",
+        "check inbox", "my emails", "what are my unread emails"
+    )):
+        return {"tool": "gmail", "action": "list_unread"}
+
+    # Gmail: "draft a reply to this: ...", "draft a reply to this", "draft a reply"
+    m_reply = re.search(r"\bdraft\s+a\s+reply(?:\s+to\s+this)?(?:\s*[:\-]\s*(.+))?$", user_text, re.IGNORECASE)
+    if m_reply:
+        body_text = m_reply.group(1).strip() if m_reply.group(1) else "Thank you for the update. Everything looks good on our end."
+        return {"tool": "gmail", "action": "draft_reply", "reply_body": body_text}
 
     return None
 
@@ -2048,6 +2236,67 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
             return anti_intent["message"]
         res = a_tool.run(**anti_intent)
         return f"{res.message}, {target}."
+
+    wa_intent = parse_whatsapp_intent(user_text)
+    if wa_intent:
+        from tools.whatsapp_tool import WhatsAppTool
+        wa_tool = WhatsAppTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        if wa_intent["action"] == "open":
+            res = wa_tool.open_whatsapp()
+            return f"WhatsApp opened and focused, {target}." if res.success else f"{res.message}, {target}."
+        elif wa_intent["action"] == "search":
+            contact = wa_intent["contact"]
+            res = wa_tool.search_contact(contact)
+            return f"Found '{contact}' and opened chat, {target}." if res.success else f"{res.message}, {target}."
+        elif wa_intent["action"] == "send_file":
+            res = wa_tool.send_file(
+                file_path=wa_intent["file_path"],
+                contact=wa_intent.get("contact"),
+                caption=wa_intent.get("caption")
+            )
+            return f"{res.message}\nFile shared successfully, {target}."
+        else:
+            res = wa_tool.send_message(wa_intent["message"], contact=wa_intent.get("contact"))
+            return f"{res.message}, {target}."
+
+    res_intent = parse_research_report_intent(user_text)
+    if res_intent:
+        from tools.web_tools import WebResearchReportTool
+        r_tool = WebResearchReportTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        res = r_tool.run(**res_intent)
+        return f"{res.message}\nExecutive research report compiled, {target}."
+
+    work_intent = parse_google_workspace_intent(user_text)
+    if work_intent:
+        target = active_name if session_user.get("is_known") else "Sir"
+        if work_intent.get("tool") == "calendar":
+            from tools.google_workspace_tool import GoogleCalendarTool
+            c_tool = GoogleCalendarTool()
+            res = c_tool.run(action=work_intent.get("action", "whats_on_tomorrow"))
+            return f"{res.message}\nCalendar schedule ready, {target}."
+        else:
+            from tools.google_workspace_tool import GmailTool
+            g_tool = GmailTool()
+            res = g_tool.run(action=work_intent.get("action", "list_unread"), reply_body=work_intent.get("reply_body"))
+            return f"{res.message}\nEmail action completed, {target}."
+
+    sem_intent = parse_semantic_memory_intent(user_text)
+    if sem_intent:
+        from tools.semantic_memory_tool import SemanticMemoryTool
+        s_tool = SemanticMemoryTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        res = s_tool.run(**sem_intent)
+        return f"{res.message}\nMemory retrieval complete, {target}."
+
+    watch_intent = parse_watchdog_intent(user_text)
+    if watch_intent:
+        from tools.guardian_tool import HardwareWatchdogTool
+        w_tool = HardwareWatchdogTool()
+        target = active_name if session_user.get("is_known") else "Sir"
+        res = w_tool.run(**watch_intent)
+        return f"{res.message}\nHardware status verified, {target}."
     greeting_triggers = (
         "hey jarvis", "hi jarvis", "hello jarvis", "jarvis", "ok jarvis",
         "hey", "hello", "hi", "are you there", "namaste", "namaskar",
@@ -2223,6 +2472,7 @@ async def _generate_response(user_text: str, session_user: Optional[Dict[str, An
 async def websocket_jarvis(websocket: WebSocket) -> None:
     """Real-time bi-directional WebSocket channel for HUD chat and telemetry."""
     await websocket.accept()
+    _active_hud_websockets.add(websocket)
     session_user: Dict[str, Any] = {"name": "User", "is_known": False}
     last_chat_msg = ""
     last_chat_time = 0.0
@@ -2318,7 +2568,11 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                 browser_intent = parse_browser_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent else None
                 dev_intent = parse_dev_agent_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent else None
                 anti_intent = parse_antigravity_intent(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent and not dev_intent else None
-                launch_info = try_launch_system_app(user_text) if not skill_intent and not mem_intent and not wa_intent and not ytm_intent and not yt_intent and not fm_intent and not browser_intent and not dev_intent and not anti_intent else None
+                research_intent = parse_research_report_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent) else None
+                workspace_intent = parse_google_workspace_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent) else None
+                sem_intent = parse_semantic_memory_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent or workspace_intent) else None
+                watchdog_intent = parse_watchdog_intent(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent or workspace_intent or sem_intent) else None
+                launch_info = try_launch_system_app(user_text) if not (skill_intent or mem_intent or wa_intent or ytm_intent or yt_intent or fm_intent or browser_intent or dev_intent or anti_intent or research_intent or workspace_intent or sem_intent or watchdog_intent) else None
                 tool_steps = []
                 if skill_intent:
                     from tools.skill_tool import SkillLearnerTool
@@ -2373,6 +2627,16 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                         else:
                             reply_text = f"I could not search for '{contact}' because {res.message}{user_suffix}."
                         tool_steps = [f"whatsapp_search('{contact}')"]
+                    elif wa_intent["action"] == "send_file":
+                        file_p = wa_intent["file_path"]
+                        contact = wa_intent.get("contact")
+                        caption = wa_intent.get("caption")
+                        res = wa_tool.send_file(file_path=file_p, contact=contact, caption=caption)
+                        if res.success:
+                            reply_text = f"{res.message}{user_suffix}."
+                        else:
+                            reply_text = f"Could not share file: {res.message}{user_suffix}."
+                        tool_steps = [f"whatsapp_send_file('{file_p}')"]
                     else:
                         msg = wa_intent["message"]
                         contact = wa_intent.get("contact")
@@ -2490,6 +2754,65 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
                         await memory_manager.save_interaction(role="assistant", content=reply_text)
                     except Exception:
                         pass
+                elif research_intent:
+                    from tools.web_tools import WebResearchReportTool
+                    r_tool = WebResearchReportTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    res = r_tool.run(**research_intent)
+                    reply_text = f"{res.message}\nExecutive research report compiled{user_suffix}."
+                    tool_steps = [f"research_and_report('{research_intent.get('topic')}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif workspace_intent:
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    if workspace_intent.get("tool") == "calendar":
+                        from tools.google_workspace_tool import GoogleCalendarTool
+                        c_tool = GoogleCalendarTool()
+                        act = workspace_intent.get("action", "whats_on_tomorrow")
+                        res = c_tool.run(action=act)
+                        reply_text = f"{res.message}\nSchedule ready{user_suffix}."
+                        tool_steps = [f"google_calendar(action='{act}')"]
+                    else:
+                        from tools.google_workspace_tool import GmailTool
+                        g_tool = GmailTool()
+                        act = workspace_intent.get("action", "list_unread")
+                        res = g_tool.run(action=act, reply_body=workspace_intent.get("reply_body"))
+                        reply_text = f"{res.message}\nEmail action completed{user_suffix}."
+                        tool_steps = [f"gmail(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif sem_intent:
+                    from tools.semantic_memory_tool import SemanticMemoryTool
+                    s_tool = SemanticMemoryTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = sem_intent.get("action", "")
+                    res = s_tool.run(**sem_intent)
+                    reply_text = f"{res.message}\nMemory retrieval complete{user_suffix}."
+                    tool_steps = [f"semantic_memory(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
+                elif watchdog_intent:
+                    from tools.guardian_tool import HardwareWatchdogTool
+                    w_tool = HardwareWatchdogTool()
+                    user_suffix = f", {session_user['name']}" if session_user["is_known"] else ", Sir"
+                    act = watchdog_intent.get("action", "check_status")
+                    res = w_tool.run(**watchdog_intent)
+                    reply_text = f"{res.message}\nSystem watchdog verified{user_suffix}."
+                    tool_steps = [f"hardware_watchdog(action='{act}')"]
+                    try:
+                        await memory_manager.save_interaction(role="user", content=user_text)
+                        await memory_manager.save_interaction(role="assistant", content=reply_text)
+                    except Exception:
+                        pass
                 elif launch_info:
                     app_label = str(launch_info.label if hasattr(launch_info, 'label') else launch_info[0])
                     task_detail = launch_info.detail if hasattr(launch_info, 'detail') else (launch_info[1] if len(launch_info) > 1 else None)
@@ -2599,6 +2922,8 @@ async def websocket_jarvis(websocket: WebSocket) -> None:
         await _stop_live_voice(websocket)
     except Exception as exc:
         print(f"[WARN] WebSocket session terminated: {exc}")
+    finally:
+        _active_hud_websockets.discard(websocket)
 
 
 # ---------------------------------------------------------------------------

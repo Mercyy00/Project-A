@@ -25,6 +25,11 @@ from tools.browser_tools import BrowserControlTool
 from tools.skill_tool import SkillLearnerTool
 from tools.dev_tools import DevAgentTool
 from tools.antigravity_tools import AntigravityControlTool, AntigravityPromptTool
+from tools.semantic_memory_tool import SemanticMemoryTool
+from tools.guardian_tool import HardwareWatchdogTool
+from vision.loop import GuiAgentTool
+from tools.web_tools import WebResearchReportTool, WebScrapeTool
+from tools.google_workspace_tool import GoogleCalendarTool, GmailTool
 from tools.registry import (
     TOOL_REGISTRY,
     execute_tool,
@@ -61,6 +66,13 @@ __all__ = [
     "DevAgentTool",
     "AntigravityControlTool",
     "AntigravityPromptTool",
+    "SemanticMemoryTool",
+    "HardwareWatchdogTool",
+    "GuiAgentTool",
+    "WebResearchReportTool",
+    "WebScrapeTool",
+    "GoogleCalendarTool",
+    "GmailTool",
     "execute_tool",
     "get_registered_tools",
     "get_tools_schema",

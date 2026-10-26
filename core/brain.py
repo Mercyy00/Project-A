@@ -1332,12 +1332,33 @@ class JarvisBrain:
             ),
             "messaging": (
                 "telegram", "whatsapp", "send ", "message to", "text my",
-                "notify ", "send an alert",
+                "notify ", "send an alert", "share file", "send file", "share document", "share image",
             ),
             "memory": (
                 "remember", "save a note", "save note", "search my notes", "my notes",
                 "what did i tell you", "what do you remember", "what do you know about me",
                 "learn", "learned", "teach", "skill", "custom skill", "call me", "my favorite",
+                "where did i write", "semantic memory", "index folder", "semantic search", "rag",
+            ),
+            "calendar": (
+                "calendar", "tomorrow", "what's on tomorrow", "whats on tomorrow", "schedule",
+                "meeting", "agenda", "upcoming meetings", "events today",
+            ),
+            "email": (
+                "email", "gmail", "inbox", "unread emails", "draft a reply", "reply to this",
+                "send email", "draft email", "check my emails",
+            ),
+            "research": (
+                "research ", "research and make", "with sources", "research report",
+                "scrape", "extract table", "scrape webpage", "make a report with sources",
+            ),
+            "gui_agent": (
+                "look-decide-act", "look decide act", "gui agent", "autonomous click",
+                "control screen", "do on screen",
+            ),
+            "watchdog": (
+                "watchdog", "hardware watchdog", "battery 15%", "disk almost full",
+                "disk full", "hardware health", "proactive alert", "meeting in 10 minutes",
             ),
             "learning": (
                 "learn", "learned", "teach", "skill", "skills", "custom skill",
@@ -1404,7 +1425,12 @@ class JarvisBrain:
                 "create_document", "generate_report", "create_template_document",
             },
             "messaging": {"send_telegram", "whatsapp_control"},
-            "memory": {"save_note", "search_notes", "skill_learner"},
+            "memory": {"save_note", "search_notes", "skill_learner", "semantic_memory"},
+            "calendar": {"google_calendar", "hardware_watchdog"},
+            "email": {"gmail_tool"},
+            "research": {"research_and_report", "scrape_webpage", "search_web", "create_pdf"},
+            "gui_agent": {"gui_agent", "do_on_screen", "click_element", "capture_screen"},
+            "watchdog": {"hardware_watchdog", "get_system_stats", "battery"},
             "learning": {"skill_learner", "save_note", "search_notes"},
             "weather": {"weather_report"},
             "web": {"search_web", "open_website"},

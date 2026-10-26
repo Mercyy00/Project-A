@@ -10,6 +10,7 @@ Provides multi-step conversational WhatsApp control:
 """
 
 import os
+from pathlib import Path
 import re
 import subprocess
 import time
@@ -54,6 +55,56 @@ def _ensure_input_desktop() -> None:
             user32.SetThreadDesktop(h_desk)
     except Exception:
         pass
+
+
+def copy_file_to_clipboard(file_path: str) -> bool:
+    """Places a file onto the Windows clipboard using CF_HDROP format so applications like WhatsApp paste it as an attachment."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        CF_HDROP = 15
+        GHND = 0x0042
+        abs_path = os.path.abspath(file_path)
+        if not os.path.exists(abs_path):
+            raise FileNotFoundError(f"File not found: {abs_path}")
+
+        encoded_path = (abs_path + "\0\0").encode("utf-16le")
+        struct_size = 20  # sizeof(DROPFILES) = 20
+        total_size = struct_size + len(encoded_path)
+
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+
+        h_global = kernel32.GlobalAlloc(GHND, total_size)
+        if not h_global:
+            return False
+
+        p_global = kernel32.GlobalLock(h_global)
+        if not p_global:
+            return False
+
+        header = (ctypes.c_uint32 * 5)(20, 0, 0, 0, 1)  # pFiles=20, fWide=1
+        ctypes.memmove(p_global, ctypes.byref(header), struct_size)
+        ctypes.memmove(p_global + struct_size, encoded_path, len(encoded_path))
+
+        kernel32.GlobalUnlock(h_global)
+
+        user32.OpenClipboard(None)
+        user32.EmptyClipboard()
+        user32.SetClipboardData(CF_HDROP, h_global)
+        user32.CloseClipboard()
+        return True
+    except Exception as exc:
+        return False
 
 
 class WhatsAppTool(BaseTool):
@@ -303,11 +354,25 @@ class WhatsAppTool(BaseTool):
                 log_action(self.name, args_payload, res.message)
                 return res
 
+            elif clean_action in ("send_file", "share_file", "send_document", "share_document", "send_image", "share_image", "file", "share"):
+                target_file = (file_path or kwargs.get("file") or kwargs.get("path") or kwargs.get("document") or kwargs.get("image") or "").strip()
+                if not target_file:
+                    return ToolResult(
+                        success=False,
+                        data=None,
+                        message="Missing required parameter: 'file_path' must be provided to share a file."
+                    )
+                target_contact = contact or kwargs.get("to") or kwargs.get("recipient")
+                target_caption = caption or kwargs.get("caption") or message or kwargs.get("text")
+                res = self.send_file(file_path=target_file, contact=target_contact, caption=target_caption)
+                log_action(self.name, args_payload, res.message)
+                return res
+
             else:
                 return ToolResult(
                     success=False,
                     data=None,
-                    message=f"Unknown WhatsApp action '{action}'. Valid actions are 'open', 'search', and 'send'."
+                    message=f"Unknown WhatsApp action '{action}'. Valid actions are 'open', 'search', 'send', and 'send_file'."
                 )
 
         except Exception as exc:
@@ -528,6 +593,131 @@ class WhatsAppTool(BaseTool):
                 message=f"Failed to send WhatsApp message: {exc}"
             )
 
+    def send_file(
+        self,
+        file_path: str,
+        contact: Optional[str] = None,
+        caption: Optional[str] = None,
+    ) -> ToolResult:
+        """Shares a document, image, or file to a contact or active chat on WhatsApp.
+
+        Args:
+            file_path: Absolute or relative filesystem path to the file/document/image.
+            contact: Optional contact name to search and open first.
+            caption: Optional text caption to accompany the file.
+
+        Returns:
+            ToolResult indicating file transmission outcome.
+        """
+        try:
+            if not file_path or not str(file_path).strip():
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="Missing required parameter: 'file_path' must be provided to share a file."
+                )
+
+            resolved_path = Path(file_path).resolve()
+            if not resolved_path.exists():
+                ws_path = Path("workspace") / file_path
+                if ws_path.exists():
+                    resolved_path = ws_path.resolve()
+                else:
+                    return ToolResult(
+                        success=False,
+                        data={"file_path": file_path},
+                        message=f"File not found: '{file_path}'. Please check that the file exists."
+                    )
+
+            file_size_bytes = resolved_path.stat().st_size
+            if file_size_bytes == 0:
+                return ToolResult(
+                    success=False,
+                    data={"file_path": str(resolved_path)},
+                    message=f"File '{resolved_path.name}' is empty (0 bytes)."
+                )
+
+            size_str = (
+                f"{round(file_size_bytes / (1024 * 1024), 2)} MB"
+                if file_size_bytes >= 1024 * 1024
+                else f"{round(file_size_bytes / 1024, 1)} KB"
+            )
+
+            explicit_contact = (contact or "").strip()
+            target_contact = explicit_contact or WhatsAppTool._last_searched_contact or ""
+
+            # 1. Search and open contact if explicit contact specified
+            if explicit_contact and explicit_contact.lower() != (WhatsAppTool._last_searched_contact or "").lower():
+                search_res = self.search_contact(explicit_contact)
+                if not search_res.success:
+                    return search_res
+                time.sleep(0.5)
+            else:
+                # Focus existing open chat
+                if not self._focus_whatsapp_window():
+                    return ToolResult(
+                        success=False,
+                        data={"contact": target_contact, "error": "whatsapp_not_open"},
+                        message="WhatsApp is not open or could not be focused. File was not sent."
+                    )
+                time.sleep(0.4)
+
+            if pyautogui is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    message="pyautogui is required for file sharing automation."
+                )
+
+            # 2. Copy file to clipboard via Windows CF_HDROP
+            copied = copy_file_to_clipboard(str(resolved_path))
+            if not copied:
+                return ToolResult(
+                    success=False,
+                    data={"file_path": str(resolved_path)},
+                    message=f"Could not load '{resolved_path.name}' into Windows clipboard."
+                )
+
+            # 3. Paste file attachment into WhatsApp chat
+            time.sleep(0.2)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.8)  # Wait for WhatsApp attachment preview dialog to appear
+
+            # 4. If caption provided, type caption
+            if caption and str(caption).strip():
+                clean_caption = str(caption).strip()
+                if pyperclip is not None:
+                    pyperclip.copy(clean_caption)
+                    time.sleep(0.1)
+                    pyautogui.hotkey("ctrl", "v")
+                else:
+                    pyautogui.write(clean_caption, interval=0.02)
+                time.sleep(0.3)
+
+            # 5. Press Enter to transmit the file
+            pyautogui.press("enter")
+            time.sleep(0.3)
+
+            recipient_label = target_contact if target_contact else "active conversation"
+            return ToolResult(
+                success=True,
+                data={
+                    "contact": recipient_label,
+                    "file": resolved_path.name,
+                    "path": str(resolved_path),
+                    "size": size_str,
+                    "caption": caption,
+                },
+                message=f"Successfully shared file '{resolved_path.name}' ({size_str}) with {recipient_label} on WhatsApp."
+            )
+
+        except Exception as exc:
+            return ToolResult(
+                success=False,
+                data={"error": str(exc)},
+                message=f"Failed to share file on WhatsApp: {exc}"
+            )
+
     def get_schema(self) -> Dict[str, Any]:
         """Returns JSON schema definition for LLM tool/function calling."""
         return {
@@ -538,16 +728,24 @@ class WhatsAppTool(BaseTool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "WhatsApp action to perform: 'open', 'search', or 'send'.",
-                        "enum": ["open", "search", "send"]
+                        "description": "WhatsApp action to perform: 'open', 'search', 'send', or 'send_file'.",
+                        "enum": ["open", "search", "send", "send_file"]
                     },
                     "contact": {
                         "type": "string",
-                        "description": "Name or phone number of the contact to search or message."
+                        "description": "Name or phone number of the contact to search, message, or share files with."
                     },
                     "message": {
                         "type": "string",
                         "description": "Text message content to type and send."
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "File path of document, image, or file to share with contact when action is 'send_file'."
+                    },
+                    "caption": {
+                        "type": "string",
+                        "description": "Optional caption message to include with the shared file."
                     }
                 },
                 "required": ["action"]

@@ -22,6 +22,11 @@ pyperclip>=1.8.2
 comtypes>=1.2.0
 screen-brightness-control>=0.23.0
 pynput>=1.7.6
+apscheduler>=3.10.0
+beautifulsoup4>=4.12.0
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
 
 # Memory & Storage (Rohit)
 aiosqlite>=0.20.0

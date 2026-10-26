@@ -84,6 +84,11 @@ from tools.youtube_music_tool import YouTubeMusicTool
 from tools.file_manager_tool import FileManagerTool
 from tools.skill_tool import SkillLearnerTool
 from tools.antigravity_tools import AntigravityPromptTool, AntigravityControlTool
+from tools.semantic_memory_tool import SemanticMemoryTool
+from tools.guardian_tool import HardwareWatchdogTool
+from vision.loop import GuiAgentTool
+from tools.web_tools import WebResearchReportTool, WebScrapeTool
+from tools.google_workspace_tool import GoogleCalendarTool, GmailTool
 from tools.code_tools import (
 
     RunCommandTool,
@@ -246,6 +251,18 @@ TOOL_REGISTRY: Dict[str, BaseTool] = ToolRegistry({
     "file_manager": FileManagerTool(),
     "skill_learner": SkillLearnerTool(),
     "learn_skill": SkillLearnerTool(),
+    "semantic_memory": SemanticMemoryTool(),
+    "hardware_watchdog": HardwareWatchdogTool(),
+    "guardian": HardwareWatchdogTool(),
+    "gui_agent": GuiAgentTool(),
+    "look_decide_act": GuiAgentTool(),
+    "web_research_report": WebResearchReportTool(),
+    "research_and_report": WebResearchReportTool(),
+    "scrape_webpage": WebScrapeTool(),
+    "google_calendar": GoogleCalendarTool(),
+    "calendar": GoogleCalendarTool(),
+    "gmail_tool": GmailTool(),
+    "gmail": GmailTool(),
 
 })
 
