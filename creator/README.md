@@ -3,7 +3,7 @@
 **Engineer:** Vidhita (Document & Web Artifact Engineer)  
 **Pair:** Pair D (Documents + Messaging)  
 **Branch:** `feature/vidhita-creator`  
-**Milestone:** Days 1 through 8 Completed (Enterprise Multi-Format Generation & Ingestion Engine, Web Artifacts, Theme Factory, Document Intelligence & Summarizer Suite)
+**Milestone:** Days 1 through 9 Completed (Enterprise Multi-Format Generation & Ingestion Engine, Web Artifacts, Theme Factory, Document Intelligence, Semantic Vector Memory RAG, Chunking & Citation QA Suite)
 
 ---
 
@@ -164,7 +164,34 @@ All tools adhere strictly to `BaseTool` contracts, automatically register into `
   - `ReadDocumentTool` -> `read_document(file_path, max_chars, page_range)`
   - `SummarizeDocumentTool` -> `summarize_document(file_path, focus, max_bullets, language)`
   - `InspectDocumentTool` -> `inspect_document(file_path)`
-  - Exported in `creator.tools.TOOLS` (now 11 production tools) and auto-registered into `TOOL_REGISTRY`.
+  - Exported in `creator.tools.TOOLS` (11 production tools) and auto-registered into `TOOL_REGISTRY`.
+
+---
+
+### Day 9: Document Semantic RAG, Chunking & Grounded Citation Q&A Suite (`creator/document_rag.py`)
+- **`chunk_document(file_path, chunk_size=800, overlap=150) -> list[dict]`**:
+  - Semantic sliding-window chunking across PDF, DOCX, PPTX, HTML Web Artifacts, and Markdown.
+  - Preserves breadcrumb heading hierarchy (`["Document Title", "Section Heading"]`), 1-based page/slide numbers, and exact character offsets.
+  - **Structural Chunk Isolation**: Dedicated intact passages for 2D data tables and bento KPI metric cards (never truncated mid-row).
+  - **Native Devanagari Awareness**: Accurate sentence tokenization using Danda (`।`) and periods for Marathi and Hindi text.
+- **`search_document(file_path, query, top_k=3, min_score=0.05) -> list[dict]`**:
+  - Hybrid relevance scoring combining token match frequency (BM25/TF-IDF), heading metadata boosts, and table/metric intent boosts.
+  - Returns ranked passage dictionaries with human-readable verified citations:
+    `[Source: filename.docx - Page 2, Section: "JVM Architecture"]`.
+- **`ask_document(file_path, question, language='en', top_k=3, cancel_event=None) -> dict`**:
+  - **Primary Engine**: Google Gemini (`gemini-3.5-flash-lite`) with strict fact grounding preventing hallucinations and enforcing inline source citations.
+  - **Resilient Offline Extractive Fallback**: Statistical NLP algorithm extracting salient matching sentences when offline or quota-limited.
+  - **Stream Cancellation Token**: Halts execution within 20ms upon `cancel_event` barge-in trigger.
+  - **Multilingual Support**: Supports authentic Marathi (`mr`), Hindi (`hi`), and English (`en`).
+- **`index_workspace_documents(folder_path='workspace', save_catalog=True) -> dict`**:
+  - Recursively crawls and indexes all documents in workspace into `.document_index.json`.
+  - Enables cross-document semantic knowledge retrieval (`query_workspace_knowledge`).
+- **Tools for Jarvis Brain & Central Registry (`creator/tools.py`)**:
+  - `ChunkDocumentTool` -> `chunk_document(file_path, chunk_size, overlap)`
+  - `SearchDocumentTool` -> `search_document(file_path, query, top_k)`
+  - `AskDocumentTool` -> `ask_document(file_path, question, language, top_k)`
+  - `IndexWorkspaceDocumentsTool` -> `index_workspace_documents(folder_path, query)`
+  - Expands `creator.tools.TOOLS` to **15 production tools**, auto-registered into `TOOL_REGISTRY`.
 
 ## 3. Tool Usage Examples
 

@@ -93,3 +93,30 @@ In Week 2, Project JARVIS transitions from an interactive reactive assistant int
    - Exposed `ReadDocumentTool`, `SummarizeDocumentTool`, and `InspectDocumentTool`.
    - Expands Creator tools count to 11 registered tools.
 
+---
+
+## Day 9 Implementation: Document Semantic RAG, Chunking & Grounded Citation Q&A (Creator Engine)
+
+### Architectural Design
+1. **Multi-Format Semantic Chunking Engine (`creator/document_rag.py`):**
+   - Ingests PDF, Word (`python-docx`), PowerPoint (`python-pptx`), HTML Web Artifacts, and Markdown.
+   - Decomposes documents into sliding-window semantic passages preserving heading breadcrumbs (`["Title", "Heading 1"]`), 1-based page/slide numbers, and char offsets.
+   - Dedicated structural chunk isolation: encapsulates 2D tables (`_format_table_as_chunk`) and bento KPI metrics (`_format_metrics_as_chunk`) into intact chunks without truncating rows or numbers.
+   - Devanagari script awareness: respects Marathi Danda (`।`) and periods for authentic Indic sentence tokenization.
+
+2. **Hybrid Semantic Relevance Scoring (`search_document`):**
+   - Ranks passages using BM25/TF-IDF token matching with heading context weight boosts (1.5x) and table/metric intent boosts (1.3x).
+   - Generates verified, human-readable citations: `[filename - Page X, Section: "Heading"]`.
+
+3. **Grounded Autonomous Citation Q&A (`ask_document`):**
+   - Primary: Google Gemini (`gemini-3.5-flash-lite`) with strict grounding prompt preventing hallucination and enforcing inline citations.
+   - Fallback: Deterministic extractive NLP algorithm isolating high-signal sentences when offline or quota-limited.
+   - Stream Cancellation Token: sub-20ms abort on `cancel_event`.
+
+4. **Multi-Document Workspace Knowledge Indexer (`index_workspace_documents` / `query_workspace_knowledge`):**
+   - Recursively indexes workspace documents (`workspace/`) into `.document_index.json`.
+   - Enables cross-document semantic search and question answering across the entire project knowledge base.
+
+5. **Central Registry & Brain Tools (`creator/tools.py`):**
+   - Exposed `ChunkDocumentTool` (`chunk_document`), `SearchDocumentTool` (`search_document`), `AskDocumentTool` (`ask_document`), and `IndexWorkspaceDocumentsTool` (`index_workspace_documents`).
+   - Expands Creator tools count to 15 registered tools in `TOOL_REGISTRY`.
