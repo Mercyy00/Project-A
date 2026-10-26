@@ -349,18 +349,18 @@ def get_registered_tools() -> List[BaseTool]:
 
 
 def get_tools_schema() -> List[Dict[str, Any]]:
-
     """Returns JSON schemas for all registered tools for LLM tool calling.
 
-
-
     Returns:
-
         List[Dict[str, Any]]: List of schema definitions.
-
     """
-
-    return [tool.get_schema() for tool in get_registered_tools()]
+    schemas: List[Dict[str, Any]] = []
+    for tool in get_registered_tools():
+        s = tool.get_schema()
+        if isinstance(s, dict) and "function" in s and isinstance(s["function"], dict) and "name" not in s:
+            s = s["function"]
+        schemas.append(s)
+    return schemas
 
 
 

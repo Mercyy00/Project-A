@@ -1343,29 +1343,26 @@ class ReadDocumentTool(BaseTool):
 
     def get_schema(self) -> Dict[str, Any]:
         return {
-            "type": "function",
-            "function": {
-                "name": "read_document",
-                "description": "Read, parse, and extract structured text, headings, tables, and metadata from any PDF, Word (.docx), PowerPoint (.pptx), HTML web artifact, or Markdown document.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "Path to the document file to read.",
-                        },
-                        "max_chars": {
-                            "type": "integer",
-                            "description": "Maximum characters of text body to return (default: 8000).",
-                        },
-                        "page_range": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "Optional [start_page, end_page] for PDFs (e.g. [1, 3]).",
-                        },
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document file to read.",
                     },
-                    "required": ["file_path"],
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum characters of text body to return (default: 8000).",
+                    },
+                    "page_range": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Optional [start_page, end_page] for PDFs (e.g. [1, 3]).",
+                    },
                 },
+                "required": ["file_path"],
             },
         }
 
@@ -1410,34 +1407,31 @@ class SummarizeDocumentTool(BaseTool):
 
     def get_schema(self) -> Dict[str, Any]:
         return {
-            "type": "function",
-            "function": {
-                "name": "summarize_document",
-                "description": "Generate an intelligent executive summary, key takeaways, and metric highlights from an existing document (PDF, Word, PPTX, HTML).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "Path to the document to summarize.",
-                        },
-                        "focus": {
-                            "type": "string",
-                            "description": "Summary focus: 'general', 'technical', 'executive', or 'metrics'.",
-                            "enum": ["general", "technical", "executive", "metrics"],
-                        },
-                        "max_bullets": {
-                            "type": "integer",
-                            "description": "Maximum key takeaways to extract (default: 5).",
-                        },
-                        "language": {
-                            "type": "string",
-                            "description": "Output language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi).",
-                            "enum": ["en", "hi", "mr"],
-                        },
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to summarize.",
                     },
-                    "required": ["file_path"],
+                    "focus": {
+                        "type": "string",
+                        "description": "Summary focus: 'general', 'technical', 'executive', or 'metrics'.",
+                        "enum": ["general", "technical", "executive", "metrics"],
+                    },
+                    "max_bullets": {
+                        "type": "integer",
+                        "description": "Maximum key takeaways to extract (default: 5).",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Output language: 'en' (English), 'hi' (Hindi), or 'mr' (Marathi).",
+                        "enum": ["en", "hi", "mr"],
+                    },
                 },
+                "required": ["file_path"],
             },
         }
 
@@ -1469,20 +1463,17 @@ class InspectDocumentTool(BaseTool):
 
     def get_schema(self) -> Dict[str, Any]:
         return {
-            "type": "function",
-            "function": {
-                "name": "inspect_document",
-                "description": "Inspect the structure, page/slide count, headings tree, table count, and metadata of a document without loading the full text body.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "Path to the document to inspect.",
-                        },
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to inspect.",
                     },
-                    "required": ["file_path"],
                 },
+                "required": ["file_path"],
             },
         }
 

@@ -1230,9 +1230,16 @@ class JarvisBrain:
             )
 
             auto_load_module_tools()
-            schema_by_name = {
-                schema["name"]: schema for schema in get_tools_schema()
-            }
+            schema_by_name: Dict[str, Dict[str, Any]] = {}
+            for schema in get_tools_schema():
+                if not isinstance(schema, dict):
+                    continue
+                if "name" in schema:
+                    schema_by_name[schema["name"]] = schema
+                elif "function" in schema and isinstance(schema["function"], dict):
+                    fn = schema["function"]
+                    if "name" in fn:
+                        schema_by_name[fn["name"]] = fn
 
             for registered_tool in get_registered_tools():
                 if registered_tool.name in {tool.__name__ for tool in discovered}:
