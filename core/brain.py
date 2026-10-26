@@ -336,12 +336,12 @@ class JarvisBrain:
         return response
 
     def _execute_local_document_request(self, text: str) -> Optional[str]:
-        """Use the document generator directly for explicit create-file requests."""
+        """Use the document generator with AI planning and dynamic theme selection for explicit create-file requests."""
         match = re.search(
             r"\b(?:create|make|generate|build)\s+(?:me\s+)?(?:a\s+)?"
             r"(?:(?:polished|professional|detailed|beautiful|formatted|comprehensive|simple|quick)\s+)*"
-            r"(pdf|pptx|powerpoint(?:\s+presentation)?|presentation|docx|word(?:\s+document)?)"
-            r"(?:\s+(?:report|document|file))?"
+            r"(pdf|pptx|powerpoint(?:\s+presentation)?|presentation|docx|word(?:\s+document)?|website|web|webpage|html(?:\s+page)?)"
+            r"(?:\s+(?:report|document|file|presentation|deck|site))?"
             r"\s+(?:for\s+me\s+)?(?:about|on|for)\s+(.+?)\s*[.!?]*$",
             text,
             re.IGNORECASE,
@@ -353,11 +353,47 @@ class JarvisBrain:
         topic = match.group(2).strip()
         if not topic:
             return None
-        kind = "pdf" if requested_format == "pdf" else (
-            "docx" if requested_format.startswith("word") or requested_format == "docx" else "pptx"
+
+        if requested_format == "pdf":
+            kind = "pdf"
+        elif requested_format.startswith("word") or requested_format == "docx":
+            kind = "docx"
+        elif requested_format in ("web", "website", "webpage", "html") or "web" in requested_format or "html" in requested_format:
+            kind = "web"
+        else:
+            kind = "pptx"
+
+        # Extract target pages or depth from user prompt
+        page_match = re.search(r"\b(\d+)\s+pages?\b", text, re.I)
+        pages = int(page_match.group(1)) if page_match else None
+
+        depth = (
+            "detailed"
+            if re.search(r"\b(?:detailed|comprehensive|in-?depth|thorough|long|deep)\b", text, re.I)
+            or (pages is not None and pages >= 6)
+            else ("brief" if re.search(r"\b(?:brief|quick|short|summary)\b", text, re.I) else "standard")
         )
-        theme = "dark_pro" if re.search(r"\b(?:dark|modern warfare|mw style|sci.?fi|futuristic)\b", topic, re.I) else "clean_light"
-        topic = re.sub(r"\s+(?:in|with)\s+(?:a\s+)?(?:dark|mw|modern warfare|sci.?fi|futuristic)\s+style\s*$", "", topic, flags=re.I).strip()
+
+        from creator.outline import select_theme_for_topic
+        theme_override_match = re.search(
+            r"\b(?:in|with)\s+(?:a\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+)?)\s+(?:theme|style)\b",
+            text,
+            re.I,
+        )
+        if theme_override_match:
+            candidate = theme_override_match.group(1).strip()
+            theme = select_theme_for_topic(candidate, user_override=candidate)
+        elif re.search(r"\b(?:dark|modern warfare|mw style|sci.?fi|futuristic)\b", topic, re.I):
+            theme = "dark_pro"
+        else:
+            theme = "clean_light"
+
+        topic = re.sub(
+            r"\s+(?:in|with)\s+(?:a\s+)?(?:dark|mw|modern warfare|sci.?fi|futuristic|[a-z0-9_-]+(?:\s+[a-z0-9_-]+)?)\s+(?:theme|style)\s*$",
+            "",
+            topic,
+            flags=re.I,
+        ).strip()
 
         reference_material: List[Dict[str, str]] = []
         wants_current_facts = bool(re.search(r"\b(?:latest|current|recent|newest|today)\b", topic, re.I))
@@ -387,20 +423,24 @@ class JarvisBrain:
                 "theme": theme,
                 "auto_open": True,
             }
+            if depth != "standard":
+                args["depth"] = depth
+            if pages:
+                args["pages"] = pages
             if reference_material:
                 args["reference_material"] = json.dumps(reference_material, ensure_ascii=False)
             result = self._execute_registered_tool(
                 "create_document",
                 args,
             )
-            self.last_tool_steps.append(f"create_document(topic={topic!r}, kind={kind!r})")
+            self.last_tool_steps.append(f"create_document(topic={topic!r}, kind={kind!r}, theme={theme!r}, depth={depth!r})")
             message = str(getattr(result, "message", ""))
             if not getattr(result, "success", False):
                 response = f"I couldn't create the {kind.upper()} document: {message or 'the document tool failed.'}"
             else:
                 path = getattr(result, "data", None) or {}
                 file_path = path.get("file_path") if isinstance(path, dict) else None
-                response = f"Created the {kind.upper()} document."
+                response = f"Created the {kind.upper()} document using the '{theme}' theme ({depth} depth)."
                 if file_path:
                     response += f" Saved at {file_path}."
                 if reference_material:

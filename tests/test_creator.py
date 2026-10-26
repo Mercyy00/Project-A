@@ -1461,6 +1461,206 @@ def test_day5_create_document_web_kind(tmp_path: Path) -> None:
 
 
 # =====================================================================
+# Elevated Pillar Tests: 10 Themes, Multi-Stage Planning, Bespoke Web, Visual Audit
+# =====================================================================
+
+def test_dynamic_theme_selection_all_10_themes() -> None:
+    """Verify select_theme_for_topic dynamically maps topics to all 10 themes in creator/themes.py."""
+    from creator.outline import select_theme_for_topic
+
+    # Semantic keyword mappings
+    assert select_theme_for_topic("Marine Biology and Ocean Exploration") == "ocean_depths"
+    assert select_theme_for_topic("Forest Ecology, Moss and Nature Sustainability") == "forest_moss"
+    assert select_theme_for_topic("Executive Boardroom and Corporate Finance Strategy") == "midnight_executive"
+    assert select_theme_for_topic("Artificial Intelligence and Quantum Computing Architecture") == "tech_innovation"
+    assert select_theme_for_topic("Tactical Ops, Gaming and Cyber Warfare") == "dark_pro"
+    assert select_theme_for_topic("Contemporary Art, Vibrant Music and Creative Culture") == "colourful"
+    assert select_theme_for_topic("Italian Culinary, Coffee Culture and Warm Terracotta") == "warm_terracotta"
+    assert select_theme_for_topic("Sunset Boulevard Luxury Resort and Fashion Lifestyle") == "sunset_boulevard"
+    assert select_theme_for_topic("Architectural Minimalist Editorial") == "modern_minimalist"
+    assert select_theme_for_topic("General Standard Document") == "clean_light"
+
+    # Explicit user overrides
+    assert select_theme_for_topic("Machine Learning", user_override="ocean_depths") == "ocean_depths"
+    assert select_theme_for_topic("Quantum Code", user_override="forest_moss") == "forest_moss"
+    assert select_theme_for_topic("Any Topic", user_override="sunset_boulevard") == "sunset_boulevard"
+
+    # Explicit directive in title string
+    assert select_theme_for_topic("AI Overview in sunset boulevard style") == "sunset_boulevard"
+    assert select_theme_for_topic("Cloud Architecture with ocean depths theme") == "ocean_depths"
+
+
+def test_document_generation_error_raised_when_gemini_fails_in_live_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure Gemini errors are not silently swallowed by hardcoded templates in live mode."""
+    import creator.outline as outline_module
+
+    # Mock Gemini available with valid key
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaSyFakeKeyForTesting1234567890")
+
+    # Mock plan_document_stage to raise a quota / API failure
+    def mock_plan_fail(*args: Any, **kwargs: Any) -> Any:
+        raise outline_module.DocumentGenerationError("429 Resource has been exhausted (quota limit reached).")
+
+    monkeypatch.setattr(outline_module, "plan_document_stage", mock_plan_fail)
+
+    with pytest.raises(outline_module.DocumentGenerationError) as exc_info:
+        outline_module.generate_outline(
+            topic="High Energy Physics",
+            allow_offline_template=False,
+            multistage=True,
+        )
+
+    assert "quota limit reached" in str(exc_info.value)
+
+
+def test_multi_stage_planning_and_writing_mocked(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify multi-stage document generation architects plan, writes sections, and renders."""
+    import creator.outline as outline_module
+
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaSyFakeKeyForTesting1234567890")
+
+    mock_plan = {
+        "title": "Autonomous Robotics Architecture",
+        "subtitle": "Engineering Deep Intelligence Systems",
+        "theme": "tech_innovation",
+        "target_audience": "Lead Engineers and Architects",
+        "tone": "Rigorous, analytical",
+        "executive_summary": "Comprehensive architectural analysis of next-generation autonomous robotics.",
+        "sections": [
+            {
+                "heading": "Kinematics & Control Systems",
+                "goal": "Explain real-time control loops and actuators.",
+                "key_aspects": ["Inverse kinematics", "Motor controllers", "Low latency CAN bus"],
+                "suggested_visual": "metrics",
+            },
+            {
+                "heading": "Hardware Benchmarks",
+                "goal": "Compare actuator response times and payloads.",
+                "key_aspects": ["Torque density", "Thermal dissipation"],
+                "suggested_visual": "table",
+            },
+        ],
+    }
+
+    def mock_plan_stage(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        return mock_plan
+
+    def mock_write_stage(topic: str, section_plan: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        heading = section_plan.get("heading", "Chapter")
+        if "Kinematics" in heading:
+            return {
+                "heading": heading,
+                "text": "The kinematics sub-system governs precise multi-axis movement through decoupled PID control loops.",
+                "bullets": ["Sub-millisecond loop cycle", "Zero backlash harmonic drives", "Closed-loop feedback"],
+                "metrics": [
+                    {"label": "Precision", "value": "0.01 mm"},
+                    {"label": "Latency", "value": "< 1 ms"},
+                    {"label": "Payload", "value": "25 kg"},
+                    {"label": "Uptime", "value": "99.99%"},
+                ],
+            }
+        else:
+            return {
+                "heading": heading,
+                "text": "Benchmarking data demonstrates superior torque density and thermal dissipation across test benches.",
+                "bullets": ["Validated under 100% duty cycle", "Minimal thermal drift observed"],
+                "table": [
+                    ["Actuator Model", "Peak Torque", "Efficiency", "Status"],
+                    ["Alpha-100", "45 Nm", "94%", "Approved"],
+                    ["Beta-200", "85 Nm", "96%", "Operational"],
+                ],
+            }
+
+    monkeypatch.setattr(outline_module, "plan_document_stage", mock_plan_stage)
+    monkeypatch.setattr(outline_module, "write_section_stage", mock_write_stage)
+
+    doc_data = outline_module.generate_multistage_document(
+        topic="Autonomous Robotics Architecture",
+        depth="detailed",
+        theme="tech_innovation",
+    )
+
+    assert doc_data["title"] == "Autonomous Robotics Architecture"
+    assert doc_data["theme"] == "tech_innovation"
+    assert len(doc_data["sections"]) >= 2
+    # Verify metrics grid and table are present in sections
+    has_metrics = any("metrics" in s and len(s["metrics"]) > 0 for s in doc_data["sections"])
+    has_table = any("table" in s and len(s["table"]) > 0 for s in doc_data["sections"])
+    assert has_metrics is True
+    assert has_table is True
+
+    # Test rendering into PDF
+    out_pdf = outline_module.create_document(
+        topic="Autonomous Robotics Architecture",
+        kind="pdf",
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+        multistage=True,
+    )
+    assert Path(out_pdf).exists()
+    assert Path(out_pdf).suffix == ".pdf"
+
+
+def test_website_design_brief_and_bespoke_generation(tmp_path: Path) -> None:
+    """Verify website design brief, bespoke website generation with images, and visual markup audit."""
+    from creator.web_maker import (
+        generate_design_brief,
+        generate_bespoke_website,
+        critique_and_refine_website_markup,
+        get_curated_stock_images,
+    )
+
+    # 1. Test Curated Stock Images
+    tech_images = get_curated_stock_images("Deep Neural Networks", count=3)
+    assert len(tech_images) == 3
+    assert all("images.unsplash.com" in img["url"] for img in tech_images)
+
+    nature_images = get_curated_stock_images("Solar Energy and Ecology", count=2)
+    assert len(nature_images) == 2
+
+    # 2. Test Design Brief
+    brief = generate_design_brief("Quantum Computing Cloud")
+    assert "title" in brief
+    assert "palette" in brief
+    assert "features" in brief
+    assert "gallery" in brief
+    assert len(brief["gallery"]) >= 1
+
+    # 3. Test Bespoke Website Generation
+    out_html = generate_bespoke_website(
+        topic="Quantum Computing Cloud",
+        brief=brief,
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    p = Path(out_html)
+    assert p.exists()
+    assert p.suffix == ".html"
+
+    content = p.read_text(encoding="utf-8")
+    # Verify real images, galleries, search tables, and theme toggle are in markup
+    assert "<img" in content
+    assert "gallery-grid" in content
+    assert "toggleTheme" in content
+    assert "filterTable" in content
+
+    # 4. Test Visual Markup Audit
+    audit = critique_and_refine_website_markup(out_html)
+    assert audit["is_valid"] is True
+    assert audit["score"] >= 80
+    assert audit["image_count"] >= 1
+    assert "Valid HTML5 doctype declaration" in audit["checks_passed"]
+    assert "Mobile responsive viewport meta tag configured" in audit["checks_passed"]
+
+
+# =====================================================================
 # Runnable Standalone Verification Script
 # =====================================================================
 def run_verification() -> bool:
