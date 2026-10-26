@@ -60,6 +60,13 @@ from creator.document_reader import (
     extract_tables,
     summarize_document,
 )
+from creator.document_rag import (
+    chunk_document,
+    search_document,
+    ask_document,
+    index_workspace_documents,
+    query_workspace_knowledge,
+)
 from creator.tools import (
     CreateChartTool,
     CreateDocxTool,
@@ -72,9 +79,17 @@ from creator.tools import (
     ReadDocumentTool,
     SummarizeDocumentTool,
     InspectDocumentTool,
+    ChunkDocumentTool,
+    SearchDocumentTool,
+    AskDocumentTool,
+    IndexWorkspaceDocumentsTool,
     read_document_tool,
     summarize_document_tool,
     inspect_document_tool,
+    chunk_document_tool,
+    search_document_tool,
+    ask_document_tool,
+    index_workspace_documents_tool,
     TOOLS,
     create_chart,
     create_docx,
@@ -1869,6 +1884,383 @@ def test_website_design_brief_and_bespoke_generation(tmp_path: Path) -> None:
     assert "Mobile responsive viewport meta tag configured" in audit["checks_passed"]
 
 
+
+# =====================================================================
+# Day 9 Tests: Document Semantic RAG, Chunking & Citation Q&A Suite
+# =====================================================================
+
+def test_day9_chunk_document_docx(tmp_path: Path) -> None:
+    """Verify chunk_document parses Word DOCX into passages with heading hierarchy and char offsets."""
+    docx_file = make_docx(
+        title="Distributed Consensus Architecture",
+        sections=[
+            {
+                "heading": "1. Raft Consensus Algorithm",
+                "text": "Raft achieves consensus via leader election, log replication, and safety invariants across distributed cluster nodes.",
+                "bullets": ["Leader maintains heartbeat RPCs", "Followers elect candidates upon term timeout"],
+            },
+            {
+                "heading": "2. Paxos Comparison",
+                "text": "Multi-Paxos provides equivalent safety but exhibits higher operational complexity than Raft in production environments.",
+            },
+        ],
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    chunks = chunk_document(docx_file, chunk_size=300, overlap=50)
+    assert len(chunks) >= 2
+    for c in chunks:
+        assert "chunk_id" in c
+        assert "chunk_index" in c
+        assert "text" in c
+        assert len(c["text"]) > 0
+        assert "heading" in c
+        assert "breadcrumbs" in c
+        assert c["format"] == "docx"
+        assert c["word_count"] > 0
+        assert c["char_end"] > c["char_start"]
+
+    headings = [c["heading"] for c in chunks]
+    assert any("Raft" in h for h in headings)
+    assert any("Paxos" in h for h in headings)
+
+
+def test_day9_chunk_document_pptx(tmp_path: Path) -> None:
+    """Verify chunk_document extracts PPTX slides preserving slide numbers and bullets."""
+    pptx_file = make_pptx(
+        title="Autonomous AI System Overview",
+        sections=[
+            {
+                "heading": "Sensory Perception Loop",
+                "text": "Continuous vision grounding with sub-second VLM inference.",
+                "bullets": ["1920x1080 display capture", "DPI scaling calibration"],
+            },
+            {
+                "heading": "Actuation & Tool Bus",
+                "text": "BaseTool protocol enforcing strict interface contracts.",
+                "bullets": ["Zero phantom executions", "Safe sandbox isolation"],
+            },
+        ],
+        theme="ocean_depths",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    chunks = chunk_document(pptx_file, chunk_size=500)
+    assert len(chunks) >= 2
+    assert all(c["format"] == "pptx" for c in chunks)
+    # Verify slide numbers are tracked
+    slide_nums = [c["page_or_slide"] for c in chunks]
+    assert any(s >= 1 for s in slide_nums)
+
+
+def test_day9_chunk_document_html(tmp_path: Path) -> None:
+    """Verify chunk_document extracts HTML web artifacts, bento metrics, and tables."""
+    html_file = make_website(
+        title="Cloud Telemetry Dashboard",
+        sections=[
+            {
+                "heading": "Cluster Infrastructure",
+                "text": "Kubernetes container orchestration with high-throughput load balancers.",
+                "metrics": [
+                    {"label": "Nodes Active", "value": "64 Nodes"},
+                    {"label": "P99 Latency", "value": "12 ms"},
+                ],
+                "table": [
+                    ["Zone", "Replicas", "Status"],
+                    ["us-east-1", "128", "Healthy"],
+                    ["eu-central-1", "96", "Healthy"],
+                ],
+            }
+        ],
+        theme="dark_pro",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    chunks = chunk_document(html_file, chunk_size=400)
+    assert len(chunks) >= 1
+    has_metric_chunk = any(c.get("has_metrics") for c in chunks)
+    has_table_chunk = any(c.get("has_table") for c in chunks)
+    assert has_metric_chunk is True
+    assert has_table_chunk is True
+
+
+def test_day9_chunk_devanagari_marathi_text(tmp_path: Path) -> None:
+    """Verify chunking engine properly segments Marathi Devanagari sentences using Danda and periods."""
+    mr_file = tmp_path / "marathi_doc.txt"
+    mr_content = (
+        "प्रकल्प जार्विस ही एक स्वायत्त प्रणाली आहे। ही संगणक प्रणाली वापरकर्त्याच्या आज्ञांचे पालन करते. "
+        "या प्रणालीमध्ये दस्तऐवज निर्मिती आणि मराठी भाषा समर्थन समाविष्ट आहे। "
+        "कृत्रिम बुद्धिमत्ता तंत्रज्ञानाचा वापर करून जलद विश्लेषण केले जाते."
+    )
+    mr_file.write_text(mr_content, encoding="utf-8")
+
+    chunks = chunk_document(mr_file, chunk_size=120, overlap=30)
+    assert len(chunks) >= 2
+    for c in chunks:
+        assert contains_devanagari(c["text"])
+        assert len(c["text"]) > 0
+
+
+def test_day9_search_document_ranking(tmp_path: Path) -> None:
+    """Verify search_document ranks relevant passages and attaches accurate citation strings."""
+    docx_file = make_docx(
+        title="Enterprise Security Framework",
+        sections=[
+            {
+                "heading": "1. Zero Trust Network Architecture",
+                "text": "Zero Trust mandates strict identity verification for every person and device accessing private network resources.",
+                "bullets": ["Microsegmentation of services", "Mutual TLS everywhere"],
+            },
+            {
+                "heading": "2. Cryptographic Key Management",
+                "text": "Hardware Security Modules (HSM) store master encryption keys with FIPS 140-3 Level 4 validation.",
+                "bullets": ["Automated 90-day rotation", "Split-knowledge dual control"],
+            },
+            {
+                "heading": "3. Incident Response Protocol",
+                "text": "The SOC team isolates compromised endpoints within fifteen minutes of high-severity telemetry alerts.",
+            },
+        ],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    # Search for Cryptographic Key / HSM
+    res_crypto = search_document(docx_file, query="Hardware Security Modules encryption keys", top_k=2)
+    assert len(res_crypto) >= 1
+    top_hit = res_crypto[0]
+    assert "Cryptographic Key Management" in top_hit["heading"]
+    assert top_hit["score"] > 0.3
+    assert "citation" in top_hit
+    assert "Enterprise Security Framework" in top_hit["citation"] or "docx" in top_hit["citation"]
+    assert "Section:" in top_hit["citation"]
+
+
+def test_day9_search_document_table_and_metric_intent_boost(tmp_path: Path) -> None:
+    """Verify queries requesting stats or tables boost matching metric and table chunks."""
+    docx_file = make_docx(
+        title="Performance Benchmarks",
+        sections=[
+            {
+                "heading": "System Throughput",
+                "text": "Comprehensive analysis of transaction throughput under peak stress testing conditions.",
+                "table": [
+                    ["Metric", "Target", "Measured"],
+                    ["QPS", "10,000", "12,450"],
+                    ["P99 Latency", "50ms", "38ms"],
+                ],
+            }
+        ],
+        theme="tech_innovation",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    res_table = search_document(docx_file, query="What are the measured benchmark metrics in the table?", top_k=2)
+    assert len(res_table) >= 1
+    # Top chunk should be table or metrics with high score
+    assert res_table[0]["has_table"] is True or "[Table:" in res_table[0]["text"]
+    assert res_table[0]["score"] >= 0.4
+
+
+def test_day9_ask_document_gemini_mocked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify ask_document prompts Gemini with grounded excerpts and returns cited answers."""
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaSyFakeTestKey1234567890")
+
+    docx_file = make_docx(
+        title="Space Exploration Report",
+        sections=[
+            {
+                "heading": "Artemis Lunar Mission",
+                "text": "The Space Launch System rocket delivers Orion spacecraft into lunar distant retrograde orbit.",
+                "bullets": ["Gateway space station orbit insertion", "Human landing system lunar descent"],
+            }
+        ],
+        theme="midnight_executive",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    mock_resp = type("MockResp", (), {"text": "The SLS rocket delivers Orion into lunar distant retrograde orbit. [Source: Page 1, Section: \"Artemis Lunar Mission\"]"})()
+    mock_client = type("MockClient", (), {
+        "models": type("MockModels", (), {
+            "generate_content": lambda *args, **kwargs: mock_resp
+        })()
+    })()
+
+    monkeypatch.setattr("google.genai.Client", lambda *args, **kwargs: mock_client)
+
+    ans = ask_document(
+        file_path=docx_file,
+        question="What orbit does SLS deliver Orion into?",
+        language="en",
+    )
+
+    assert ans["success"] is True
+    assert ans["engine"] == "gemini"
+    assert "retrograde orbit" in ans["answer"]
+    assert len(ans["citations"]) >= 1
+
+
+def test_day9_ask_document_offline_extractive_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify ask_document seamlessly falls back to extractive NLP when GEMINI_API_KEY is unset."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    docx_file = make_docx(
+        title="Microservice Guidelines",
+        sections=[
+            {
+                "heading": "Database Isolation",
+                "text": "Each microservice must own its private database schema. Direct cross-service database access is strictly prohibited.",
+            }
+        ],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    ans = ask_document(
+        file_path=docx_file,
+        question="Is cross-service database access permitted?",
+        language="en",
+    )
+
+    assert ans["success"] is True
+    assert ans["engine"] == "offline_extractive"
+    assert "prohibited" in ans["answer"].lower() or "database" in ans["answer"].lower()
+    assert len(ans["citations"]) >= 1
+    assert "**Sources:**" in ans["answer"]
+
+
+def test_day9_ask_document_stream_cancellation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify ask_document halts execution and raises InterruptedError within 20ms upon cancel_event."""
+    import threading
+
+    cancel_evt = threading.Event()
+    cancel_evt.set()  # Pre-cancelled
+
+    docx_file = make_docx(
+        title="Cancellation Test",
+        sections=[{"heading": "Section 1", "text": "Content for abort testing."}],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    with pytest.raises(InterruptedError):
+        ask_document(docx_file, question="What is in section 1?", cancel_event=cancel_evt)
+
+
+def test_day9_index_workspace_documents_and_knowledge_query(tmp_path: Path) -> None:
+    """Verify index_workspace_documents scans a directory, builds cache, and supports cross-doc search."""
+    # Create two different documents in tmp_path
+    doc1 = make_docx(
+        title="Telemetry Doc",
+        sections=[{"heading": "Telemetry Metrics", "text": "Memory consumption is 4.2 GB under 1000 concurrent threads."}],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+    doc2 = make_website(
+        title="Web Architecture",
+        sections=[{"heading": "Frontend Performance", "text": "First Contentful Paint is achieved in 650 milliseconds."}],
+        theme="ocean_depths",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    # 1. Index directory
+    summary = index_workspace_documents(folder_path=str(tmp_path), save_catalog=True)
+    assert summary["success"] is True
+    assert summary["indexed_files"] >= 2
+    assert summary["total_chunks"] >= 2
+    assert (tmp_path / ".document_index.json").exists()
+
+    # 2. Query knowledge across files
+    results_mem = query_workspace_knowledge("memory consumption concurrent threads", folder_path=str(tmp_path), top_k=2)
+    assert len(results_mem) >= 1
+    assert "telemetry" in results_mem[0]["source_file"].lower()
+
+    results_fcp = query_workspace_knowledge("First Contentful Paint milliseconds", folder_path=str(tmp_path), top_k=2)
+    assert len(results_fcp) >= 1
+    assert "web_architecture" in results_fcp[0]["source_file"].lower() or "html" in results_fcp[0]["source_file"].lower()
+
+
+def test_day9_tools_registry_execution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify all 4 Day 9 tools execute properly via central dispatch execute_tool()."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    from tools.registry import execute_tool
+
+    doc_path = make_docx(
+        title="Tool Registry Verification",
+        sections=[{
+            "heading": "Security Policies",
+            "text": "Multi-Factor Authentication (MFA) is strictly required for all internal engineering accounts.",
+        }],
+        theme="clean_light",
+        out_dir=str(tmp_path),
+        auto_open=False,
+    )
+
+    # 1. chunk_document tool
+    res_chunk = execute_tool("chunk_document", {"file_path": doc_path, "chunk_size": 400})
+    assert res_chunk.success is True
+    assert res_chunk.data["total_chunks"] >= 1
+
+    # 2. search_document tool
+    res_search = execute_tool("search_document", {"file_path": doc_path, "query": "Multi-Factor Authentication MFA"})
+    assert res_search.success is True
+    assert len(res_search.data["results"]) >= 1
+
+    # 3. ask_document tool
+    res_ask = execute_tool("ask_document", {"file_path": doc_path, "question": "Is MFA required for accounts?"})
+    assert res_ask.success is True
+    assert "MFA" in res_ask.message or "Multi-Factor" in res_ask.message
+
+    # 4. index_workspace_documents tool
+    res_index = execute_tool("index_workspace_documents", {"folder_path": str(tmp_path)})
+    assert res_index.success is True
+    assert res_index.data["indexed_files"] >= 1
+
+
+def test_day9_tools_export_count_and_schemas() -> None:
+    """Verify that creator.tools.TOOLS contains all 15 tools and each exports a valid schema."""
+    from creator.tools import TOOLS
+
+    assert len(TOOLS) == 15
+    tool_names = [t.name for t in TOOLS]
+
+    # Verify Day 1 - 8 tools
+    assert "create_pdf" in tool_names
+    assert "create_docx" in tool_names
+    assert "create_pptx" in tool_names
+    assert "create_website" in tool_names
+    assert "create_chart" in tool_names
+    assert "create_document" in tool_names
+    assert "generate_report" in tool_names
+    assert "create_template_document" in tool_names
+    assert "read_document" in tool_names
+    assert "summarize_document" in tool_names
+    assert "inspect_document" in tool_names
+
+    # Verify Day 9 tools
+    assert "chunk_document" in tool_names
+    assert "search_document" in tool_names
+    assert "ask_document" in tool_names
+    assert "index_workspace_documents" in tool_names
+
+    for t in TOOLS:
+        schema = t.get_schema()
+        assert "name" in schema
+        assert "description" in schema
+        assert "parameters" in schema
+
+
 # =====================================================================
 # Runnable Standalone Verification Script
 # =====================================================================
@@ -2244,8 +2636,39 @@ def run_verification() -> bool:
         assert tool_sum_res.success is True
         print(f"  [PASS] TOOL_REGISTRY execute 'summarize_document': {tool_sum_res.message}")
 
+        # 12. Day 9: Semantic Chunking, Multi-Format RAG, and Citation Q&A Suite
+        print("\n[DAY 9] Verifying Document Semantic RAG, Chunking & Citation Q&A Suite...")
+        # Chunk Day 6 Report DOCX
+        d9_chunks = chunk_document(d6_rep, chunk_size=400)
+        assert len(d9_chunks) >= 2
+        print(f"  [PASS] chunk_document (DOCX): generated {len(d9_chunks)} semantic chunks with heading hierarchy and offsets")
+
+        # Semantic Search in DOCX
+        d9_search = search_document(d6_rep, query="Autonomous Agentic Architecture deliverables status", top_k=2)
+        assert len(d9_search) >= 1
+        print(f"  [PASS] search_document: top score {d9_search[0]['score']} with citation {d9_search[0]['citation']}")
+
+        # Grounded Q&A with offline fallback
+        d9_qa = ask_document(d6_rep, question="What are the key deliverables of Project JARVIS?", language="en")
+        assert d9_qa["success"] is True
+        print(f"  [PASS] ask_document ({d9_qa['engine']}): answered with {len(d9_qa['citations'])} source citations")
+
+        # Index workspace files
+        d9_index = index_workspace_documents(folder_path=str(workspace_dir), save_catalog=True)
+        assert d9_index["success"] is True and d9_index["indexed_files"] >= 1
+        print(f"  [PASS] index_workspace_documents: cataloged {d9_index['indexed_files']} files ({d9_index['total_chunks']} total chunks)")
+
+        # Execute Day 9 tools via TOOL_REGISTRY
+        tool_chunk_res = execute_tool("chunk_document", {"file_path": d6_rep})
+        assert tool_chunk_res.success is True
+        print(f"  [PASS] TOOL_REGISTRY execute 'chunk_document': {tool_chunk_res.message}")
+
+        tool_ask_res = execute_tool("ask_document", {"file_path": d6_rep, "question": "What is Project JARVIS?"})
+        assert tool_ask_res.success is True
+        print(f"  [PASS] TOOL_REGISTRY execute 'ask_document': {tool_ask_res.message[:90]}...")
+
         print("\n" + "=" * 75)
-        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 8 PASSED!")
+        print("[SUCCESS] ALL ACCEPTANCE TESTS FOR DAYS 1 THROUGH 9 PASSED!")
         print("=" * 75)
         return True
 

@@ -29,6 +29,13 @@ from creator.document_reader import (
     extract_tables as reader_extract_tables,
     summarize_document as reader_summarize_document,
 )
+from creator.document_rag import (
+    chunk_document as rag_chunk_document,
+    search_document as rag_search_document,
+    ask_document as rag_ask_document,
+    index_workspace_documents as rag_index_workspace_documents,
+    query_workspace_knowledge as rag_query_workspace_knowledge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1478,6 +1485,238 @@ class InspectDocumentTool(BaseTool):
         }
 
 
+class ChunkDocumentTool(BaseTool):
+    """Tool to break any document into semantic passages with metadata."""
+
+    name: str = "chunk_document"
+    description: str = (
+        "Break a document (PDF, DOCX, PPTX, HTML, Markdown) into structured semantic passages "
+        "preserving heading hierarchy, page/slide numbers, and table matrices."
+    )
+
+    def run(self, file_path: str, chunk_size: int = 800, overlap: int = 150, **kwargs: Any) -> ToolResult:
+        try:
+            chunks = rag_chunk_document(file_path=file_path, chunk_size=chunk_size, overlap=overlap)
+            return ToolResult(
+                success=True,
+                data={"chunks": chunks, "total_chunks": len(chunks), "file_path": file_path},
+                message=f"Successfully chunked '{Path(file_path).name}' into {len(chunks)} semantic passages.",
+            )
+        except Exception as exc:
+            logger.error("Failed to chunk document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to chunk document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to chunk.",
+                    },
+                    "chunk_size": {
+                        "type": "integer",
+                        "description": "Target character size per passage (default: 800).",
+                        "default": 800,
+                    },
+                    "overlap": {
+                        "type": "integer",
+                        "description": "Character overlap between adjacent passages (default: 150).",
+                        "default": 150,
+                    },
+                },
+                "required": ["file_path"],
+            },
+        }
+
+
+class SearchDocumentTool(BaseTool):
+    """Tool to search a document semantically for relevant passages with citations."""
+
+    name: str = "search_document"
+    description: str = (
+        "Semantically search a document (PDF, DOCX, PPTX, HTML, Markdown) for passages matching a concept or query, "
+        "returning ranked results with page/slide citations."
+    )
+
+    def run(self, file_path: str, query: str, top_k: int = 3, **kwargs: Any) -> ToolResult:
+        try:
+            results = rag_search_document(file_path=file_path, query=query, top_k=top_k)
+            return ToolResult(
+                success=True,
+                data={"results": results, "top_k": len(results), "query": query},
+                message=f"Found {len(results)} relevant passage(s) in '{Path(file_path).name}' for query '{query}'.",
+            )
+        except Exception as exc:
+            logger.error("Failed to search document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to search document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to search.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query or concept to locate in the document.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of matching passages to return (default: 3).",
+                        "default": 3,
+                    },
+                },
+                "required": ["file_path", "query"],
+            },
+        }
+
+
+class AskDocumentTool(BaseTool):
+    """Tool to ask questions about any document and receive grounded answers with citations."""
+
+    name: str = "ask_document"
+    description: str = (
+        "Ask questions about any document (PDF, Word, PowerPoint, HTML, Markdown) and get factual answers "
+        "strictly grounded in the text with exact page/slide and section citations."
+    )
+
+    def run(
+        self,
+        file_path: str,
+        question: str,
+        language: str = "en",
+        top_k: int = 3,
+        **kwargs: Any,
+    ) -> ToolResult:
+        try:
+            res = rag_ask_document(
+                file_path=file_path,
+                question=question,
+                language=language,
+                top_k=top_k,
+                cancel_event=kwargs.get("cancel_event"),
+            )
+            if not res.get("success", True):
+                return ToolResult(
+                    success=False,
+                    error=res.get("error", "Failed to answer question"),
+                    message=res.get("answer", "Document Q&A failed."),
+                )
+            return ToolResult(
+                success=True,
+                data=res,
+                message=res.get("answer", "Answer generated successfully."),
+            )
+        except Exception as exc:
+            logger.error("Failed to answer question on document '%s': %s", file_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to answer question on document: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the document to query.",
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "The question to ask about the document.",
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["en", "mr", "hi"],
+                        "description": "Language for the answer: 'en' (English), 'mr' (Marathi), 'hi' (Hindi).",
+                        "default": "en",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of semantic context passages to retrieve (default: 3).",
+                        "default": 3,
+                    },
+                },
+                "required": ["file_path", "question"],
+            },
+        }
+
+
+class IndexWorkspaceDocumentsTool(BaseTool):
+    """Tool to index all documents in the workspace or search across all workspace files."""
+
+    name: str = "index_workspace_documents"
+    description: str = (
+        "Scan and build a semantic knowledge catalog for all documents in the workspace directory "
+        "or search across all workspace files."
+    )
+
+    def run(self, folder_path: str = "workspace", query: Optional[str] = None, **kwargs: Any) -> ToolResult:
+        try:
+            if query and str(query).strip():
+                matches = rag_query_workspace_knowledge(query=query, folder_path=folder_path, top_k=5)
+                return ToolResult(
+                    success=True,
+                    data={"matches": matches, "query": query, "folder": folder_path},
+                    message=f"Found {len(matches)} matching passage(s) across workspace documents for query '{query}'.",
+                )
+            summary = rag_index_workspace_documents(folder_path=folder_path, save_catalog=True)
+            return ToolResult(
+                success=True,
+                data=summary,
+                message=f"Indexed {summary['indexed_files']} document(s) with {summary['total_chunks']} passages in '{folder_path}'.",
+            )
+        except Exception as exc:
+            logger.error("Failed to index workspace documents in '%s': %s", folder_path, exc, exc_info=True)
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                message=f"Failed to index workspace documents: {exc}",
+            )
+
+    def get_schema(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_path": {
+                        "type": "string",
+                        "description": "Folder path containing documents to index (default: 'workspace').",
+                        "default": "workspace",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional search query to locate relevant passages across all workspace documents.",
+                    },
+                },
+            },
+        }
+
+
 def read_document_tool(file_path: str, max_chars: int = 8000, **kwargs: Any) -> ToolResult:
     """Convenience callable for ReadDocumentTool."""
     return ReadDocumentTool().run(file_path=file_path, max_chars=max_chars, **kwargs)
@@ -1493,6 +1732,26 @@ def inspect_document_tool(file_path: str, **kwargs: Any) -> ToolResult:
     return InspectDocumentTool().run(file_path=file_path, **kwargs)
 
 
+def chunk_document_tool(file_path: str, chunk_size: int = 800, overlap: int = 150, **kwargs: Any) -> ToolResult:
+    """Convenience callable for ChunkDocumentTool."""
+    return ChunkDocumentTool().run(file_path=file_path, chunk_size=chunk_size, overlap=overlap, **kwargs)
+
+
+def search_document_tool(file_path: str, query: str, top_k: int = 3, **kwargs: Any) -> ToolResult:
+    """Convenience callable for SearchDocumentTool."""
+    return SearchDocumentTool().run(file_path=file_path, query=query, top_k=top_k, **kwargs)
+
+
+def ask_document_tool(file_path: str, question: str, language: str = "en", top_k: int = 3, **kwargs: Any) -> ToolResult:
+    """Convenience callable for AskDocumentTool."""
+    return AskDocumentTool().run(file_path=file_path, question=question, language=language, top_k=top_k, **kwargs)
+
+
+def index_workspace_documents_tool(folder_path: str = "workspace", query: Optional[str] = None, **kwargs: Any) -> ToolResult:
+    """Convenience callable for IndexWorkspaceDocumentsTool."""
+    return IndexWorkspaceDocumentsTool().run(folder_path=folder_path, query=query, **kwargs)
+
+
 # Canonical exported tools list for Abhijit's registry auto-loader (Catch-Up Plan Section 4 & 7)
 TOOLS: List[BaseTool] = [
     CreatePdfTool(),
@@ -1506,6 +1765,10 @@ TOOLS: List[BaseTool] = [
     ReadDocumentTool(),
     SummarizeDocumentTool(),
     InspectDocumentTool(),
+    ChunkDocumentTool(),
+    SearchDocumentTool(),
+    AskDocumentTool(),
+    IndexWorkspaceDocumentsTool(),
 ]
 
 # Auto-register all tools immediately into central registry
